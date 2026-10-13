@@ -4,6 +4,7 @@ import { ThemeProvider } from './context/ThemeContext';
 import { AuthProvider } from './context/AuthContext';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import { PublicRoute } from './components/auth/PublicRoute';
+import { AppLayout } from './components/layout/AppLayout';
 import { SignupPage } from './features/auth/SignupPage';
 import { LoginPage } from './features/auth/LoginPage';
 import { DashboardPage } from './features/dashboard/DashboardPage';
@@ -14,7 +15,7 @@ export const App: React.FC = () => {
       <AuthProvider>
         <BrowserRouter>
           <Routes>
-            {/* US-AUTH-01: Sign Up route (public only) */}
+            {/* Public routes (redirects to / if already logged in) */}
             <Route
               path="/signup"
               element={
@@ -23,8 +24,6 @@ export const App: React.FC = () => {
                 </PublicRoute>
               }
             />
-
-            {/* US-AUTH-02: Login route (public only) */}
             <Route
               path="/login"
               element={
@@ -34,17 +33,14 @@ export const App: React.FC = () => {
               }
             />
 
-            {/* US-DASH / US-AUTH-04: Dashboard protected route */}
-            <Route
-              path="/"
-              element={
-                <ProtectedRoute>
-                  <DashboardPage />
-                </ProtectedRoute>
-              }
-            />
+            {/* Protected routes wrapped with authentication check and layout */}
+            <Route element={<ProtectedRoute />}>
+              <Route element={<AppLayout />}>
+                <Route path="/" element={<DashboardPage />} />
+              </Route>
+            </Route>
 
-            {/* Fallback */}
+            {/* Fallback: redirect any unknown or unauthenticated route to /login */}
             <Route path="*" element={<Navigate to="/login" replace />} />
           </Routes>
         </BrowserRouter>

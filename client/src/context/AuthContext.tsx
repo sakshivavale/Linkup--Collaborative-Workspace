@@ -1,24 +1,28 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, Session, AuthError } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
+import { UserRole } from '../types/auth';
 
 interface AuthContextType {
   user: User | null;
   session: Session | null;
+  role: UserRole | null;
+  fullName: string;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: AuthError | null }>;
   signOut: () => Promise<void>;
+  logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // 1. Get initial active session from storage
+    // 1. Initial session check from local storage
     const initSession = async () => {
       try {
         const { data: { session: initialSession }, error } = await supabase.auth.getSession();
@@ -36,8 +40,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     initSession();
 
-    // 2. Subscribe to auth state changes (SIGN_IN, SIGN_OUT, TOKEN_REFRESHED, etc.)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, currentSession) => {
+    // 2. Real-time auth state listener
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, currentSession) => {
       setSession(currentSession);
       setUser(currentSession?.user ?? null);
       setLoading(false);
@@ -65,16 +71,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const signOut = async () => {
     try {
       await supabase.auth.signOut();
-    } catch (err) {
-      console.error('[LinkUp Auth] Error signing out:', err);
+    } catch (error) {
+      console.error('[LinkUp Auth] Error during sign out:', error);
     } finally {
       setSession(null);
       setUser(null);
     }
   };
 
+  const fullName =
+    user?.user_metadata?.full_name ||
+    user?.email?.split('@')[0] ||
+    'User';
+
+  const role = (user?.user_metadata?.role as UserRole) || 'student';
+
   return (
-    <AuthContext.Provider value={{ user, session, loading, signIn, signOut }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        session,
+        role,
+        fullName,
+        loading,
+        signIn,
+        signOut,
+        logout: signOut,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
