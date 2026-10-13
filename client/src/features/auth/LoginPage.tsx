@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { ThemeToggle } from '../../components/ui/ThemeToggle';
 import { Logo } from '../../components/ui/Logo';
-import { Mail, Lock, AlertCircle, Loader2, Sparkles, ArrowRight, UserPlus } from 'lucide-react';
+import { Mail, Lock, AlertCircle, Loader2, ArrowRight, UserPlus } from 'lucide-react';
 
 export const LoginPage: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const from = (location.state as any)?.from?.pathname || '/';
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -34,7 +36,7 @@ export const LoginPage: React.FC = () => {
         return;
       }
 
-      navigate('/', { replace: true });
+      navigate(from, { replace: true });
     } catch (err: any) {
       setError(err.message || 'An unexpected error occurred.');
       setLoading(false);
