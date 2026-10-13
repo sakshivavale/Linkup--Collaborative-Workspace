@@ -83,8 +83,8 @@
 > As an **unauthenticated visitor**, I want to be redirected to `/login` when I try to access any protected page so that unauthorised access is prevented.
 
 **Acceptance Criteria:**
-- [ ] Visiting `/`, `/rooms/:id`, `/playground`, or `/rooms/:id/attendance` without a session redirects to `/login`.
-- [ ] After login, the user is taken to the originally requested page (or the Dashboard if no specific page was targeted).
+- [x] Visiting `/`, `/rooms/:id`, `/playground`, or `/rooms/:id/attendance` without a session redirects to `/login`.
+- [x] After login, the user is taken to the originally requested page (or the Dashboard if no specific page was targeted).
 
 ---
 

@@ -8,6 +8,9 @@ import { AppLayout } from './components/layout/AppLayout';
 import { SignupPage } from './features/auth/SignupPage';
 import { LoginPage } from './features/auth/LoginPage';
 import { DashboardPage } from './features/dashboard/DashboardPage';
+import { RoomPage } from './features/rooms/RoomPage';
+import { PlaygroundPage } from './features/playground/PlaygroundPage';
+import { AttendancePage } from './features/attendance/AttendancePage';
 
 export const App: React.FC = () => {
   return (
@@ -37,6 +40,11 @@ export const App: React.FC = () => {
             <Route element={<ProtectedRoute />}>
               <Route element={<AppLayout />}>
                 <Route path="/" element={<DashboardPage />} />
+                <Route path="/rooms/:id" element={<RoomPage />} />
+                <Route path="/rooms/:id/attendance" element={<AttendancePage />} />
+                <Route path="/playground" element={<PlaygroundPage />} />
+                {/* Fallback for logged-in unknown routes */}
+                <Route path="*" element={<Navigate to="/" replace />} />
               </Route>
             </Route>
 
