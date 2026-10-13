@@ -4,11 +4,15 @@
   "private": true,
   "description": "LinkUp — Collaborative Classroom Workspace",
   "workspaces": [
-    "client"
+    "client",
+    "server",
+    "shared"
   ],
   "scripts": {
     "dev": "npm run dev --workspace=client",
-    "build": "npm run build --workspace=client"
+    "dev:server": "npm run dev --workspace=server",
+    "build": "npm run build --workspace=client",
+    "test:auth": "npm run test:auth --workspace=server"
   },
   "devDependencies": {
     "typescript": "^5.4.5"

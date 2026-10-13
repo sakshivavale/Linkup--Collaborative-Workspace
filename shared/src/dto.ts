@@ -1,0 +1,97 @@
+export type UserRole = 'teacher' | 'student';
+export type MemberRole = 'host' | 'participant';
+
+export const PERMISSION_KEYS = [
+  'canMic',
+  'canCamera',
+  'canScreen',
+  'canWhiteboard',
+  'canCode',
+] as const;
+
+export type PermissionKey = typeof PERMISSION_KEYS[number];
+export type Permissions = Record<PermissionKey, boolean>;
+export type Language = 'python' | 'javascript' | 'cpp' | 'java';
+
+export interface Me {
+  id: string;
+  fullName: string;
+  role: UserRole;
+  email: string;
+}
+
+export interface RoomSummary {
+  id: string;
+  name: string;
+  description: string | null;
+  joinCode: string | null;
+  hostName: string;
+  memberCount: number;
+  myRole: MemberRole;
+  activeSessionId: string | null;
+  createdAt: string;
+}
+
+export interface Room extends RoomSummary {
+  defaultPermissions: Permissions;
+  ownerId: string;
+}
+
+export interface Member {
+  userId: string;
+  fullName: string;
+  userRole: UserRole;
+  memberRole: MemberRole;
+  permissions: Permissions;
+  joinedAt: string;
+}
+
+export interface Session {
+  id: string;
+  roomId: string;
+  startedAt: string;
+  endedAt: string | null;
+  startedBy: string;
+}
+
+export interface ChatMessage {
+  id: number;
+  roomId: string;
+  senderId: string;
+  senderName: string;
+  senderRole: UserRole;
+  body: string;
+  createdAt: string;
+}
+
+export interface CodeState {
+  content: string;
+  language: Language;
+  rev: number;
+  holderId: string | null;
+}
+
+export interface ApiError {
+  code:
+    | 'VALIDATION'
+    | 'UNAUTHENTICATED'
+    | 'FORBIDDEN'
+    | 'NOT_A_MEMBER'
+    | 'HOST_ONLY'
+    | 'TEACHER_ONLY'
+    | 'NOT_PEN_HOLDER'
+    | 'NOT_FOUND'
+    | 'ROOM_NOT_FOUND'
+    | 'SESSION_ACTIVE'
+    | 'NO_ACTIVE_SESSION'
+    | 'PAYLOAD_TOO_LARGE'
+    | 'RATE_LIMITED'
+    | 'EXECUTION_UNAVAILABLE'
+    | string;
+  message?: string;
+  details?: unknown;
+}
+
+export interface ApiErrorResponse {
+  error: ApiError;
+}

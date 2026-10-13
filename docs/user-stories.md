@@ -94,9 +94,9 @@
 > As the **system**, every API request and socket connection must be authenticated with a valid Supabase access token so that the backend is never accessed without identity.
 
 **Acceptance Criteria:**
-- [ ] Any `GET/POST/PATCH/DELETE` to `/api/*` without an `Authorization: Bearer <token>` header returns `401 UNAUTHENTICATED`.
-- [ ] A Socket.IO connection attempt without a valid token in the `auth` object is rejected with `connect_error: UNAUTHENTICATED`.
-- [ ] An expired token returns `401`; the client silently refreshes the token and retries.
+- [x] Any `GET/POST/PATCH/DELETE` to `/api/*` without an `Authorization: Bearer <token>` header returns `401 UNAUTHENTICATED`.
+- [x] A Socket.IO connection attempt without a valid token in the `auth` object is rejected with `connect_error: UNAUTHENTICATED`.
+- [x] An expired token returns `401`; the client silently refreshes the token and retries.
 
 ---
 
