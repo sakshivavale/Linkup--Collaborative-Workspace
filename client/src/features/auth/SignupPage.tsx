@@ -14,8 +14,7 @@ import {
   EyeOff, 
   AlertCircle, 
   Loader2, 
-  CheckCircle2,
-  Sparkles
+  CheckCircle2
 } from 'lucide-react';
 
 export const SignupPage: React.FC = () => {

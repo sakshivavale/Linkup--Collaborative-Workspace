@@ -7,7 +7,6 @@ import {
   LogOut, 
   GraduationCap, 
   BookOpen, 
-  Sparkles, 
   PlusCircle, 
   DoorOpen, 
   Users,
