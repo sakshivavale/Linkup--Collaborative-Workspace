@@ -1,0 +1,159 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    transition: background-color 0.25s ease, color 0.25s ease;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Outfit', 'Inter', system-ui, sans-serif;
+  }
+}
+
+/* Glassmorphism card for Dark & Light modes */
+.glass-panel {
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  transition: background-color 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+}
+
+.dark .glass-panel {
+  background: rgba(15, 23, 42, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5);
+}
+
+html:not(.dark) .glass-panel {
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.04);
+}
+
+/* Robust Heading Gradient */
+.heading-gradient {
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  display: inline-block;
+}
+
+.dark .heading-gradient {
+  background-image: linear-gradient(135deg, #ffffff 20%, #e2e8f0 60%, #a5b4fc 100%);
+}
+
+html:not(.dark) .heading-gradient {
+  background-image: linear-gradient(135deg, #0f172a 30%, #312e81 80%, #4338ca 100%);
+}
+
+/* Subtitle and helper text */
+.dark .brand-subtext {
+  color: #94a3b8;
+}
+
+html:not(.dark) .brand-subtext {
+  color: #475569;
+}
+
+/* Form Label */
+.dark .form-label {
+  color: #cbd5e1;
+}
+
+html:not(.dark) .form-label {
+  color: #334155;
+}
+
+/* Error Alert Box */
+.error-alert {
+  border-radius: 0.75rem;
+  padding: 0.875rem 1rem;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.dark .error-alert {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: #fca5a5;
+}
+
+html:not(.dark) .error-alert {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #b91c1c;
+}
+
+/* Glass & Theme Input */
+.glass-input {
+  transition: all 0.2s ease;
+}
+
+.dark .glass-input {
+  background: rgba(11, 17, 32, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+}
+
+.dark .glass-input::placeholder {
+  color: #64748b;
+}
+
+.dark .glass-input:focus {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25);
+  outline: none;
+}
+
+html:not(.dark) .glass-input {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  color: #0f172a;
+}
+
+html:not(.dark) .glass-input::placeholder {
+  color: #94a3b8;
+}
+
+html:not(.dark) .glass-input:focus {
+  border-color: #4f46e5;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+  outline: none;
+}
+
+/* Ambient Background */
+.ambient-bg {
+  transition: background-color 0.25s ease;
+}
+
+.dark .ambient-bg {
+  background-color: #080c14;
+  background-image: 
+    radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.12) 0px, transparent 50%),
+    radial-gradient(at 100% 100%, rgba(168, 85, 247, 0.12) 0px, transparent 50%),
+    radial-gradient(at 50% 50%, rgba(14, 165, 233, 0.06) 0px, transparent 60%);
+}
+
+html:not(.dark) .ambient-bg {
+  background-color: #f8fafc;
+  background-image: 
+    radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.08) 0px, transparent 55%),
+    radial-gradient(at 100% 100%, rgba(168, 85, 247, 0.07) 0px, transparent 55%),
+    radial-gradient(at 50% 50%, rgba(56, 189, 248, 0.05) 0px, transparent 65%);
+}
+
+/* Logo tile */
+.dark .logo-tile {
+  background-color: #090d16;
+}
+
+html:not(.dark) .logo-tile {
+  background-color: #ffffff;
+}

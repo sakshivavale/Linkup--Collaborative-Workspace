@@ -1,11 +1,11 @@
-# User Stories — LinkUp MVP
+# User Stories â€” LinkUp MVP
 
 | Field | Value |
 |-------|-------|
-| Product | LinkUp — Collaborative Digital Platform for Connected Learning |
+| Product | LinkUp â€” Collaborative Digital Platform for Connected Learning |
 | Version | 1.0 (MVP) |
 | Based on | FRD v1.0, Architecture, API Contract, Database Schema (Oct 2026) |
-| Priority | P0 = must · P1 = should · P2 = post-MVP |
+| Priority | P0 = must â€” P1 = should â€” P2 = post-MVP |
 | Format | `US-<area>-<number>` |
 
 > **How to read these stories:**
@@ -32,7 +32,7 @@
 
 ## 1. Authentication & Profile
 
-### US-AUTH-01 — Sign Up
+### US-AUTH-01 â€” Sign Up
 **Priority:** P0 | **Traces to:** FR-1.1, S2
 
 > As a **new user (teacher or student)**, I want to sign up with my full name, email, password, and role so that I can access the platform with the correct capabilities.
@@ -51,7 +51,7 @@
 
 ---
 
-### US-AUTH-02 — Log In
+### US-AUTH-02 â€” Log In
 **Priority:** P0 | **Traces to:** FR-1.2, S1
 
 > As a **returning user**, I want to log in with my email and password so that I can resume my work.
@@ -65,7 +65,7 @@
 
 ---
 
-### US-AUTH-03 — Log Out
+### US-AUTH-03 â€” Log Out
 **Priority:** P0 | **Traces to:** FR-1.3
 
 > As a **logged-in user**, I want to log out from any page so that my session is closed securely.
@@ -77,7 +77,7 @@
 
 ---
 
-### US-AUTH-04 — Protected Route Redirect
+### US-AUTH-04 â€” Protected Route Redirect
 **Priority:** P0 | **Traces to:** FR-1.4
 
 > As an **unauthenticated visitor**, I want to be redirected to `/login` when I try to access any protected page so that unauthorised access is prevented.
@@ -88,7 +88,7 @@
 
 ---
 
-### US-AUTH-05 — API Token Enforcement
+### US-AUTH-05 â€” API Token Enforcement
 **Priority:** P0 | **Traces to:** FR-1.5
 
 > As the **system**, every API request and socket connection must be authenticated with a valid Supabase access token so that the backend is never accessed without identity.
@@ -100,7 +100,7 @@
 
 ---
 
-### US-AUTH-06 — Edit Profile Name (P1)
+### US-AUTH-06 â€” Edit Profile Name (P1)
 **Priority:** P1 | **Traces to:** FR-1.6
 
 > As a **logged-in user**, I want to edit my full name so that my display name is up to date.
@@ -113,7 +113,7 @@
 
 ---
 
-### US-AUTH-07 — Password Reset (P1)
+### US-AUTH-07 â€” Password Reset (P1)
 **Priority:** P1 | **Traces to:** FR-1.7
 
 > As a **user who has forgotten their password**, I want to receive a password-reset email so that I can regain access to my account.
@@ -127,7 +127,7 @@
 
 ## 2. Dashboard
 
-### US-DASH-01 — View My Rooms
+### US-DASH-01 â€” View My Rooms
 **Priority:** P0 | **Traces to:** FR-8.1, S3
 
 > As a **logged-in user**, I want to see all the rooms I belong to on my dashboard so that I can navigate to any room quickly.
@@ -140,7 +140,7 @@
 
 ---
 
-### US-DASH-02 — Live Badge on Active Room
+### US-DASH-02 â€” Live Badge on Active Room
 **Priority:** P0 | **Traces to:** FR-8.2
 
 > As a **logged-in user**, I want to see a "Live" badge and a Join button on a room card when that room has an active session so that I can join ongoing classes instantly.
@@ -152,7 +152,7 @@
 
 ---
 
-### US-DASH-03 — Create a Room (Teacher)
+### US-DASH-03 â€” Create a Room (Teacher)
 **Priority:** P0 | **Traces to:** FR-8.3, FR-2.1, S3
 
 > As a **teacher**, I want to create a new room with a name, optional description, and default permissions so that I can set up a class workspace before inviting students.
@@ -167,7 +167,7 @@
 
 ---
 
-### US-DASH-04 — Join a Room with Code (Student)
+### US-DASH-04 â€” Join a Room with Code (Student)
 **Priority:** P0 | **Traces to:** FR-8.3, FR-2.3, S3
 
 > As a **student**, I want to join a room by entering a 6-character code so that I can access the class workspace my teacher set up.
@@ -181,7 +181,7 @@
 
 ---
 
-### US-DASH-05 — View and Copy Join Code (Host)
+### US-DASH-05 â€” View and Copy Join Code (Host)
 **Priority:** P0 | **Traces to:** FR-8.4
 
 > As a **host (teacher)**, I want to see the join code for each room I own, with a copy button, so that I can share it with students easily.
@@ -193,7 +193,7 @@
 
 ---
 
-### US-DASH-06 — Empty State Guidance
+### US-DASH-06 â€” Empty State Guidance
 **Priority:** P0 | **Traces to:** FR-8.5
 
 > As a **first-time user with no rooms**, I want to see a helpful empty state so that I know what to do next.
@@ -205,7 +205,7 @@
 ---
 ## 3. Room Management
 
-### US-ROOM-01 — View Room Page
+### US-ROOM-01 â€” View Room Page
 **Priority:** P0 | **Traces to:** FR-2.4, S4
 
 > As a **room member**, I want to see the room workspace with a tab bar (Live, Whiteboard, Code) and a sidebar (Chat, People) so that I can access every tool in one place.
@@ -217,7 +217,7 @@
 
 ---
 
-### US-ROOM-02 — View Members and Presence
+### US-ROOM-02 â€” View Members and Presence
 **Priority:** P0 | **Traces to:** FR-2.4
 
 > As a **room member**, I want to see who is in the room with their role and online status so that I know who is active.
@@ -229,7 +229,7 @@
 
 ---
 
-### US-ROOM-03 — Remove a Member (Host)
+### US-ROOM-03 â€” Remove a Member (Host)
 **Priority:** P0 | **Traces to:** FR-2.5
 
 > As a **host**, I want to remove a participant from the room so that I can manage classroom access.
@@ -242,7 +242,7 @@
 
 ---
 
-### US-ROOM-04 — Regenerate Join Code (P1)
+### US-ROOM-04 â€” Regenerate Join Code (P1)
 **Priority:** P1 | **Traces to:** FR-2.6
 
 > As a **host**, I want to regenerate the room's join code so that previous recipients cannot use the old code to join.
@@ -254,7 +254,7 @@
 
 ---
 
-### US-ROOM-05 — Edit Room Name/Description and Archive (P1)
+### US-ROOM-05 â€” Edit Room Name/Description and Archive (P1)
 **Priority:** P1 | **Traces to:** FR-2.7
 
 > As a **host**, I want to edit the room name and description, or archive a room, so that I can keep the workspace organised.
@@ -268,7 +268,7 @@
 
 ## 4. Live Session & Media
 
-### US-LIVE-01 — Start a Session (Host)
+### US-LIVE-01 â€” Start a Session (Host)
 **Priority:** P0 | **Traces to:** FR-3.1
 
 > As a **host**, I want to start a live session so that students can join a real-time class.
@@ -281,7 +281,7 @@
 
 ---
 
-### US-LIVE-02 — Join a Live Session (Member)
+### US-LIVE-02 â€” Join a Live Session (Member)
 **Priority:** P0 | **Traces to:** FR-3.2, FR-3.3
 
 > As a **room member**, I want to join a live session so that I can participate in the class with audio and video.
@@ -295,7 +295,7 @@
 
 ---
 
-### US-LIVE-03 — Video Grid with Participant Tiles
+### US-LIVE-03 â€” Video Grid with Participant Tiles
 **Priority:** P0 | **Traces to:** FR-3.4
 
 > As a **session participant**, I want to see all participants in a video grid with name labels and mute indicators so that I can see who is in the call.
@@ -307,7 +307,7 @@
 
 ---
 
-### US-LIVE-04 — Screen Sharing
+### US-LIVE-04 â€” Screen Sharing
 **Priority:** P0 | **Traces to:** FR-3.5
 
 > As a **user with screen-share permission**, I want to share my screen/window/tab so that others can follow along.
@@ -321,7 +321,7 @@
 
 ---
 
-### US-LIVE-05 — End a Session (Host)
+### US-LIVE-05 â€” End a Session (Host)
 **Priority:** P0 | **Traces to:** FR-3.6
 
 > As a **host**, I want to end the session so that all participants are cleanly disconnected and attendance is finalised.
@@ -334,7 +334,7 @@
 
 ---
 
-### US-LIVE-06 — Host Leaves Without Ending
+### US-LIVE-06 â€” Host Leaves Without Ending
 **Priority:** P0 | **Traces to:** FR-3.7
 
 > As a **host**, if I leave the call without ending the session, I want the session to remain active so that I can rejoin.
@@ -346,7 +346,7 @@
 
 ---
 
-### US-LIVE-07 — Auto-Reconnect on Network Drop
+### US-LIVE-07 â€” Auto-Reconnect on Network Drop
 **Priority:** P0 | **Traces to:** FR-3.8
 
 > As a **session participant**, if I temporarily lose my network connection, I want the app to automatically reconnect so that I do not have to manually rejoin.
@@ -359,7 +359,7 @@
 
 ---
 
-### US-LIVE-08 — Switch Media Devices (P1)
+### US-LIVE-08 â€” Switch Media Devices (P1)
 **Priority:** P1 | **Traces to:** FR-3.9
 
 > As a **session participant**, I want to switch between available microphones and cameras so that I can use the correct device.
@@ -372,7 +372,7 @@
 
 ## 5. Chat
 
-### US-CHAT-01 — Send a Message
+### US-CHAT-01 â€” Send a Message
 **Priority:** P0 | **Traces to:** FR-3.10, FR-3.11
 
 > As a **room member**, I want to send a text message in the room chat so that I can communicate with everyone in the room.
@@ -385,7 +385,7 @@
 
 ---
 
-### US-CHAT-02 — View Chat History
+### US-CHAT-02 â€” View Chat History
 **Priority:** P0 | **Traces to:** FR-3.12
 
 > As a **room member**, I want to see the last 50 messages when I open the chat and be able to load older messages by scrolling up so that I can follow the conversation history.
@@ -398,7 +398,7 @@
 
 ---
 
-### US-CHAT-03 — Message Display: Sender Info
+### US-CHAT-03 â€” Message Display: Sender Info
 **Priority:** P0 | **Traces to:** FR-3.13
 
 > As a **room member**, I want to see the sender's name, a Teacher badge (if applicable), and the message timestamp so that I know who said what and when.
@@ -409,7 +409,7 @@
 
 ---
 
-### US-CHAT-04 — Plain Text Rendering and Link Auto-linking
+### US-CHAT-04 â€” Plain Text Rendering and Link Auto-linking
 **Priority:** P0 | **Traces to:** FR-3.14
 
 > As a **room member**, I want URLs in messages to be clickable links, while all other text is rendered as plain text, so that the chat is both useful and secure.
@@ -421,7 +421,7 @@
 ---
 ## 6. Permission Control
 
-### US-PERM-01 — View Participant Permissions (Host)
+### US-PERM-01 â€” View Participant Permissions (Host)
 **Priority:** P0 | **Traces to:** FR-4.1, S5
 
 > As a **host**, I want to see all participants in a panel with 5 permission toggles per person so that I can manage access for each student.
@@ -433,7 +433,7 @@
 
 ---
 
-### US-PERM-02 — Toggle a Permission (Host)
+### US-PERM-02 â€” Toggle a Permission (Host)
 **Priority:** P0 | **Traces to:** FR-4.2, FR-4.3
 
 > As a **host**, I want to toggle any of the 5 permissions for any participant so that I can control what each student can do in real time.
@@ -446,7 +446,7 @@
 
 ---
 
-### US-PERM-03 — Permission Change Toast (Student)
+### US-PERM-03 â€” Permission Change Toast (Student)
 **Priority:** P0 | **Traces to:** FR-4.4
 
 > As a **student**, I want to receive a clear toast notification when the teacher changes one of my permissions so that I know why a control has been enabled or disabled.
@@ -458,7 +458,7 @@
 
 ---
 
-### US-PERM-04 — Permissions Persist Across Sessions
+### US-PERM-04 â€” Permissions Persist Across Sessions
 **Priority:** P0 | **Traces to:** FR-4.5
 
 > As a **host**, I want a student's permissions to be saved so that I do not need to re-grant them each time the student rejoins.
@@ -470,7 +470,7 @@
 
 ---
 
-### US-PERM-05 — Server-side Permission Enforcement
+### US-PERM-05 â€” Server-side Permission Enforcement
 **Priority:** P0 | **Traces to:** FR-4.6, BR-5
 
 > As the **system**, I want every permission to be enforced on the server so that a modified client cannot bypass restrictions.
@@ -483,7 +483,7 @@
 
 ---
 
-### US-PERM-06 — Mute All (Host) (P1)
+### US-PERM-06 â€” Mute All (Host) (P1)
 **Priority:** P1 | **Traces to:** FR-4.7
 
 > As a **host**, I want to mute all participants at once so that I can quickly silence the class.
@@ -496,7 +496,7 @@
 
 ---
 
-### US-PERM-07 — Raise Hand (P1)
+### US-PERM-07 â€” Raise Hand (P1)
 **Priority:** P1 | **Traces to:** FR-4.8
 
 > As a **student**, I want to raise my hand so that the teacher knows I want to speak; and as the **host**, I want to see raised hands and grant the mic in one click.
@@ -511,7 +511,7 @@
 
 ## 7. Code Workspace
 
-### US-CODE-01 — View the Shared Editor
+### US-CODE-01 â€” View the Shared Editor
 **Priority:** P0 | **Traces to:** FR-5.1, FR-5.2
 
 > As a **room member**, I want to see the shared Monaco code editor in the Code tab with a language selector so that I can follow what the teacher or a permitted student is coding.
@@ -524,7 +524,7 @@
 
 ---
 
-### US-CODE-02 — Give the Pen to a Student (Host)
+### US-CODE-02 â€” Give the Pen to a Student (Host)
 **Priority:** P0 | **Traces to:** FR-5.3
 
 > As a **host**, I want to give the edit pen to a student who has `can_code` permission so that they can type code in the shared editor.
@@ -537,7 +537,7 @@
 
 ---
 
-### US-CODE-03 — Type and Sync Code (Pen Holder)
+### US-CODE-03 â€” Type and Sync Code (Pen Holder)
 **Priority:** P0 | **Traces to:** FR-5.2
 
 > As the **pen holder**, I want my edits to be broadcast to everyone in the room so that all members see the code in near real time.
@@ -550,7 +550,7 @@
 
 ---
 
-### US-CODE-04 — Revoke Code Permission from Pen Holder
+### US-CODE-04 â€” Revoke Code Permission from Pen Holder
 **Priority:** P0 | **Traces to:** FR-5.4
 
 > As a **host**, if I revoke `can_code` from the student who currently holds the pen, I want the pen to automatically return to me so that the student cannot continue editing.
@@ -563,7 +563,7 @@
 
 ---
 
-### US-CODE-05 — Run Code
+### US-CODE-05 â€” Run Code
 **Priority:** P0 | **Traces to:** FR-5.5, FR-5.6
 
 > As the **pen holder or host**, I want to run the code in the editor so that everyone in the room can see the output.
@@ -576,11 +576,11 @@
 - [ ] All room members see the same output (via `code:run-result`).
 - [ ] Code over 64 KB returns `413 PAYLOAD_TOO_LARGE`: *"Source code exceeds the 64 KB limit."*
 - [ ] A run exceeding 3 seconds shows: *"Time limit exceeded (3 s)."*
-- [ ] After 10 runs per minute from the same user, the 11th returns `429 RATE_LIMITED`: *"Too many runs — try again in a few seconds."*
+- [ ] After 10 runs per minute from the same user, the 11th returns `429 RATE_LIMITED`: *"Too many runs â€” try again in a few seconds."*
 
 ---
 
-### US-CODE-06 — Code and Language Persist
+### US-CODE-06 â€” Code and Language Persist
 **Priority:** P0 | **Traces to:** FR-5.7
 
 > As a **room member**, I want the code content and selected language to be restored when I return to the room so that work is never lost.
@@ -592,7 +592,7 @@
 
 ---
 
-### US-CODE-07 — Personal Playground (P1)
+### US-CODE-07 â€” Personal Playground (P1)
 **Priority:** P1 | **Traces to:** FR-5.8
 
 > As any **logged-in user**, I want a private code editor page where I can run code just for myself so that I can experiment without affecting the shared room editor.
@@ -605,7 +605,7 @@
 
 ---
 
-### US-CODE-08 — Request the Pen (P1)
+### US-CODE-08 â€” Request the Pen (P1)
 **Priority:** P1 | **Traces to:** FR-5.9
 
 > As a **student with `can_code`**, I want to request the edit pen so that I can signal to the teacher that I want to type.
@@ -618,7 +618,7 @@
 ---
 ## 8. Whiteboard
 
-### US-WB-01 — View the Shared Whiteboard
+### US-WB-01 â€” View the Shared Whiteboard
 **Priority:** P0 | **Traces to:** FR-5.10, FR-5.11
 
 > As a **room member without whiteboard permission**, I want to see the shared Excalidraw whiteboard in view-only mode so that I can follow what is being drawn.
@@ -630,7 +630,7 @@
 
 ---
 
-### US-WB-02 — Draw on the Whiteboard (Permitted User)
+### US-WB-02 â€” Draw on the Whiteboard (Permitted User)
 **Priority:** P0 | **Traces to:** FR-5.11, FR-5.12
 
 > As a **user with whiteboard permission (or the host)**, I want to draw on the shared Excalidraw whiteboard so that other members can see my drawings in near real time.
@@ -644,7 +644,7 @@
 
 ---
 
-### US-WB-03 — Whiteboard State Persists
+### US-WB-03 â€” Whiteboard State Persists
 **Priority:** P0 | **Traces to:** FR-5.13
 
 > As a **room member**, I want the whiteboard to be restored when I reload or rejoin so that drawn content is not lost.
@@ -656,7 +656,7 @@
 
 ---
 
-### US-WB-04 — Grant/Revoke Whiteboard Access Live
+### US-WB-04 â€” Grant/Revoke Whiteboard Access Live
 **Priority:** P0 | **Traces to:** FR-5.11
 
 > As a **host**, I want to grant or revoke a student's whiteboard permission while the whiteboard is open so that I can invite students to draw at any moment.
@@ -668,7 +668,7 @@
 
 ---
 
-### US-WB-05 — Clear Board (Host) (P1)
+### US-WB-05 â€” Clear Board (Host) (P1)
 **Priority:** P1 | **Traces to:** FR-5.14
 
 > As a **host**, I want to clear the entire whiteboard with a confirmation so that I can start a fresh diagram.
@@ -683,7 +683,7 @@
 
 ## 9. Attendance
 
-### US-ATT-01 — Auto Record Join and Leave
+### US-ATT-01 â€” Auto Record Join and Leave
 **Priority:** P0 | **Traces to:** FR-6.1
 
 > As the **system**, I want to automatically create an attendance record when a member joins the live call and close it when they leave so that the host has an accurate view of participation.
@@ -695,7 +695,7 @@
 
 ---
 
-### US-ATT-02 — Reconnect Grace Period
+### US-ATT-02 â€” Reconnect Grace Period
 **Priority:** P0 | **Traces to:** FR-6.2
 
 > As a **student with a brief network drop**, I want a short reconnect not to be counted as a separate attendance entry so that my total time is reported accurately.
@@ -706,7 +706,7 @@
 
 ---
 
-### US-ATT-03 — Multi-Tab Handling
+### US-ATT-03 â€” Multi-Tab Handling
 **Priority:** P0 | **Traces to:** FR-6.3
 
 > As a **user with the room open in multiple tabs**, I want my attendance to be counted as a single presence so that the record is not inflated.
@@ -717,7 +717,7 @@
 
 ---
 
-### US-ATT-04 — View Attendance (Host)
+### US-ATT-04 â€” View Attendance (Host)
 **Priority:** P0 | **Traces to:** FR-6.4, S6
 
 > As a **host**, I want to view the attendance for each session, including each student's first join time, last leave time, total minutes, and number of joins so that I can assess participation.
@@ -730,7 +730,7 @@
 
 ---
 
-### US-ATT-05 — End Session Closes All Records
+### US-ATT-05 â€” End Session Closes All Records
 **Priority:** P0 | **Traces to:** FR-6.5
 
 > As the **system**, when the host ends a session, I want all open attendance records to be closed with `left_at = ended_at` so that no records are left open.
@@ -742,7 +742,7 @@
 
 ---
 
-### US-ATT-06 — Export Attendance CSV (P1)
+### US-ATT-06 â€” Export Attendance CSV (P1)
 **Priority:** P1 | **Traces to:** FR-6.6
 
 > As a **host**, I want to export the attendance table as a CSV file so that I can analyse it in a spreadsheet.
@@ -756,7 +756,7 @@
 
 ## 10. Error States & System Resilience
 
-### US-ERR-01 — Invalid Join Code
+### US-ERR-01 â€” Invalid Join Code
 **Priority:** P0 | **Traces to:** FRD Section 7
 
 > As a **user**, if I enter a wrong join code, I want a clear error message so that I know the code is incorrect.
@@ -767,7 +767,7 @@
 
 ---
 
-### US-ERR-02 — Join Live When No Session Active
+### US-ERR-02 â€” Join Live When No Session Active
 **Priority:** P0 | **Traces to:** FRD Section 7
 
 > As a **student**, if I try to join a live session that has not started, I want a meaningful message so that I know what to do.
@@ -778,7 +778,7 @@
 
 ---
 
-### US-ERR-03 — Camera and Mic Browser Permission Denied
+### US-ERR-03 â€” Camera and Mic Browser Permission Denied
 **Priority:** P0 | **Traces to:** FRD Section 7
 
 > As a **user** whose browser blocks camera or mic access, I want a helpful error message so that I know how to fix it.
@@ -789,7 +789,7 @@
 
 ---
 
-### US-ERR-04 — Permission Revoked While in Use
+### US-ERR-04 â€” Permission Revoked While in Use
 **Priority:** P0 | **Traces to:** FRD Section 7
 
 > As a **student** whose mic/camera/screen is revoked while active, I want a clear notification and graceful control disablement so that I am not confused.
@@ -801,7 +801,7 @@
 
 ---
 
-### US-ERR-05 — Removed From Room
+### US-ERR-05 â€” Removed From Room
 **Priority:** P0 | **Traces to:** FRD Section 7
 
 > As a **removed student**, I want to be redirected to the dashboard with a clear message so that I understand what happened.
@@ -812,7 +812,7 @@
 
 ---
 
-### US-ERR-06 — Code Run Timeout
+### US-ERR-06 â€” Code Run Timeout
 **Priority:** P0 | **Traces to:** FRD Section 7
 
 > As a **room member**, if a code run exceeds the time limit, I want to see a clear timeout message in the output panel so that I know the run was cut short.
@@ -823,18 +823,18 @@
 
 ---
 
-### US-ERR-07 — Rate Limit on Code Execution
+### US-ERR-07 â€” Rate Limit on Code Execution
 **Priority:** P0 | **Traces to:** FRD Section 7
 
 > As a **user** who runs code more than 10 times per minute, I want a friendly rate-limit message so that I understand the restriction.
 
 **Acceptance Criteria:**
 - [ ] The 11th run within 60 seconds returns `429 RATE_LIMITED`.
-- [ ] The UI shows: *"Too many runs — try again in a few seconds."*
+- [ ] The UI shows: *"Too many runs â€” try again in a few seconds."*
 
 ---
 
-### US-ERR-08 — Socket Disconnected Banner
+### US-ERR-08 â€” Socket Disconnected Banner
 **Priority:** P0 | **Traces to:** FRD Section 7, FR-3.8
 
 > As a **user**, if my socket connection drops, I want a persistent banner at the top of the page so that I know my real-time features are temporarily unavailable.
@@ -848,7 +848,7 @@
 
 ## 11. Security & Non-functional
 
-### US-SEC-01 — All API Routes Authenticated
+### US-SEC-01 â€” All API Routes Authenticated
 **Priority:** P0 | **Traces to:** NFR-1.1
 
 > As the **system**, every API route and socket event must require authentication and verify room membership and permissions server-side so that no action can be performed without authorisation.
@@ -861,7 +861,7 @@
 
 ---
 
-### US-SEC-02 — Secrets Never Exposed to Client
+### US-SEC-02 â€” Secrets Never Exposed to Client
 **Priority:** P0 | **Traces to:** NFR-1.2
 
 > As the **system**, Supabase service-role key and LiveKit API secret must never be included in the client bundle so that they cannot be extracted by users.
@@ -872,7 +872,7 @@
 
 ---
 
-### US-SEC-03 — Sandboxed Code Execution
+### US-SEC-03 â€” Sandboxed Code Execution
 **Priority:** P0 | **Traces to:** NFR-1.3
 
 > As the **system**, code must run in the Piston sandbox with enforced time, memory, and output limits so that malicious code cannot harm the server.
@@ -884,7 +884,7 @@
 
 ---
 
-### US-SEC-04 — Performance Targets
+### US-SEC-04 â€” Performance Targets
 **Priority:** P0 | **Traces to:** NFR-2.1, NFR-2.2
 
 > As a **user**, I want the platform to be fast and responsive so that it feels professional.
@@ -897,7 +897,7 @@
 
 ---
 
-### US-SEC-05 — Scalability Target for MVP
+### US-SEC-05 â€” Scalability Target for MVP
 **Priority:** P0 | **Traces to:** NFR-4.1
 
 > As the **system**, the MVP must support up to 15 participants per room and 3 concurrent rooms on a single backend instance so that the demo can run without performance issues.
@@ -922,7 +922,7 @@
 | US-WB-01 to 05 | FR-5.10 to FR-5.14 | S4 |
 | US-ATT-01 to 06 | FR-6.1 to FR-6.6 | S6 |
 | US-ERR-01 to 08 | FRD Section 7 | All screens |
-| US-SEC-01 to 05 | NFR-1 to NFR-5 | — |
+| US-SEC-01 to 05 | NFR-1 to NFR-5 | â€” |
 
 ---
 
