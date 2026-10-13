@@ -26,7 +26,18 @@ export const LoginPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
 
   // Where to redirect after login (default to '/')
-  const from = (location.state as { from?: { pathname: string } })?.from?.pathname || '/';
+  const fromState = (location.state as { from?: any })?.from;
+  let from = '/';
+  if (typeof fromState === 'string') {
+    from = fromState;
+  } else if (fromState && typeof fromState === 'object' && fromState.pathname) {
+    from = `${fromState.pathname}${fromState.search || ''}${fromState.hash || ''}`;
+  }
+
+  // Safety check: Avoid redirect loop if from points to auth pages
+  if (from === '/login' || from === '/signup') {
+    from = '/';
+  }
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
