@@ -1,0 +1,16 @@
+{
+  "name": "linkup",
+  "version": "0.1.0",
+  "private": true,
+  "description": "LinkUp — Collaborative Classroom Workspace",
+  "workspaces": [
+    "client"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=client",
+    "build": "npm run build --workspace=client"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5"
+  }
+}
