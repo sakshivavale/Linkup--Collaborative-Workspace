@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { ThemeToggle } from '../../components/ui/ThemeToggle';
 import { Logo } from '../../components/ui/Logo';
@@ -10,56 +11,64 @@ import {
   PlusCircle, 
   DoorOpen, 
   Users,
-  CheckCircle2
+  CheckCircle2,
+  Loader2
 } from 'lucide-react';
 
 export const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
-  const [user, setUser] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  const { user, signOut, loading: authLoading } = useAuth();
+  const [profile, setProfile] = useState<{ full_name?: string; role?: string } | null>(null);
 
   useEffect(() => {
-    const fetchUser = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        navigate('/signup', { replace: true });
-        return;
+    // Attempt to load profile from public.profiles table if user is available
+    const loadProfile = async () => {
+      if (!user) return;
+      try {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('full_name, role')
+          .eq('id', user.id)
+          .single();
+
+        if (!error && data) {
+          setProfile(data);
+        }
+      } catch (err) {
+        console.warn('[LinkUp Dashboard] Could not fetch profile from table:', err);
       }
-      setUser(session.user);
-      setLoading(false);
     };
 
-    fetchUser();
-
-    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session) {
-        setUser(session.user);
-      }
-    });
-
-    return () => {
-      authListener?.subscription.unsubscribe();
-    };
-  }, [navigate]);
+    loadProfile();
+  }, [user]);
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    navigate('/login');
+    await signOut();
+    navigate('/login', { replace: true });
   };
 
-  if (loading) {
+  if (authLoading) {
     return (
-      <div className="min-h-screen bg-slate-50 dark:bg-[#080c14] flex items-center justify-center text-slate-500 dark:text-slate-400">
+      <div className="min-h-screen ambient-bg flex items-center justify-center text-slate-500 dark:text-slate-400">
         <div className="flex items-center gap-3">
-          <div className="w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+          <Loader2 className="w-5 h-5 animate-spin text-indigo-500" />
           <span>Loading Dashboard...</span>
         </div>
       </div>
     );
   }
 
-  const fullName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'User';
-  const role = user?.user_metadata?.role || 'student';
+  const fullName = 
+    profile?.full_name || 
+    user?.user_metadata?.full_name || 
+    user?.email?.split('@')[0] || 
+    'User';
+    
+  const role = 
+    profile?.role || 
+    user?.user_metadata?.role || 
+    'student';
+    
   const isTeacher = role === 'teacher';
 
   return (
@@ -89,7 +98,7 @@ export const DashboardPage: React.FC = () => {
             {/* Logout Button */}
             <button
               onClick={handleSignOut}
-              className="p-2 rounded-xl text-slate-500 hover:text-red-600 dark:text-slate-400 dark:hover:text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/20 transition-all flex items-center gap-1.5 text-xs font-medium"
+              className="p-2 rounded-xl text-slate-500 hover:text-red-600 dark:text-slate-400 dark:hover:text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/20 transition-all flex items-center gap-1.5 text-xs font-medium cursor-pointer"
               title="Sign Out"
             >
               <LogOut className="w-4 h-4" />
@@ -106,7 +115,7 @@ export const DashboardPage: React.FC = () => {
           <div className="relative z-10 max-w-2xl">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/20 text-indigo-700 dark:text-indigo-400 text-xs font-medium mb-3">
               <CheckCircle2 className="w-3.5 h-3.5" />
-              <span>Authentication Successful &bull; US-AUTH-01</span>
+              <span>Authentication Verified &bull; US-AUTH-02</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">
               Welcome back, {fullName}!
