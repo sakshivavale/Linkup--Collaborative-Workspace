@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { User, Session } from '@supabase/supabase-js';
+import { User, Session, AuthError } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { UserRole } from '../types/auth';
 
@@ -9,6 +9,8 @@ interface AuthContextType {
   role: UserRole | null;
   fullName: string;
   loading: boolean;
+  signIn: (email: string, password: string) => Promise<{ error: AuthError | null }>;
+  signOut: () => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -20,19 +22,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // 1. Initial session check
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      setLoading(false);
-    });
+    // 1. Initial session check from local storage
+    const initSession = async () => {
+      try {
+        const { data: { session: initialSession }, error } = await supabase.auth.getSession();
+        if (error) {
+          console.error('[LinkUp Auth] Error retrieving session:', error.message);
+        }
+        setSession(initialSession);
+        setUser(initialSession?.user ?? null);
+      } catch (err) {
+        console.error('[LinkUp Auth] Unexpected error retrieving session:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    initSession();
 
     // 2. Real-time auth state listener
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      setUser(session?.user ?? null);
+    } = supabase.auth.onAuthStateChange((_event, currentSession) => {
+      setSession(currentSession);
+      setUser(currentSession?.user ?? null);
       setLoading(false);
     });
 
@@ -41,11 +54,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
-  const logout = async () => {
+  const signIn = async (email: string, password: string) => {
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: email.trim().toLowerCase(),
+      password,
+    });
+
+    if (!error && data.session) {
+      setSession(data.session);
+      setUser(data.user);
+    }
+
+    return { error };
+  };
+
+  const signOut = async () => {
     try {
       await supabase.auth.signOut();
     } catch (error) {
-      console.error('[LinkUp] Error during sign out:', error);
+      console.error('[LinkUp Auth] Error during sign out:', error);
     } finally {
       setSession(null);
       setUser(null);
@@ -67,7 +94,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         role,
         fullName,
         loading,
-        logout,
+        signIn,
+        signOut,
+        logout: signOut,
       }}
     >
       {children}
