@@ -10,8 +10,11 @@ import {
   ShieldCheck,
   Zap,
   Lock,
-  RefreshCw
+  RefreshCw,
+  Edit3,
+  UserCog
 } from 'lucide-react';
+import { ProfileSettingsModal } from '../../components/profile/ProfileSettingsModal';
 import { api, HttpError } from '../../lib/api';
 import { socket } from '../../lib/socket';
 
@@ -22,6 +25,35 @@ export const DashboardPage: React.FC = () => {
   const [testStatus, setTestStatus] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string; details?: string } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+
+  const testRejectWhitespace = async () => {
+    setIsLoading(true);
+    setTestStatus('Testing PATCH /api/me with whitespace-only name (simulating empty input)...');
+    try {
+      await api.patch('/api/me', { fullName: '     ' });
+      setTestResult({
+        success: false,
+        message: 'Unexpected: whitespace name was accepted by server',
+      });
+    } catch (err) {
+      if (err instanceof HttpError && err.status === 400 && err.code === 'VALIDATION') {
+        setTestResult({
+          success: true,
+          message: 'Verified! Server correctly rejected whitespace name with 400 VALIDATION error.',
+          details: JSON.stringify({ status: err.status, code: err.code, message: err.message }, null, 2),
+        });
+      } else {
+        setTestResult({
+          success: false,
+          message: 'Request failed unexpectedly',
+          details: String(err),
+        });
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const testApiAuth = async () => {
     setIsLoading(true);
@@ -120,13 +152,31 @@ export const DashboardPage: React.FC = () => {
       {/* Welcome Banner */}
       <div className="glass-panel rounded-3xl p-6 sm:p-8 mb-8 relative overflow-hidden">
         <div className="relative z-10 max-w-2xl">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 text-emerald-700 dark:text-emerald-400 text-xs font-medium mb-3">
-            <CheckCircle2 className="w-3.5 h-3.5" />
-            <span>Token Enforcement Active &bull; US-AUTH-05</span>
+          <div className="flex flex-wrap items-center gap-2 mb-3">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 text-emerald-700 dark:text-emerald-400 text-xs font-medium">
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              <span>Token Enforcement Active &bull; US-AUTH-05</span>
+            </div>
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/20 text-indigo-700 dark:text-indigo-400 text-xs font-medium">
+              <UserCog className="w-3.5 h-3.5" />
+              <span>Edit Profile Name Active &bull; US-AUTH-06</span>
+            </div>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">
-            Welcome back, {fullName}!
-          </h1>
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+              Welcome back, {fullName}!
+            </h1>
+            <button
+              id="dashboard-edit-profile-btn"
+              type="button"
+              onClick={() => setIsProfileModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-500/20 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 transition-all shadow-sm"
+              title="Edit Profile Display Name"
+            >
+              <Edit3 className="w-3.5 h-3.5" />
+              <span>Edit Name</span>
+            </button>
+          </div>
           <p className="mt-2 text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
             You are signed in as a <span className="font-semibold text-indigo-600 dark:text-indigo-300 capitalize">{role}</span>. 
             {isTeacher 
@@ -190,6 +240,16 @@ export const DashboardPage: React.FC = () => {
             <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
             Test Socket Auth Connection
           </button>
+
+          <button
+            id="test-whitespace-reject-btn"
+            onClick={testRejectWhitespace}
+            disabled={isLoading}
+            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-medium bg-rose-500/10 hover:bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-500/30 transition-all disabled:opacity-50"
+          >
+            <UserCog className="w-3.5 h-3.5" />
+            Test Empty/Whitespace Name Rejection (US-AUTH-06)
+          </button>
         </div>
 
         {testStatus && (
@@ -250,6 +310,12 @@ export const DashboardPage: React.FC = () => {
           Your classrooms and active sessions will appear here as soon as they are created or joined.
         </p>
       </div>
+
+      {/* Profile Settings Modal */}
+      <ProfileSettingsModal
+        isOpen={isProfileModalOpen}
+        onClose={() => setIsProfileModalOpen(false)}
+      />
     </main>
   );
 };

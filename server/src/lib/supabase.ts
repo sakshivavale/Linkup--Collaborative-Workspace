@@ -83,3 +83,18 @@ export function clearTokenCache(token?: string) {
     tokenCache.clear();
   }
 }
+
+export function updateTokenCacheUserName(userId: string, newFullName: string) {
+  for (const [, cached] of tokenCache.entries()) {
+    if (cached.user.id === userId) {
+      cached.user.fullName = newFullName;
+    }
+  }
+}
+
+export function setCachedUser(token: string, user: Me, ttlMs: number = CACHE_TTL_MS) {
+  tokenCache.set(token, {
+    user,
+    expiresAt: Date.now() + ttlMs,
+  });
+}
