@@ -1,5 +1,82 @@
 import { supabase } from './supabase';
-import { RoomSummary, MemberRole } from '@linkup/shared';
+import { RoomSummary, MemberRole, CreateRoomDto, CreateRoomResponseDto, Permissions } from '@linkup/shared';
+
+// ---------------------------------------------------------------------------
+// Join-code generator (US-DASH-03 AC-4)
+// Characters: A-Z, 2-9 — excludes O, 0, I, 1 to avoid visual ambiguity.
+// ---------------------------------------------------------------------------
+const JOIN_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+function generateJoinCode(): string {
+  let code = '';
+  for (let i = 0; i < 6; i++) {
+    code += JOIN_CODE_CHARS[Math.floor(Math.random() * JOIN_CODE_CHARS.length)];
+  }
+  return code;
+}
+
+const DEFAULT_PERMISSIONS: Permissions = {
+  canMic: true,
+  canCamera: true,
+  canScreen: false,
+  canWhiteboard: true,
+  canCode: true,
+};
+
+/**
+ * Create a new room and add the creator as host (US-DASH-03, FR-8.3, FR-2.1)
+ */
+export async function createRoom(
+  ownerId: string,
+  ownerName: string,
+  dto: CreateRoomDto
+): Promise<CreateRoomResponseDto> {
+  const joinCode = generateJoinCode();
+  const permissions: Permissions = { ...DEFAULT_PERMISSIONS, ...dto.defaultPermissions };
+
+  // 1. Insert the room row
+  const { data: room, error: roomErr } = await supabase
+    .from('rooms')
+    .insert({
+      name: dto.name.trim(),
+      description: dto.description?.trim() || null,
+      owner_id: ownerId,
+      join_code: joinCode,
+      default_permissions: permissions,
+    })
+    .select('id, name, description, join_code, owner_id, created_at')
+    .single();
+
+  if (roomErr || !room) {
+    throw new Error(roomErr?.message || 'Failed to create room');
+  }
+
+  // 2. Add creator as host member
+  const { error: memberErr } = await supabase
+    .from('room_members')
+    .insert({
+      room_id: room.id,
+      user_id: ownerId,
+      member_role: 'host',
+      permissions,
+    });
+
+  if (memberErr) {
+    console.warn('[createRoom] Could not add host member row:', memberErr.message);
+  }
+
+  return {
+    id: room.id,
+    name: room.name,
+    description: room.description,
+    joinCode: room.join_code,
+    hostName: ownerName,
+    memberCount: 1,
+    myRole: 'host',
+    activeSessionId: null,
+    createdAt: room.created_at,
+  };
+}
 
 // In-memory mock store for unit/integration testing (e.g. scripts/test-dash-live-badge.ts)
 const mockRoomsStore = new Map<string, RoomSummary[]>();

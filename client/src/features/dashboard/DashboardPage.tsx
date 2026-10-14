@@ -13,7 +13,8 @@ import {
   RefreshCw,
   Edit3,
   UserCog,
-  Radio
+  Radio,
+  Key
 } from 'lucide-react';
 import { ProfileSettingsModal } from '../../components/profile/ProfileSettingsModal';
 import { RoomCard } from './RoomCard';
@@ -253,6 +254,10 @@ export const DashboardPage: React.FC = () => {
               <Radio className="w-3.5 h-3.5" />
               <span>Live Badge on Active &bull; US-DASH-02</span>
             </div>
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 text-amber-700 dark:text-amber-400 text-xs font-medium">
+              <Key className="w-3.5 h-3.5" />
+              <span>Host Join Code &bull; US-DASH-05</span>
+            </div>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">
@@ -411,7 +416,7 @@ export const DashboardPage: React.FC = () => {
               </span>
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-              Rooms with active sessions display a <span className="font-bold text-rose-600 dark:text-rose-400">"Live"</span> badge and instant <span className="font-semibold text-slate-800 dark:text-slate-200">Join</span> button (US-DASH-02).
+              Rooms with active sessions display a <span className="font-bold text-rose-600 dark:text-rose-400">"Live"</span> badge and instant <span className="font-semibold text-slate-800 dark:text-slate-200">Join</span> button (US-DASH-02). Hosts also see their <span className="font-bold text-indigo-600 dark:text-indigo-400">join code</span> with a copy button (US-DASH-05).
             </p>
           </div>
 
