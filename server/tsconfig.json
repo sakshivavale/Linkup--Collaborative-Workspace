@@ -10,11 +10,7 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "resolveJsonModule": true,
-    "baseUrl": ".",
-    "paths": {
-      "@linkup/shared": ["../shared/src/index.ts"]
-    }
+    "resolveJsonModule": true
   },
-  "include": ["src/**/*", "scripts/**/*"]
+  "include": ["src/**/*"]
 }

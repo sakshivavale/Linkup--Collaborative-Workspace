@@ -7,6 +7,8 @@ import { PublicRoute } from './components/auth/PublicRoute';
 import { AppLayout } from './components/layout/AppLayout';
 import { SignupPage } from './features/auth/SignupPage';
 import { LoginPage } from './features/auth/LoginPage';
+import { ForgotPasswordPage } from './features/auth/ForgotPasswordPage';
+import { ResetPasswordPage } from './features/auth/ResetPasswordPage';
 import { DashboardPage } from './features/dashboard/DashboardPage';
 import { RoomPage } from './features/rooms/RoomPage';
 import { PlaygroundPage } from './features/playground/PlaygroundPage';
@@ -34,6 +36,20 @@ export const App: React.FC = () => {
                   <LoginPage />
                 </PublicRoute>
               }
+            />
+            <Route
+              path="/forgot-password"
+              element={
+                <PublicRoute>
+                  <ForgotPasswordPage />
+                </PublicRoute>
+              }
+            />
+
+            {/* Password Reset landing page (standalone to allow recovery session handling) */}
+            <Route
+              path="/reset-password"
+              element={<ResetPasswordPage />}
             />
 
             {/* Protected routes wrapped with authentication check and layout */}

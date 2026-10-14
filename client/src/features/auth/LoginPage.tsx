@@ -9,6 +9,7 @@ import {
   Eye, 
   EyeOff, 
   AlertCircle, 
+  CheckCircle2,
   Loader2, 
   ArrowRight, 
   UserPlus 
@@ -19,7 +20,11 @@ export const LoginPage: React.FC = () => {
   const location = useLocation();
   const { signIn } = useAuth();
 
-  const [email, setEmail] = useState('');
+  // If redirected from ResetPasswordPage or other routes with state
+  const stateData = location.state as { from?: any; successMessage?: string; email?: string } | undefined;
+  const successMessage = stateData?.successMessage;
+
+  const [email, setEmail] = useState(stateData?.email || '');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -119,6 +124,18 @@ export const LoginPage: React.FC = () => {
 
         {/* Card */}
         <div className="glass-panel rounded-2xl p-6 sm:p-8 shadow-xl">
+          {/* Success Alert (e.g. from password reset) */}
+          {successMessage && (
+            <div 
+              role="status" 
+              className="mb-6 p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 flex items-start gap-3 animate-fadeIn"
+              data-testid="login-success-alert"
+            >
+              <CheckCircle2 className="w-5 h-5 shrink-0 mt-0.5 text-emerald-500 dark:text-emerald-400" />
+              <div className="text-sm font-medium leading-snug">{successMessage}</div>
+            </div>
+          )}
+
           {/* Error Alert */}
           {error && (
             <div 
@@ -183,6 +200,15 @@ export const LoginPage: React.FC = () => {
                 >
                   Password
                 </label>
+                <Link
+                  to="/forgot-password"
+                  state={email ? { email: email.trim() } : undefined}
+                  id="forgot-password-link"
+                  data-testid="forgot-password-link"
+                  className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-300 hover:underline underline-offset-2 transition-colors cursor-pointer"
+                >
+                  Forgot password?
+                </Link>
               </div>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">

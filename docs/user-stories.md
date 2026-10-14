@@ -106,10 +106,10 @@
 > As a **logged-in user**, I want to edit my full name so that my display name is up to date.
 
 **Acceptance Criteria:**
-- [ ] A profile settings option is accessible from the header.
-- [ ] `PATCH /api/me` with `{ fullName }` updates the name in the database.
-- [ ] The updated name is reflected in the dashboard, room members list, and chat messages going forward.
-- [ ] Whitespace-only or empty names are rejected with an inline error.
+- [x] A profile settings option is accessible from the header.
+- [x] `PATCH /api/me` with `{ fullName }` updates the name in the database.
+- [x] The updated name is reflected in the dashboard, room members list, and chat messages going forward.
+- [x] Whitespace-only or empty names are rejected with an inline error.
 
 ---
 
@@ -119,9 +119,9 @@
 > As a **user who has forgotten their password**, I want to receive a password-reset email so that I can regain access to my account.
 
 **Acceptance Criteria:**
-- [ ] A "Forgot password?" link on `/login` triggers the Supabase built-in password-reset flow.
-- [ ] The user receives an email with a reset link.
-- [ ] After setting a new password, the user is redirected to `/login`.
+- [x] A "Forgot password?" link on `/login` triggers the Supabase built-in password-reset flow.
+- [x] The user receives an email with a reset link.
+- [x] After setting a new password, the user is redirected to `/login`.
 
 ---
 

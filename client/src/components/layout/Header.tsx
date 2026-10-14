@@ -7,13 +7,16 @@ import {
   LogOut, 
   GraduationCap, 
   BookOpen, 
-  ChevronDown
+  ChevronDown,
+  UserCog
 } from 'lucide-react';
+import { ProfileSettingsModal } from '../profile/ProfileSettingsModal';
 
 export const Header: React.FC = () => {
   const { user, fullName, role, logout } = useAuth();
   const navigate = useNavigate();
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -148,7 +151,21 @@ export const Header: React.FC = () => {
                 </div>
 
                 {/* Actions */}
-                <div className="p-1.5">
+                <div className="p-1.5 space-y-1">
+                  <button
+                    id="header-profile-settings-button"
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setDropdownOpen(false);
+                      setIsSettingsOpen(true);
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  >
+                    <UserCog className="w-4 h-4 text-indigo-500 shrink-0" />
+                    <span>Profile Settings</span>
+                  </button>
+
                   <button
                     id="header-logout-button"
                     type="button"
@@ -179,6 +196,12 @@ export const Header: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Profile Settings Modal (US-AUTH-06) */}
+      <ProfileSettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+      />
     </header>
   );
 };

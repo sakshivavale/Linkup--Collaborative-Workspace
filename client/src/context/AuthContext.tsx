@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, Session, AuthError } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
+import { api, HttpError } from '../lib/api';
 import { UserRole } from '../types/auth';
 
 interface AuthContextType {
@@ -12,6 +13,9 @@ interface AuthContextType {
   signIn: (email: string, password: string) => Promise<{ error: AuthError | null }>;
   signOut: () => Promise<void>;
   logout: () => Promise<void>;
+  resetPasswordForEmail: (email: string) => Promise<{ error: AuthError | null }>;
+  updatePassword: (newPassword: string) => Promise<{ error: AuthError | null }>;
+  updateProfileName: (newName: string) => Promise<{ success: boolean; error?: string }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -68,6 +72,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return { error };
   };
 
+  const [customFullName, setCustomFullName] = useState<string | null>(null);
+
   const signOut = async () => {
     try {
       await supabase.auth.signOut();
@@ -76,10 +82,69 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } finally {
       setSession(null);
       setUser(null);
+      setCustomFullName(null);
+    }
+  };
+
+  const resetPasswordForEmail = async (email: string) => {
+    const redirectTo = `${window.location.origin}/reset-password`;
+    const { error } = await supabase.auth.resetPasswordForEmail(
+      email.trim().toLowerCase(),
+      { redirectTo }
+    );
+    return { error };
+  };
+
+  const updatePassword = async (newPassword: string) => {
+    const { error } = await supabase.auth.updateUser({
+      password: newPassword,
+    });
+    return { error };
+  };
+
+  const updateProfileName = async (newName: string): Promise<{ success: boolean; error?: string }> => {
+    const trimmed = newName.trim();
+    if (!trimmed) {
+      return { success: false, error: 'Full name cannot be empty or whitespace only' };
+    }
+    if (trimmed.length > 100) {
+      return { success: false, error: 'Full name cannot exceed 100 characters' };
+    }
+
+    try {
+      // 1. Send PATCH /api/me to update name in database
+      const res = await api.patch<{ user: { id: string; fullName: string; role: string; email: string } }>(
+        '/api/me',
+        { fullName: trimmed }
+      );
+
+      const resolvedName = res?.user?.fullName || trimmed;
+
+      // 2. Immediately update local reactive state
+      setCustomFullName(resolvedName);
+
+      // 3. Update Supabase auth user metadata in background for session persistence
+      try {
+        await supabase.auth.updateUser({
+          data: { full_name: resolvedName, fullName: resolvedName },
+        });
+      } catch (metaErr) {
+        console.warn('[LinkUp Auth] Non-fatal background auth metadata update:', metaErr);
+      }
+
+      return { success: true };
+    } catch (err: any) {
+      console.error('[LinkUp Auth] Error updating profile name:', err);
+      const message =
+        err instanceof HttpError
+          ? err.message
+          : err?.message || 'Failed to update profile name';
+      return { success: false, error: message };
     }
   };
 
   const fullName =
+    customFullName ||
     user?.user_metadata?.full_name ||
     user?.email?.split('@')[0] ||
     'User';
@@ -97,6 +162,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         signIn,
         signOut,
         logout: signOut,
+        resetPasswordForEmail,
+        updatePassword,
+        updateProfileName,
       }}
     >
       {children}
