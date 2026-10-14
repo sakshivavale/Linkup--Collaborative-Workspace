@@ -1,11 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { 
-  GraduationCap, 
-  BookOpen, 
-  PlusCircle, 
-  DoorOpen, 
-  Users,
+import {
+  GraduationCap,
+  BookOpen,
+  PlusCircle,
+  DoorOpen,
   CheckCircle2,
   ShieldCheck,
   Zap,
@@ -17,7 +16,7 @@ import {
   Key,
   KeyRound,
   ArrowRight,
-  AlertCircle
+  AlertCircle,
 } from 'lucide-react';
 import { ProfileSettingsModal } from '../../components/profile/ProfileSettingsModal';
 import { RoomCard } from './RoomCard';
@@ -26,7 +25,6 @@ import { api, HttpError } from '../../lib/api';
 import { socket } from '../../lib/socket';
 import { RoomSummary, Room } from '@linkup/shared';
 
-// Default initial sample rooms demonstrating US-DASH-02 active and inactive session states
 const DEFAULT_SAMPLE_ROOMS: RoomSummary[] = [
   {
     id: 'room-cs101-active',
@@ -36,7 +34,7 @@ const DEFAULT_SAMPLE_ROOMS: RoomSummary[] = [
     hostName: 'Prof. Alan Turing',
     memberCount: 28,
     myRole: 'host',
-    activeSessionId: 'session-live-cs101-888', // ACTIVE SESSION: Live badge + Join button displayed (US-DASH-02 AC-1 & AC-2)
+    activeSessionId: 'session-live-cs101-888',
     createdAt: new Date().toISOString(),
   },
   {
@@ -47,7 +45,7 @@ const DEFAULT_SAMPLE_ROOMS: RoomSummary[] = [
     hostName: 'Dr. Ada Lovelace',
     memberCount: 16,
     myRole: 'participant',
-    activeSessionId: null, // NO ACTIVE SESSION: Neither badge nor Join button displayed (US-DASH-02 AC-3)
+    activeSessionId: null,
     createdAt: new Date(Date.now() - 86400000).toISOString(),
   },
   {
@@ -58,7 +56,7 @@ const DEFAULT_SAMPLE_ROOMS: RoomSummary[] = [
     hostName: 'Dr. Richard Feynman',
     memberCount: 34,
     myRole: 'participant',
-    activeSessionId: 'session-live-phys-999', // ACTIVE SESSION: Live badge + Join button displayed (US-DASH-02 AC-1 & AC-2)
+    activeSessionId: 'session-live-phys-999',
     createdAt: new Date(Date.now() - 172800000).toISOString(),
   },
 ];
@@ -74,12 +72,14 @@ export const DashboardPage: React.FC = () => {
   const [isCreateRoomModalOpen, setIsCreateRoomModalOpen] = useState(false);
   const [successNotification, setSuccessNotification] = useState<string | null>(null);
 
-  // Rooms state (FR-8.1, FR-8.2, US-DASH-01, US-DASH-02, US-DASH-03)
-  const [rooms, setRooms] = useState<RoomSummary[]>(DEFAULT_SAMPLE_ROOMS);
+  const [rooms, setRooms] = useState<RoomSummary[]>([]);
   const [isLoadingRooms, setIsLoadingRooms] = useState(false);
-  const [roomsFetchSource, setRoomsFetchSource] = useState<'server' | 'sample'>('sample');
+  const [roomsFetchSource, setRoomsFetchSource] = useState<'server' | 'sample'>('server');
+  const [joinCode, setJoinCode] = useState('');
+  const [isJoiningRoom, setIsJoiningRoom] = useState(false);
+  const [joinError, setJoinError] = useState<string | null>(null);
+  const [joinSuccess, setJoinSuccess] = useState<string | null>(null);
 
-  // Fetch rooms from backend GET /api/rooms
   const fetchRooms = useCallback(async () => {
     setIsLoadingRooms(true);
     try {
@@ -88,12 +88,10 @@ export const DashboardPage: React.FC = () => {
         setRooms(data);
         setRoomsFetchSource('server');
       } else {
-        // Fallback to sample rooms if user has no rooms in DB yet
-        setRooms(DEFAULT_SAMPLE_ROOMS);
-        setRoomsFetchSource('sample');
+        setRooms([]);
+        setRoomsFetchSource('server');
       }
     } catch {
-      // In offline / dev mode, gracefully fall back to sample rooms
       setRooms(DEFAULT_SAMPLE_ROOMS);
       setRoomsFetchSource('sample');
     } finally {
@@ -105,7 +103,6 @@ export const DashboardPage: React.FC = () => {
     fetchRooms();
   }, [fetchRooms]);
 
-  // Toggle activeSessionId on the first room for instant AC-1, AC-2, AC-3 verification
   const toggleFirstRoomLiveStatus = () => {
     setRooms((prev) => {
       if (prev.length === 0) return prev;
@@ -119,12 +116,6 @@ export const DashboardPage: React.FC = () => {
       return updated;
     });
   };
-
-  // Join Room with Code state (US-DASH-04, FR-8.3)
-  const [joinCode, setJoinCode] = useState('');
-  const [isJoiningRoom, setIsJoiningRoom] = useState(false);
-  const [joinError, setJoinError] = useState<string | null>(null);
-  const [joinSuccess, setJoinSuccess] = useState<string | null>(null);
 
   const handleJoinRoom = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -150,24 +141,21 @@ export const DashboardPage: React.FC = () => {
 
       setJoinSuccess('Successfully joined room! Room card is now available on your dashboard.');
       setJoinCode('');
-      // AC-3: On success, user is added to the room and room card appears on dashboard
       await fetchRooms();
     } catch (err: any) {
       if (err instanceof HttpError) {
         if (err.status === 404 || err.code === 'ROOM_NOT_FOUND') {
-          // AC-5: "No room found with that code."
           setJoinError('No room found with that code.');
         } else {
           setJoinError(err.message || 'Failed to join room');
         }
       } else {
-        // Dev offline fallback
         const upperCode = cleanCode.toUpperCase();
         const matchingSample = DEFAULT_SAMPLE_ROOMS.find((r) => r.joinCode?.toUpperCase() === upperCode);
         if (matchingSample) {
           setRooms((prev) => {
             if (prev.some((r) => r.id === matchingSample.id)) {
-              return prev; // AC-4: idempotent
+              return prev;
             }
             return [{ ...matchingSample, myRole: 'participant', joinCode: null }, ...prev];
           });
@@ -589,7 +577,6 @@ export const DashboardPage: React.FC = () => {
           </div>
         ) : null}
 
-        {/* Join with Code Card - Always visible for students and teachers (US-DASH-04 AC-1) */}
         <div className="glass-panel p-6 sm:p-7 rounded-3xl border border-emerald-200/60 dark:border-emerald-500/20 shadow-sm relative overflow-hidden flex flex-col justify-between">
           <div>
             <div className="flex items-start justify-between gap-4 mb-4">
@@ -655,7 +642,6 @@ export const DashboardPage: React.FC = () => {
                 </button>
               </div>
 
-              {/* Error Message Display (AC-5: "No room found with that code.") */}
               {joinError && (
                 <div
                   id="join-code-error"
@@ -667,7 +653,6 @@ export const DashboardPage: React.FC = () => {
                 </div>
               )}
 
-              {/* Success Message Display (AC-3) */}
               {joinSuccess && (
                 <div
                   id="join-code-success"
@@ -683,7 +668,6 @@ export const DashboardPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Rooms Section (FR-8.1, FR-8.2, US-DASH-01, US-DASH-02, US-DASH-03) */}
       <section className="mb-8" aria-label="Classrooms">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <div>
@@ -691,7 +675,7 @@ export const DashboardPage: React.FC = () => {
               <h2 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white tracking-tight">
                 My Classrooms
               </h2>
-              <span 
+              <span
                 id="rooms-count-badge"
                 className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-50 dark:bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-500/30"
               >
@@ -746,7 +730,6 @@ export const DashboardPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Room cards grid or empty state */}
         {isLoadingRooms ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {[1, 2, 3].map((n) => (
@@ -764,23 +747,71 @@ export const DashboardPage: React.FC = () => {
               </div>
             ))}
           </div>
-        ) : rooms.length > 0 ? (
+        ) : rooms.length === 0 ? (
+          isTeacher ? (
+            <div className="glass-panel rounded-3xl p-10 text-center border-dashed border-indigo-300 dark:border-indigo-500/30 bg-indigo-50/40 dark:bg-indigo-500/5">
+              <div className="w-14 h-14 rounded-2xl bg-indigo-100 dark:bg-indigo-500/10 mx-auto flex items-center justify-center text-indigo-600 dark:text-indigo-300 mb-4">
+                <PlusCircle className="w-7 h-7" />
+              </div>
+              <h2 className="text-xl font-bold text-slate-900 dark:text-white">Create your first room</h2>
+              <p className="mt-2 max-w-md mx-auto text-sm text-slate-600 dark:text-slate-300">
+                Start a classroom, invite students, and share a room code so everyone can join the same workspace.
+              </p>
+              <button
+                type="button"
+                onClick={() => setIsCreateRoomModalOpen(true)}
+                className="mt-5 inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm transition-colors"
+              >
+                <PlusCircle className="w-4 h-4" />
+                Create Room
+              </button>
+            </div>
+          ) : (
+            <div className="glass-panel rounded-3xl p-8 border-dashed border-emerald-300 dark:border-emerald-500/30 bg-emerald-50/40 dark:bg-emerald-500/5">
+              <div className="w-14 h-14 rounded-2xl bg-emerald-100 dark:bg-emerald-500/10 mx-auto flex items-center justify-center text-emerald-600 dark:text-emerald-300 mb-4">
+                <DoorOpen className="w-7 h-7" />
+              </div>
+              <h2 className="text-xl font-bold text-slate-900 dark:text-white text-center">Ask your teacher for a room code and join below</h2>
+
+              <form onSubmit={handleJoinRoom} className="mt-5 max-w-md mx-auto">
+                <label htmlFor="dashboard-room-code" className="sr-only">Room code</label>
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <input
+                    id="dashboard-room-code"
+                    value={joinCode}
+                    onChange={(event) => {
+                      setJoinCode(event.target.value);
+                      if (joinError) setJoinError(null);
+                      if (joinSuccess) setJoinSuccess(null);
+                    }}
+                    placeholder="Enter 6-character code"
+                    className="flex-1 rounded-xl border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-900/70 px-3 py-2.5 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none uppercase"
+                    maxLength={6}
+                    aria-label="Room code"
+                  />
+                  <button
+                    type="submit"
+                    className="inline-flex items-center justify-center rounded-xl bg-emerald-600 hover:bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white transition-colors"
+                  >
+                    Join
+                  </button>
+                </div>
+              </form>
+
+              {joinError && (
+                <p className="mt-3 text-sm text-center text-rose-600 dark:text-rose-300">{joinError}</p>
+              )}
+
+              {joinSuccess && (
+                <p className="mt-3 text-sm text-center text-emerald-600 dark:text-emerald-300">{joinSuccess}</p>
+              )}
+            </div>
+          )
+        ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5" data-testid="rooms-grid">
             {rooms.map((room) => (
               <RoomCard key={room.id} room={room} />
             ))}
-          </div>
-        ) : (
-          <div className="glass-panel rounded-3xl p-10 text-center border-dashed border-slate-300 dark:border-slate-800">
-            <div className="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-slate-800/80 mx-auto flex items-center justify-center text-slate-500 dark:text-slate-400 mb-3">
-              <Users className="w-6 h-6" />
-            </div>
-            <h3 className="text-base font-semibold text-slate-800 dark:text-slate-200">No rooms active yet</h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-sm mx-auto">
-              {isTeacher
-                ? 'Create your first classroom room to start teaching and collaborating.'
-                : 'Ask your instructor for a 6-character room code to join.'}
-            </p>
           </div>
         )}
       </section>
