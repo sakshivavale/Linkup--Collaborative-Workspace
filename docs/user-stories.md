@@ -146,9 +146,9 @@
 > As a **logged-in user**, I want to see a "Live" badge and a Join button on a room card when that room has an active session so that I can join ongoing classes instantly.
 
 **Acceptance Criteria:**
-- [ ] A room card shows a **"Live"** badge when `activeSessionId` is not null.
-- [ ] A **"Join"** button appears alongside the badge, which navigates to the room page.
-- [ ] Rooms without an active session do not show a badge or Join button.
+- [x] A room card shows a **"Live"** badge when `activeSessionId` is not null.
+- [x] A **"Join"** button appears alongside the badge, which navigates to the room page.
+- [x] Rooms without an active session do not show a badge or Join button.
 
 ---
 
