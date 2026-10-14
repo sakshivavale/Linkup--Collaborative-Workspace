@@ -13,5 +13,27 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true,
+    // Proxy all API and health requests to the backend server.
+    // This means the browser NEVER makes cross-origin requests, so CORS
+    // issues on the client side are permanently eliminated regardless of
+    // which IP address the dev machine is on.
+    proxy: {
+      '/api': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+        secure: false,
+      },
+      '/health': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+        secure: false,
+      },
+      '/socket.io': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+        secure: false,
+        ws: true,
+      },
+    },
   },
 });

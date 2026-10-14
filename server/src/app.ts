@@ -4,13 +4,33 @@ import helmet from 'helmet';
 import { env } from './config/env';
 import { requireAuth } from './middleware/auth';
 
+// Dynamic CORS origin: accepts localhost AND any 192.168.x.x LAN IP on port 5173.
+// This permanently prevents CORS failures when the dev machine's IP changes.
+function isCorsAllowed(origin: string | undefined): boolean {
+  if (!origin) return true; // same-origin / server-to-server
+  const allowedPatterns = [
+    /^http:\/\/localhost:\d+$/,
+    /^http:\/\/127\.0\.0\.1:\d+$/,
+    /^http:\/\/192\.168\.\d{1,3}\.\d{1,3}:\d+$/,
+    /^http:\/\/10\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+$/,
+    /^http:\/\/172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}:\d+$/,
+  ];
+  return allowedPatterns.some((re) => re.test(origin));
+}
+
 export const app = express();
 
 // Security and middleware
 app.use(helmet());
 app.use(
   cors({
-    origin: [env.CORS_ORIGIN, 'http://localhost:5173', 'http://127.0.0.1:5173', 'http://192.168.1.43:5173'],
+    origin: (origin, callback) => {
+      if (isCorsAllowed(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error(`CORS: origin '${origin}' not allowed`));
+      }
+    },
     credentials: true,
   })
 );

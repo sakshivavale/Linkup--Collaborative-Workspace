@@ -8,7 +8,23 @@ const server = http.createServer(app);
 
 export const io = new SocketIOServer(server, {
   cors: {
-    origin: [env.CORS_ORIGIN, 'http://localhost:5173', 'http://127.0.0.1:5173', 'http://192.168.1.43:5173'],
+    // Accept any localhost or private-network (RFC 1918) origin.
+    // Matches 192.168.x.x, 10.x.x.x, 172.16-31.x.x and localhost.
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true); // server-to-server
+      const allowed = [
+        /^http:\/\/localhost:\d+$/,
+        /^http:\/\/127\.0\.0\.1:\d+$/,
+        /^http:\/\/192\.168\.\d{1,3}\.\d{1,3}:\d+$/,
+        /^http:\/\/10\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+$/,
+        /^http:\/\/172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}:\d+$/,
+      ];
+      if (allowed.some((re) => re.test(origin))) {
+        callback(null, true);
+      } else {
+        callback(new Error(`Socket.IO CORS: origin '${origin}' not allowed`));
+      }
+    },
     credentials: true,
   },
 });
