@@ -1,7 +1,7 @@
 import { supabase } from './supabase';
 import { ApiErrorResponse } from '@linkup/shared';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
 
 export class HttpError extends Error {
   public status: number;

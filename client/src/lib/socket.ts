@@ -1,7 +1,7 @@
 import { io, Socket } from 'socket.io-client';
 import { supabase } from './supabase';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
 
 /**
  * Socket.IO client instance configured with Supabase auth token

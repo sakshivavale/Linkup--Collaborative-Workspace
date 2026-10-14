@@ -10,7 +10,7 @@ export const app = express();
 app.use(helmet());
 app.use(
   cors({
-    origin: [env.CORS_ORIGIN, 'http://localhost:5173', 'http://127.0.0.1:5173'],
+    origin: [env.CORS_ORIGIN, 'http://localhost:5173', 'http://127.0.0.1:5173', 'http://192.168.1.43:5173'],
     credentials: true,
   })
 );

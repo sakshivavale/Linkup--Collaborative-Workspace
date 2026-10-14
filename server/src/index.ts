@@ -8,7 +8,7 @@ const server = http.createServer(app);
 
 export const io = new SocketIOServer(server, {
   cors: {
-    origin: [env.CORS_ORIGIN, 'http://localhost:5173', 'http://127.0.0.1:5173'],
+    origin: [env.CORS_ORIGIN, 'http://localhost:5173', 'http://127.0.0.1:5173', 'http://192.168.1.43:5173'],
     credentials: true,
   },
 });

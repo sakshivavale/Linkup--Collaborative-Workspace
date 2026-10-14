@@ -52,11 +52,13 @@ export const DashboardPage: React.FC = () => {
     }
   };
 
+  const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
+
   const testUnauthenticated = async () => {
     setIsLoading(true);
     setTestStatus('Sending unauthenticated request to /api/test (simulating missing token)...');
     try {
-      const res = await fetch('http://localhost:3001/api/test', {
+      const res = await fetch(`${API_BASE}/api/test`, {
         headers: { 'Content-Type': 'application/json' },
       });
       const data = await res.json();
