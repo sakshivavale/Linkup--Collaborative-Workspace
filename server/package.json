@@ -10,6 +10,7 @@
     "test:profile": "tsx scripts/test-profile-update.ts",
     "test:rooms": "tsx scripts/test-dash-live-badge.ts",
     "test:dash": "tsx scripts/test-dash-live-badge.ts",
+    "test:join": "tsx scripts/test-dash-join-code.ts",
     "test:create-room": "tsx scripts/test-create-room-teacher.ts"
   },
   "dependencies": {

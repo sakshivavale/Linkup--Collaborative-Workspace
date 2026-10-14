@@ -175,9 +175,9 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
         if (err.status === 403) {
           setErrorMessage('Permission denied: Only teachers can create classroom rooms (TEACHER_ONLY).');
         } else if (err.status === 400) {
-          setErrorMessage(err.data?.error?.message || 'Invalid room parameters. Please check room name and description.');
+          setErrorMessage(err.message || 'Invalid room parameters. Please check room name and description.');
         } else {
-          setErrorMessage(err.data?.error?.message || 'Failed to create room. Please try again.');
+          setErrorMessage(err.message || 'Failed to create room. Please try again.');
         }
       } else {
         setErrorMessage('An unexpected network error occurred while creating the room.');

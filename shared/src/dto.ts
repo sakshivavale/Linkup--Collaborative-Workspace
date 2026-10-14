@@ -24,6 +24,14 @@ export interface UpdateProfileDto {
   fullName: string;
 }
 
+export interface JoinRoomDto {
+  code: string;
+}
+
+export interface JoinRoomResponse {
+  roomId: string;
+}
+
 /** US-DASH-03: payload sent by teacher to create a new room */
 export interface CreateRoomDto {
   name: string;
