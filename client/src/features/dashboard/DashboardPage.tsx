@@ -14,6 +14,7 @@ import {
   Edit3,
   UserCog,
   Radio,
+  Key,
   KeyRound,
   ArrowRight,
   AlertCircle
@@ -318,6 +319,10 @@ export const DashboardPage: React.FC = () => {
               <Radio className="w-3.5 h-3.5" />
               <span>Live Badge on Active &bull; US-DASH-02</span>
             </div>
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 text-amber-700 dark:text-amber-400 text-xs font-medium">
+              <Key className="w-3.5 h-3.5" />
+              <span>Host Join Code &bull; US-DASH-05</span>
+            </div>
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 text-emerald-700 dark:text-emerald-400 text-xs font-medium">
               <KeyRound className="w-3.5 h-3.5" />
               <span>Join with Code Active &bull; US-DASH-04</span>
@@ -610,7 +615,7 @@ export const DashboardPage: React.FC = () => {
               </span>
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-              Rooms with active sessions display a <span className="font-bold text-rose-600 dark:text-rose-400">"Live"</span> badge and instant <span className="font-semibold text-slate-800 dark:text-slate-200">Join</span> button (US-DASH-02).
+              Rooms with active sessions display a <span className="font-bold text-rose-600 dark:text-rose-400">"Live"</span> badge and instant <span className="font-semibold text-slate-800 dark:text-slate-200">Join</span> button (US-DASH-02). Hosts also see their <span className="font-bold text-indigo-600 dark:text-indigo-400">join code</span> with a copy button (US-DASH-05).
             </p>
           </div>
 

@@ -4,7 +4,7 @@ import helmet from 'helmet';
 import { env } from './config/env';
 import { requireAuth } from './middleware/auth';
 import { supabase, updateTokenCacheUserName } from './lib/supabase';
-import { getRoomsForUser, joinRoomByCode } from './lib/rooms';
+import { getRoomsForUser, createRoom, joinRoomByCode } from './lib/rooms';
 
 // Dynamic CORS origin: accepts localhost AND any 192.168.x.x LAN IP on port 5173.
 // This permanently prevents CORS failures when the dev machine's IP changes.
@@ -152,6 +152,58 @@ app.get('/api/rooms', async (req: Request, res: Response) => {
         code: 'INTERNAL_SERVER_ERROR',
         message: 'Failed to retrieve rooms',
       },
+    });
+  }
+});
+
+// Create room endpoint (FR-8.3, FR-2.1, US-DASH-03) — teacher only
+app.post('/api/rooms', async (req: Request, res: Response) => {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({
+      error: { code: 'UNAUTHENTICATED', message: 'Authentication required' },
+    });
+  }
+
+  // AC-6: Students get 403 TEACHER_ONLY
+  if (user.role !== 'teacher') {
+    return res.status(403).json({
+      error: { code: 'TEACHER_ONLY', message: 'Only teachers can create rooms' },
+    });
+  }
+
+  const { name, description, defaultPermissions } = req.body || {};
+
+  // AC-2: Name is required, max 80 chars
+  if (typeof name !== 'string' || name.trim().length === 0) {
+    return res.status(400).json({
+      error: { code: 'VALIDATION', message: 'Room name is required' },
+    });
+  }
+  if (name.trim().length > 80) {
+    return res.status(400).json({
+      error: { code: 'VALIDATION', message: 'Room name cannot exceed 80 characters' },
+    });
+  }
+
+  // AC-2: Description optional, max 500 chars
+  if (description !== undefined && description !== null && typeof description === 'string' && description.trim().length > 500) {
+    return res.status(400).json({
+      error: { code: 'VALIDATION', message: 'Description cannot exceed 500 characters' },
+    });
+  }
+
+  try {
+    const room = await createRoom(user.id, user.fullName, {
+      name,
+      description,
+      defaultPermissions,
+    });
+    return res.status(201).json(room);
+  } catch (err) {
+    console.error('[Create Room] Error:', err);
+    return res.status(500).json({
+      error: { code: 'INTERNAL_SERVER_ERROR', message: 'Failed to create room' },
     });
   }
 });
