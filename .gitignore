@@ -2,11 +2,16 @@
 node_modules/
 .pnpm-store/
 
-# Environment files
+# Environment files (never commit secrets)
 .env
 .env.local
 .env.*.local
-!.env.example
+client/.env
+client/.env.local
+server/.env
+server/.env.local
+# Allow .env.example files to be committed (they contain no secrets)
+!**/.env.example
 
 # Build outputs
 dist/

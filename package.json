@@ -11,11 +11,16 @@
   "scripts": {
     "dev": "npm run dev --workspace=client",
     "dev:server": "npm run dev --workspace=server",
+    "dev:all": "concurrently --names \"SERVER,CLIENT\" --prefix-colors \"cyan,magenta\" \"npm run dev:server\" \"npm run dev\"",
     "build": "npm run build --workspace=client",
     "test:auth": "npm run test:auth --workspace=server",
     "test:profile": "npm run test:profile --workspace=server"
   },
   "devDependencies": {
+    "concurrently": "^10.0.6",
     "typescript": "^5.4.5"
+  },
+  "dependencies": {
+    "socket.io-client": "^4.8.4"
   }
 }
