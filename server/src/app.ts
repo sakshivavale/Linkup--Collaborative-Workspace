@@ -4,7 +4,7 @@ import helmet from 'helmet';
 import { env } from './config/env';
 import { requireAuth } from './middleware/auth';
 import { supabase, updateTokenCacheUserName } from './lib/supabase';
-import { getRoomsForUser, createRoom } from './lib/rooms';
+import { getRoomsForUser, createRoom, getRoomForUser, NotAMemberError } from './lib/rooms';
 
 // Dynamic CORS origin: accepts localhost AND any 192.168.x.x LAN IP on port 5173.
 // This permanently prevents CORS failures when the dev machine's IP changes.
@@ -204,6 +204,39 @@ app.post('/api/rooms', async (req: Request, res: Response) => {
     console.error('[Create Room] Error:', err);
     return res.status(500).json({
       error: { code: 'INTERNAL_SERVER_ERROR', message: 'Failed to create room' },
+    });
+  }
+});
+
+// Get single room endpoint — membership enforced (US-ROOM-01, FR-2.4)
+// Non-members receive 403 NOT_A_MEMBER and client redirects to dashboard.
+app.get('/api/rooms/:roomId', async (req: Request, res: Response) => {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({
+      error: { code: 'UNAUTHENTICATED', message: 'Authentication required' },
+    });
+  }
+
+  const { roomId } = req.params;
+
+  try {
+    const room = await getRoomForUser(user.id, roomId);
+    return res.status(200).json(room);
+  } catch (err: any) {
+    if (err instanceof NotAMemberError) {
+      return res.status(403).json({
+        error: { code: 'NOT_A_MEMBER', message: err.message },
+      });
+    }
+    if (err?.code === 'ROOM_NOT_FOUND') {
+      return res.status(404).json({
+        error: { code: 'ROOM_NOT_FOUND', message: 'Room not found' },
+      });
+    }
+    console.error('[Room API] Error fetching room:', err);
+    return res.status(500).json({
+      error: { code: 'INTERNAL_SERVER_ERROR', message: 'Failed to retrieve room' },
     });
   }
 });

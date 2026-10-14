@@ -1,6 +1,18 @@
 import { supabase } from './supabase';
 import { RoomSummary, MemberRole, CreateRoomDto, CreateRoomResponseDto, Permissions } from '@linkup/shared';
 
+/**
+ * Typed error thrown when a user attempts to access a room they are not a member of.
+ * Maps to HTTP 403 NOT_A_MEMBER (US-ROOM-01, FR-2.4 AC-2).
+ */
+export class NotAMemberError extends Error {
+  public readonly code = 'NOT_A_MEMBER';
+  constructor() {
+    super('You are not a member of this room');
+    this.name = 'NotAMemberError';
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Join-code generator (US-DASH-03 AC-4)
 // Characters: A-Z, 2-9 — excludes O, 0, I, 1 to avoid visual ambiguity.
@@ -196,4 +208,91 @@ export async function getRoomsForUser(userId: string): Promise<RoomSummary[]> {
     console.error('[Rooms Service] Unexpected error:', err);
     return [];
   }
+}
+
+/**
+ * Fetch a single room for a specific user and enforce membership.
+ * Throws NotAMemberError (→ 403 NOT_A_MEMBER) if user is not a member.
+ * Returns null if the room does not exist (→ 404).
+ * (US-ROOM-01, FR-2.4)
+ */
+export async function getRoomForUser(
+  userId: string,
+  roomId: string
+): Promise<RoomSummary> {
+  // 1. Check membership
+  const { data: memberRow, error: memErr } = await supabase
+    .from('room_members')
+    .select('member_role')
+    .eq('room_id', roomId)
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (memErr) {
+    console.warn('[Rooms Service] Membership check error:', memErr.message);
+    throw new Error(memErr.message);
+  }
+
+  if (!memberRow) {
+    // User is not a member — check if the room even exists for a better error
+    const { data: exists } = await supabase
+      .from('rooms')
+      .select('id')
+      .eq('id', roomId)
+      .maybeSingle();
+
+    if (!exists) {
+      // Room truly not found — caller maps to 404
+      throw Object.assign(new Error('Room not found'), { code: 'ROOM_NOT_FOUND' });
+    }
+
+    throw new NotAMemberError();
+  }
+
+  const myRole = memberRow.member_role as MemberRole;
+
+  // 2. Fetch room details
+  const { data: room, error: roomErr } = await supabase
+    .from('rooms')
+    .select('id, name, description, join_code, owner_id, created_at, archived_at')
+    .eq('id', roomId)
+    .is('archived_at', null)
+    .maybeSingle();
+
+  if (roomErr || !room) {
+    throw Object.assign(new Error('Room not found'), { code: 'ROOM_NOT_FOUND' });
+  }
+
+  // 3. Host name
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('full_name')
+    .eq('id', room.owner_id)
+    .maybeSingle();
+
+  // 4. Member count
+  const { count } = await supabase
+    .from('room_members')
+    .select('room_id', { count: 'exact', head: true })
+    .eq('room_id', roomId);
+
+  // 5. Active session
+  const { data: session } = await supabase
+    .from('live_sessions')
+    .select('id')
+    .eq('room_id', roomId)
+    .is('ended_at', null)
+    .maybeSingle();
+
+  return {
+    id: room.id,
+    name: room.name,
+    description: room.description,
+    joinCode: myRole === 'host' ? room.join_code : null,
+    hostName: profile?.full_name || 'Instructor',
+    memberCount: count ?? 1,
+    myRole,
+    activeSessionId: session?.id ?? null,
+    createdAt: room.created_at,
+  };
 }
