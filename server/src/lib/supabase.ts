@@ -2,7 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { env } from '../config/env';
 import { Me } from '@linkup/shared';
 
-const supabaseKey = env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_ANON_KEY || '';
+const supabaseKey = env.SUPABASE_SERVICE_ROLE_KEY;
 
 export const supabase = createClient(env.SUPABASE_URL, supabaseKey, {
   auth: {
@@ -82,4 +82,19 @@ export function clearTokenCache(token?: string) {
   } else {
     tokenCache.clear();
   }
+}
+
+export function updateTokenCacheUserName(userId: string, newFullName: string) {
+  for (const [, cached] of tokenCache.entries()) {
+    if (cached.user.id === userId) {
+      cached.user.fullName = newFullName;
+    }
+  }
+}
+
+export function setCachedUser(token: string, user: Me, ttlMs: number = CACHE_TTL_MS) {
+  tokenCache.set(token, {
+    user,
+    expiresAt: Date.now() + ttlMs,
+  });
 }

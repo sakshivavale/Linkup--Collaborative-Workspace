@@ -11,12 +11,13 @@
   "scripts": {
     "dev": "npm run dev --workspace=client",
     "dev:server": "npm run dev --workspace=server",
-    "dev:all": "npm-run-all --parallel dev dev:server",
     "build": "npm run build --workspace=client",
-    "test:auth": "npm run test:auth --workspace=server"
+    "test:auth": "npm run test:auth --workspace=server",
+    "test:profile": "npm run test:profile --workspace=server",
+    "test:rooms": "npm run test:rooms --workspace=server",
+    "test:dash": "npm run test:dash --workspace=server"
   },
   "devDependencies": {
-    "npm-run-all": "^4.1.5",
     "typescript": "^5.4.5"
   },
   "dependencies": {

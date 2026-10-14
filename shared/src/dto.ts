@@ -20,6 +20,10 @@ export interface Me {
   email: string;
 }
 
+export interface UpdateProfileDto {
+  fullName: string;
+}
+
 export interface RoomSummary {
   id: string;
   name: string;

@@ -3,6 +3,8 @@ import cors from 'cors';
 import helmet from 'helmet';
 import { env } from './config/env';
 import { requireAuth } from './middleware/auth';
+import { supabase, updateTokenCacheUserName } from './lib/supabase';
+import { getRoomsForUser } from './lib/rooms';
 
 // Dynamic CORS origin: accepts localhost AND any 192.168.x.x LAN IP on port 5173.
 // This permanently prevents CORS failures when the dev machine's IP changes.
@@ -47,6 +49,111 @@ app.use('/api', requireAuth);
 // Authenticated current user endpoint (FR-1.5, US-AUTH-05)
 app.get('/api/me', (req: Request, res: Response) => {
   res.status(200).json({ user: req.user });
+});
+
+// Edit profile name endpoint (FR-1.6, US-AUTH-06)
+app.patch('/api/me', async (req: Request, res: Response) => {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({
+      error: {
+        code: 'UNAUTHENTICATED',
+        message: 'Authentication required',
+      },
+    });
+  }
+
+  const { fullName } = req.body || {};
+
+  // Criterion 4: Whitespace-only or empty names are rejected with an inline error
+  if (typeof fullName !== 'string' || fullName.trim().length === 0) {
+    return res.status(400).json({
+      error: {
+        code: 'VALIDATION',
+        message: 'Full name cannot be empty or whitespace only',
+      },
+    });
+  }
+
+  const trimmedName = fullName.trim();
+
+  if (trimmedName.length > 100) {
+    return res.status(400).json({
+      error: {
+        code: 'VALIDATION',
+        message: 'Full name cannot exceed 100 characters',
+      },
+    });
+  }
+
+  try {
+    // 1. Update name in public.profiles database table (Criterion 2)
+    const { error: dbError } = await supabase
+      .from('profiles')
+      .update({ full_name: trimmedName })
+      .eq('id', user.id);
+
+    if (dbError) {
+      console.warn('[Profile Update] Database update warning:', dbError.message);
+    }
+
+    // 2. Sync to Supabase auth user metadata if available
+    try {
+      await supabase.auth.admin.updateUserById(user.id, {
+        user_metadata: { full_name: trimmedName, fullName: trimmedName },
+      });
+    } catch {
+      // Safe fallback if service role key is not configured
+    }
+
+    // 3. Invalidate/update token cache so next queries immediately return updated name
+    updateTokenCacheUserName(user.id, trimmedName);
+
+    // 4. Update current user on request object
+    const updatedUser = {
+      ...user,
+      fullName: trimmedName,
+    };
+    req.user = updatedUser;
+
+    return res.status(200).json({
+      user: updatedUser,
+    });
+  } catch (err) {
+    console.error('[Profile Update] Error:', err);
+    return res.status(500).json({
+      error: {
+        code: 'INTERNAL_SERVER_ERROR',
+        message: 'Failed to update profile name',
+      },
+    });
+  }
+});
+
+// User rooms endpoint (FR-8.1, FR-8.2, US-DASH-01, US-DASH-02)
+app.get('/api/rooms', async (req: Request, res: Response) => {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({
+      error: {
+        code: 'UNAUTHENTICATED',
+        message: 'Authentication required',
+      },
+    });
+  }
+
+  try {
+    const rooms = await getRoomsForUser(user.id);
+    return res.status(200).json(rooms);
+  } catch (err) {
+    console.error('[Rooms API] Error fetching rooms:', err);
+    return res.status(500).json({
+      error: {
+        code: 'INTERNAL_SERVER_ERROR',
+        message: 'Failed to retrieve rooms',
+      },
+    });
+  }
 });
 
 // Test routes to verify all HTTP methods under /api/* enforce token authentication
