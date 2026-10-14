@@ -156,7 +156,7 @@ app.get('/api/rooms', async (req: Request, res: Response) => {
   }
 });
 
-// Create room endpoint (FR-8.3, FR-2.1, US-DASH-03)
+// Create room endpoint (FR-8.3, FR-2.1, US-DASH-03) — teacher only
 app.post('/api/rooms', async (req: Request, res: Response) => {
   const user = req.user;
   if (!user) {
@@ -246,6 +246,7 @@ app.post('/api/rooms', async (req: Request, res: Response) => {
         code: 'INTERNAL_SERVER_ERROR',
         message: 'Failed to create room',
       },
+
     });
   }
 });

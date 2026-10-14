@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { RoomSummary, Room, Permissions, MemberRole } from '@linkup/shared';
+import { RoomSummary, Room, Permissions, MemberRole, CreateRoomDto, CreateRoomResponseDto } from '@linkup/shared';
 
 // Characters: A-Z, 2-9; no O, 0, I, 1 (US-DASH-03, FR-2.2)
 export const JOIN_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';

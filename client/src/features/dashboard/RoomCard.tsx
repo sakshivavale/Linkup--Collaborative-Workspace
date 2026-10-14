@@ -7,7 +7,8 @@ import {
   Video, 
   Copy, 
   Check, 
-  ArrowRight
+  ArrowRight,
+  Key
 } from 'lucide-react';
 
 interface RoomCardProps {
@@ -137,28 +138,55 @@ export const RoomCard: React.FC<RoomCardProps> = ({ room }) => {
           </div>
         </div>
 
-        {/* Footer actions: Join code (for host) or regular room link */}
+        {/* Footer actions: Join code (for host only — US-DASH-05) or created date (for students) */}
         <div className="flex items-center justify-between gap-2">
           {isHost && room.joinCode ? (
-            <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800/60 rounded-xl px-2.5 py-1 text-xs">
-              <span className="text-[11px] font-mono font-bold text-indigo-600 dark:text-indigo-400">
+            // US-DASH-05 AC-1: Join code is displayed on room card for the host
+            // US-DASH-05 AC-3: This block is only rendered when isHost is true, so students never see it
+            <div
+              id={`join-code-section-${room.id}`}
+              data-testid="join-code-section"
+              className="flex items-center gap-1.5 bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200/60 dark:border-indigo-500/20 rounded-xl px-2.5 py-1 text-xs"
+              title={`Room join code: ${room.joinCode}`}
+            >
+              <Key className="w-3 h-3 text-indigo-400 dark:text-indigo-500 shrink-0" />
+              <span
+                id={`join-code-display-${room.id}`}
+                data-testid="join-code-display"
+                className="text-[11px] font-mono font-bold text-indigo-600 dark:text-indigo-400 tracking-widest"
+              >
                 {room.joinCode}
               </span>
-              <button
-                type="button"
-                onClick={handleCopyJoinCode}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
-                title="Copy Join Code"
-              >
-                {copiedCode ? (
-                  <Check className="w-3.5 h-3.5 text-emerald-500" />
-                ) : (
-                  <Copy className="w-3.5 h-3.5" />
+              {/* US-DASH-05 AC-2: Copy-to-clipboard button */}
+              <div className="relative">
+                <button
+                  id={`copy-join-code-btn-${room.id}`}
+                  data-testid="copy-join-code-btn"
+                  type="button"
+                  onClick={handleCopyJoinCode}
+                  className="text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors active:scale-90"
+                  title={copiedCode ? 'Copied!' : 'Copy join code to clipboard'}
+                  aria-label={`Copy join code ${room.joinCode}`}
+                >
+                  {copiedCode ? (
+                    <Check className="w-3.5 h-3.5 text-emerald-500" />
+                  ) : (
+                    <Copy className="w-3.5 h-3.5" />
+                  )}
+                </button>
+                {copiedCode && (
+                  <span
+                    data-testid="copied-tooltip"
+                    className="absolute -top-7 left-1/2 -translate-x-1/2 px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-600 text-white whitespace-nowrap pointer-events-none shadow-md"
+                  >
+                    Copied!
+                  </span>
                 )}
-              </button>
+              </div>
             </div>
           ) : (
-            <span className="text-[11px] text-slate-400">
+            // US-DASH-05 AC-3: Students see created date — no join code shown
+            <span data-testid="no-join-code" className="text-[11px] text-slate-400">
               Created {new Date(room.createdAt).toLocaleDateString()}
             </span>
           )}
