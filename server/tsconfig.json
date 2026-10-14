@@ -3,9 +3,10 @@
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "lib": ["ES2022"],
+    "lib": [
+      "ES2022"
+    ],
     "outDir": "./dist",
-    "rootDir": "./src",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
@@ -13,8 +14,12 @@
     "resolveJsonModule": true,
     "baseUrl": ".",
     "paths": {
-      "@linkup/shared": ["../shared/src/index.ts"]
+      "@linkup/shared": [
+        "../shared/src/index.ts"
+      ]
     }
   },
-  "include": ["src/**/*", "scripts/**/*"]
+  "include": [
+    "src/**/*"
+  ]
 }
