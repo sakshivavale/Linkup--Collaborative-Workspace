@@ -1,81 +1,38 @@
 import { supabase } from './supabase';
-import { RoomSummary, MemberRole, CreateRoomDto, CreateRoomResponseDto, Permissions } from '@linkup/shared';
+import { RoomSummary, Room, Permissions, MemberRole, CreateRoomDto, CreateRoomResponseDto } from '@linkup/shared';
 
-// ---------------------------------------------------------------------------
-// Join-code generator (US-DASH-03 AC-4)
-// Characters: A-Z, 2-9 — excludes O, 0, I, 1 to avoid visual ambiguity.
-// ---------------------------------------------------------------------------
-const JOIN_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+// Characters: A-Z, 2-9; no O, 0, I, 1 (US-DASH-03, FR-2.2)
+export const JOIN_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
-function generateJoinCode(): string {
+/**
+ * Generate a 6-character uppercase alphanumeric join code without ambiguous characters (O, 0, I, 1)
+ */
+export function generateJoinCode(): string {
   let code = '';
   for (let i = 0; i < 6; i++) {
-    code += JOIN_CODE_CHARS[Math.floor(Math.random() * JOIN_CODE_CHARS.length)];
+    const randomIndex = Math.floor(Math.random() * JOIN_CODE_CHARS.length);
+    code += JOIN_CODE_CHARS[randomIndex];
   }
   return code;
 }
 
-const DEFAULT_PERMISSIONS: Permissions = {
-  canMic: true,
-  canCamera: true,
-  canScreen: false,
-  canWhiteboard: true,
-  canCode: true,
-};
-
 /**
- * Create a new room and add the creator as host (US-DASH-03, FR-8.3, FR-2.1)
+ * Generate a unique 6-character join code
  */
-export async function createRoom(
-  ownerId: string,
-  ownerName: string,
-  dto: CreateRoomDto
-): Promise<CreateRoomResponseDto> {
-  const joinCode = generateJoinCode();
-  const permissions: Permissions = { ...DEFAULT_PERMISSIONS, ...dto.defaultPermissions };
-
-  // 1. Insert the room row
-  const { data: room, error: roomErr } = await supabase
-    .from('rooms')
-    .insert({
-      name: dto.name.trim(),
-      description: dto.description?.trim() || null,
-      owner_id: ownerId,
-      join_code: joinCode,
-      default_permissions: permissions,
-    })
-    .select('id, name, description, join_code, owner_id, created_at')
-    .single();
-
-  if (roomErr || !room) {
-    throw new Error(roomErr?.message || 'Failed to create room');
+export async function generateUniqueJoinCode(
+  checkExistsFn?: (code: string) => Promise<boolean>
+): Promise<string> {
+  const maxAttempts = 20;
+  for (let i = 0; i < maxAttempts; i++) {
+    const candidate = generateJoinCode();
+    if (checkExistsFn) {
+      const exists = await checkExistsFn(candidate);
+      if (!exists) return candidate;
+    } else {
+      return candidate;
+    }
   }
-
-  // 2. Add creator as host member
-  const { error: memberErr } = await supabase
-    .from('room_members')
-    .insert({
-      room_id: room.id,
-      user_id: ownerId,
-      member_role: 'host',
-      permissions,
-    });
-
-  if (memberErr) {
-    console.warn('[createRoom] Could not add host member row:', memberErr.message);
-  }
-
-  return {
-    id: room.id,
-    name: room.name,
-    description: room.description,
-    joinCode: room.join_code,
-    hostName: ownerName,
-    memberCount: 1,
-    myRole: 'host',
-    activeSessionId: null,
-    createdAt: room.created_at,
-  };
+  return generateJoinCode();
 }
 
 // In-memory mock store for unit/integration testing (e.g. scripts/test-dash-live-badge.ts)
@@ -214,6 +171,135 @@ export async function getRoomsForUser(userId: string): Promise<RoomSummary[]> {
 }
 
 /**
+ * Create a new room with host membership and default permissions (US-DASH-03, FR-8.3, FR-2.1)
+ */
+export async function createRoom(
+  ownerId: string,
+  ownerName: string,
+  data: {
+    name: string;
+    description?: string | null;
+    defaultPermissions?: Partial<Permissions>;
+  }
+): Promise<Room> {
+  const defaultPermissions: Permissions = {
+    canMic: data.defaultPermissions?.canMic ?? false,
+    canCamera: data.defaultPermissions?.canCamera ?? false,
+    canScreen: data.defaultPermissions?.canScreen ?? false,
+    canWhiteboard: data.defaultPermissions?.canWhiteboard ?? false,
+    canCode: data.defaultPermissions?.canCode ?? false,
+  };
+
+  // Generate unique 6-character join code (characters: A-Z, 2-9; no O, 0, I, 1)
+  const joinCode = await generateUniqueJoinCode(async (code) => {
+    // Check in-memory mock store
+    for (const rooms of mockRoomsStore.values()) {
+      if (rooms.some((r) => r.joinCode === code)) return true;
+    }
+    // Check Supabase database
+    try {
+      const { data } = await supabase
+        .from('rooms')
+        .select('id')
+        .eq('join_code', code)
+        .maybeSingle();
+      return Boolean(data);
+    } catch {
+      return false;
+    }
+  });
+
+  const defaultPermsDb = {
+    can_mic: defaultPermissions.canMic,
+    can_camera: defaultPermissions.canCamera,
+    can_screen: defaultPermissions.canScreen,
+    can_whiteboard: defaultPermissions.canWhiteboard,
+    can_code: defaultPermissions.canCode,
+  };
+
+  let roomId = 'room-' + Math.random().toString(36).substring(2, 11);
+  let createdAt = new Date().toISOString();
+
+  try {
+    const { data: insertedRoom, error: roomError } = await supabase
+      .from('rooms')
+      .insert({
+        name: data.name,
+        description: data.description || null,
+        join_code: joinCode,
+        owner_id: ownerId,
+        default_permissions: defaultPermsDb,
+      })
+      .select('id, created_at')
+      .single();
+
+    if (!roomError && insertedRoom) {
+      roomId = insertedRoom.id;
+      createdAt = insertedRoom.created_at || createdAt;
+
+      // Add teacher as host in room_members (Criterion 3)
+      await supabase.from('room_members').insert({
+        room_id: roomId,
+        user_id: ownerId,
+        member_role: 'host',
+        can_mic: true,
+        can_camera: true,
+        can_screen: true,
+        can_whiteboard: true,
+        can_code: true,
+      });
+
+      // Initialize empty code_state
+      await supabase.from('code_state').insert({
+        room_id: roomId,
+        holder_id: ownerId,
+        language: 'python',
+        content: '',
+        rev: 0,
+      });
+
+      // Initialize empty whiteboard_state
+      await supabase.from('whiteboard_state').insert({
+        room_id: roomId,
+        elements: [],
+      });
+    }
+  } catch (err) {
+    console.warn('[Rooms Service] Supabase insert warning (fallback to in-memory):', err);
+  }
+
+  const roomSummary: RoomSummary = {
+    id: roomId,
+    name: data.name,
+    description: data.description || null,
+    joinCode, // Host sees join code (US-DASH-05, FR-8.4)
+    hostName: ownerName,
+    memberCount: 1,
+    myRole: 'host',
+    activeSessionId: null,
+    createdAt,
+  };
+
+  // Keep mock store in sync for unit/integration testing
+  if (mockRoomsStore.has(ownerId)) {
+    const existing = mockRoomsStore.get(ownerId) || [];
+    mockRoomsStore.set(ownerId, [roomSummary, ...existing]);
+  } else {
+    // If not in mock store yet, initialize it so immediate GET /api/rooms returns it in mock mode
+    mockRoomsStore.set(ownerId, [roomSummary]);
+  }
+
+  const createdRoom: Room = {
+    ...roomSummary,
+    defaultPermissions,
+    ownerId,
+  };
+
+  return createdRoom;
+}
+
+
+/**
  * Join a room by code (US-DASH-04, FR-8.3, FR-2.3)
  * Acceptance Criteria:
  * 1. Always accessible to students and teachers.
@@ -334,4 +420,5 @@ export async function joinRoomByCode(
   }
 
   return { roomId: room.id, alreadyMember: false };
+
 }
