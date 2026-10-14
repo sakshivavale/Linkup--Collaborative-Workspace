@@ -24,6 +24,14 @@ export interface UpdateProfileDto {
   fullName: string;
 }
 
+export interface JoinRoomDto {
+  code: string;
+}
+
+export interface JoinRoomResponse {
+  roomId: string;
+}
+
 export interface RoomSummary {
   id: string;
   name: string;

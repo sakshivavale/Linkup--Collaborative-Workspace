@@ -3,6 +3,7 @@ import { RoomSummary, MemberRole } from '@linkup/shared';
 
 // In-memory mock store for unit/integration testing (e.g. scripts/test-dash-live-badge.ts)
 const mockRoomsStore = new Map<string, RoomSummary[]>();
+const mockCatalogStore = new Map<string, { id: string; name: string; description: string | null; joinCode: string; hostName: string }>();
 
 export function setMockRooms(userId: string, rooms: RoomSummary[]) {
   mockRoomsStore.set(userId, rooms);
@@ -14,6 +15,20 @@ export function clearMockRooms(userId?: string) {
   } else {
     mockRoomsStore.clear();
   }
+}
+
+export function registerMockCatalogRoom(room: { id: string; name: string; description?: string | null; joinCode: string; hostName?: string }) {
+  mockCatalogStore.set(room.joinCode.toUpperCase(), {
+    id: room.id,
+    name: room.name,
+    description: room.description || null,
+    joinCode: room.joinCode.toUpperCase(),
+    hostName: room.hostName || 'Instructor',
+  });
+}
+
+export function clearMockCatalog() {
+  mockCatalogStore.clear();
 }
 
 /**
@@ -119,4 +134,127 @@ export async function getRoomsForUser(userId: string): Promise<RoomSummary[]> {
     console.error('[Rooms Service] Unexpected error:', err);
     return [];
   }
+}
+
+/**
+ * Join a room by code (US-DASH-04, FR-8.3, FR-2.3)
+ * Acceptance Criteria:
+ * 1. Always accessible to students and teachers.
+ * 2. Case-insensitive; normalises code to uppercase before lookup.
+ * 3. On success, user is added to the room and room card appears on dashboard.
+ * 4. Idempotent: joining a room you are already a member of returns success without error/duplicate.
+ * 5. Unknown code raises: "No room found with that code."
+ */
+export async function joinRoomByCode(
+  userId: string,
+  rawCode: string
+): Promise<{ roomId: string; alreadyMember: boolean }> {
+  // AC 2: Normalise code to uppercase
+  const code = (rawCode || '').trim().toUpperCase();
+
+  if (!code || code.length !== 6) {
+    const error: any = new Error('Room code must be 6 characters');
+    error.code = 'VALIDATION';
+    error.status = 400;
+    throw error;
+  }
+
+  // 1. Check in-memory mock catalog if test mocks are active
+  if (mockCatalogStore.size > 0 || mockRoomsStore.has(userId)) {
+    const catalogRoom = mockCatalogStore.get(code);
+    if (!catalogRoom) {
+      // AC 5: Unknown code error message
+      const error: any = new Error('No room found with that code.');
+      error.code = 'ROOM_NOT_FOUND';
+      error.status = 404;
+      throw error;
+    }
+
+    const userRooms = mockRoomsStore.get(userId) || [];
+    const isAlreadyMember = userRooms.some((r) => r.id === catalogRoom.id);
+
+    // AC 4: Idempotent
+    if (isAlreadyMember) {
+      return { roomId: catalogRoom.id, alreadyMember: true };
+    }
+
+    // AC 3: Add room to user's rooms
+    const newRoomSummary: RoomSummary = {
+      id: catalogRoom.id,
+      name: catalogRoom.name,
+      description: catalogRoom.description,
+      joinCode: null, // Students do not see join code on card (US-DASH-05)
+      hostName: catalogRoom.hostName,
+      memberCount: 2,
+      myRole: 'participant',
+      activeSessionId: null,
+      createdAt: new Date().toISOString(),
+    };
+    mockRoomsStore.set(userId, [newRoomSummary, ...userRooms]);
+
+    return { roomId: catalogRoom.id, alreadyMember: false };
+  }
+
+  // 2. Query Supabase database for room by join_code
+  const { data: room, error: roomError } = await supabase
+    .from('rooms')
+    .select('id, name, join_code, default_permissions, archived_at')
+    .eq('join_code', code)
+    .is('archived_at', null)
+    .maybeSingle();
+
+  if (roomError) {
+    console.error('[Rooms Service] Error querying room by code:', roomError.message);
+    throw new Error('Failed to query room');
+  }
+
+  // AC 5: Unknown code error
+  if (!room) {
+    const error: any = new Error('No room found with that code.');
+    error.code = 'ROOM_NOT_FOUND';
+    error.status = 404;
+    throw error;
+  }
+
+  // AC 4: Idempotency check — check if already a member
+  const { data: existingMember, error: memberQueryError } = await supabase
+    .from('room_members')
+    .select('room_id')
+    .eq('room_id', room.id)
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (memberQueryError) {
+    console.warn('[Rooms Service] Error querying room membership:', memberQueryError.message);
+  }
+
+  if (existingMember) {
+    return { roomId: room.id, alreadyMember: true };
+  }
+
+  // AC 3: User is new to the room — copy default permissions and insert
+  const defPerms = (room.default_permissions as any) || {};
+  const { error: insertError } = await supabase
+    .from('room_members')
+    .insert({
+      room_id: room.id,
+      user_id: userId,
+      member_role: 'participant',
+      can_mic: Boolean(defPerms.can_mic ?? defPerms.canMic ?? false),
+      can_camera: Boolean(defPerms.can_camera ?? defPerms.canCamera ?? false),
+      can_screen: Boolean(defPerms.can_screen ?? defPerms.canScreen ?? false),
+      can_whiteboard: Boolean(defPerms.can_whiteboard ?? defPerms.canWhiteboard ?? false),
+      can_code: Boolean(defPerms.can_code ?? defPerms.canCode ?? false),
+    });
+
+  if (insertError) {
+    // Unique constraint violation (23505) means concurrent join succeeded -> idempotent
+    if (insertError.code === '23505') {
+      return { roomId: room.id, alreadyMember: true };
+    }
+    console.error('[Rooms Service] Error inserting room member:', insertError.message);
+    throw new Error('Failed to join room');
+  }
+
+  return { roomId: room.id, alreadyMember: false };
 }

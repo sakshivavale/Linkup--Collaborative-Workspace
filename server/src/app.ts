@@ -4,7 +4,7 @@ import helmet from 'helmet';
 import { env } from './config/env';
 import { requireAuth } from './middleware/auth';
 import { supabase, updateTokenCacheUserName } from './lib/supabase';
-import { getRoomsForUser } from './lib/rooms';
+import { getRoomsForUser, joinRoomByCode } from './lib/rooms';
 
 // Dynamic CORS origin: accepts localhost AND any 192.168.x.x LAN IP on port 5173.
 // This permanently prevents CORS failures when the dev machine's IP changes.
@@ -151,6 +151,82 @@ app.get('/api/rooms', async (req: Request, res: Response) => {
       error: {
         code: 'INTERNAL_SERVER_ERROR',
         message: 'Failed to retrieve rooms',
+      },
+    });
+  }
+});
+
+// Join room by 6-character code (FR-8.3, FR-2.3, US-DASH-04)
+app.post('/api/rooms/join', async (req: Request, res: Response) => {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({
+      error: {
+        code: 'UNAUTHENTICATED',
+        message: 'Authentication required',
+      },
+    });
+  }
+
+  const { code } = req.body || {};
+
+  // Criterion 2 & 5: Empty/missing code validation
+  if (typeof code !== 'string' || !code.trim()) {
+    return res.status(400).json({
+      error: {
+        code: 'VALIDATION',
+        message: 'Room code is required and must be 6 characters',
+      },
+    });
+  }
+
+  try {
+    const result = await joinRoomByCode(user.id, code);
+
+    // Side effect per API contract Section 3.2: emit member:joined to room:<id> if user is new
+    if (!result.alreadyMember) {
+      try {
+        const io = req.app.get('io');
+        if (io) {
+          io.to(`room:${result.roomId}`).emit('member:joined', {
+            userId: user.id,
+            fullName: user.fullName,
+            role: user.role,
+          });
+        }
+      } catch (socketErr) {
+        console.warn('[Rooms API] Socket emit error:', socketErr);
+      }
+    }
+
+    // Acceptance Criterion 3 & API contract Section 3.2: 200 { roomId }
+    return res.status(200).json({
+      roomId: result.roomId,
+    });
+  } catch (err: any) {
+    if (err.code === 'ROOM_NOT_FOUND' || err.status === 404) {
+      return res.status(404).json({
+        error: {
+          code: 'ROOM_NOT_FOUND',
+          message: err.message || 'No room found with that code.',
+        },
+      });
+    }
+
+    if (err.code === 'VALIDATION' || err.status === 400) {
+      return res.status(400).json({
+        error: {
+          code: 'VALIDATION',
+          message: err.message || 'Invalid room code',
+        },
+      });
+    }
+
+    console.error('[Rooms API] Error joining room:', err);
+    return res.status(500).json({
+      error: {
+        code: 'INTERNAL_SERVER_ERROR',
+        message: 'Failed to join room',
       },
     });
   }

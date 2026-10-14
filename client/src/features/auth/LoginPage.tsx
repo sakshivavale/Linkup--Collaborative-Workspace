@@ -80,6 +80,8 @@ export const LoginPage: React.FC = () => {
           signInError.status === 400
         ) {
           setError('Incorrect email or password.');
+        } else if (msg.includes('failed to fetch') || msg.includes('network') || msg.includes('fetch')) {
+          setError('Unable to connect to the authentication server. Please check your network connection.');
         } else {
           setError(signInError.message || 'Incorrect email or password.');
         }
@@ -90,7 +92,12 @@ export const LoginPage: React.FC = () => {
       // Successful login -> Redirect to requested page or Dashboard
       navigate(from, { replace: true });
     } catch (err: any) {
-      setError(err?.message || 'Incorrect email or password.');
+      const msg = err?.message?.toLowerCase() || '';
+      if (msg.includes('failed to fetch') || msg.includes('network') || msg.includes('fetch')) {
+        setError('Unable to connect to the authentication server. Please check your network connection.');
+      } else {
+        setError(err?.message || 'Incorrect email or password.');
+      }
       setLoading(false);
     }
   };
