@@ -7,7 +7,9 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "test:auth": "tsx scripts/test-auth-enforcement.ts",
-    "test:profile": "tsx scripts/test-profile-update.ts"
+    "test:profile": "tsx scripts/test-profile-update.ts",
+    "test:rooms": "tsx scripts/test-dash-live-badge.ts",
+    "test:dash": "tsx scripts/test-dash-live-badge.ts"
   },
   "dependencies": {
     "@linkup/shared": "*",

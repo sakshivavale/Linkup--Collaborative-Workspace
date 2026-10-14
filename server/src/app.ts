@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import { env } from './config/env';
 import { requireAuth } from './middleware/auth';
 import { supabase, updateTokenCacheUserName } from './lib/supabase';
+import { getRoomsForUser } from './lib/rooms';
 
 export const app = express();
 
@@ -104,6 +105,32 @@ app.patch('/api/me', async (req: Request, res: Response) => {
       error: {
         code: 'INTERNAL_SERVER_ERROR',
         message: 'Failed to update profile name',
+      },
+    });
+  }
+});
+
+// User rooms endpoint (FR-8.1, FR-8.2, US-DASH-01, US-DASH-02)
+app.get('/api/rooms', async (req: Request, res: Response) => {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({
+      error: {
+        code: 'UNAUTHENTICATED',
+        message: 'Authentication required',
+      },
+    });
+  }
+
+  try {
+    const rooms = await getRoomsForUser(user.id);
+    return res.status(200).json(rooms);
+  } catch (err) {
+    console.error('[Rooms API] Error fetching rooms:', err);
+    return res.status(500).json({
+      error: {
+        code: 'INTERNAL_SERVER_ERROR',
+        message: 'Failed to retrieve rooms',
       },
     });
   }
