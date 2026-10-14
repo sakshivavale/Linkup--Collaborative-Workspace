@@ -27,7 +27,7 @@ export interface UpdateProfileDto {
 /** US-DASH-03: payload sent by teacher to create a new room */
 export interface CreateRoomDto {
   name: string;
-  description?: string;
+  description?: string | null;
   defaultPermissions?: Partial<Permissions>;
 }
 
