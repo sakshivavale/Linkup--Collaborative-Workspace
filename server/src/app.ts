@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import { RoomSummary } from '@linkup/shared';
 import { env } from './config/env';
 import { requireAuth } from './middleware/auth';
 import { supabase, updateTokenCacheUserName } from './lib/supabase';
@@ -104,6 +105,57 @@ app.patch('/api/me', async (req: Request, res: Response) => {
       error: {
         code: 'INTERNAL_SERVER_ERROR',
         message: 'Failed to update profile name',
+      },
+    });
+  }
+});
+
+// My rooms dashboard list for the authenticated user
+app.get('/api/rooms', async (req: Request, res: Response) => {
+  const user = req.user;
+
+  if (!user) {
+    return res.status(401).json({
+      error: {
+        code: 'UNAUTHENTICATED',
+        message: 'Authentication required',
+      },
+    });
+  }
+
+  try {
+    const { data, error } = await supabase.rpc('my_rooms', { p_user: user.id });
+
+    if (error) {
+      console.error('[Dashboard] my_rooms RPC failed:', error.message);
+      return res.status(500).json({
+        error: {
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Failed to load your rooms',
+          details: error.message,
+        },
+      });
+    }
+
+    const rooms: RoomSummary[] = (data ?? []).map((room: any) => ({
+      id: room.id,
+      name: room.name,
+      description: room.description ?? null,
+      joinCode: room.join_code ?? null,
+      hostName: room.host_name,
+      memberCount: Number(room.member_count ?? 0),
+      myRole: room.my_role === 'host' ? 'host' : 'participant',
+      activeSessionId: room.active_session_id ?? null,
+      createdAt: room.created_at,
+    }));
+
+    return res.status(200).json(rooms);
+  } catch (err) {
+    console.error('[Dashboard] Unexpected error loading rooms:', err);
+    return res.status(500).json({
+      error: {
+        code: 'INTERNAL_SERVER_ERROR',
+        message: 'Failed to load your rooms',
       },
     });
   }

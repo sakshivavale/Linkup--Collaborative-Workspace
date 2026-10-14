@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { 
   GraduationCap, 
@@ -17,6 +17,7 @@ import {
 import { ProfileSettingsModal } from '../../components/profile/ProfileSettingsModal';
 import { api, HttpError } from '../../lib/api';
 import { socket } from '../../lib/socket';
+import { RoomSummary } from '@linkup/shared';
 
 export const DashboardPage: React.FC = () => {
   const { fullName, role, session } = useAuth();
@@ -26,6 +27,67 @@ export const DashboardPage: React.FC = () => {
   const [testResult, setTestResult] = useState<{ success: boolean; message: string; details?: string } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [rooms, setRooms] = useState<RoomSummary[]>([]);
+  const [isRoomsLoading, setIsRoomsLoading] = useState(true);
+  const [roomsError, setRoomsError] = useState<string | null>(null);
+  const [joinCode, setJoinCode] = useState('');
+  const [joinFeedback, setJoinFeedback] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
+
+  const handleCreateRoomFocus = () => {
+    const target = document.getElementById('dashboard-create-room-card');
+    target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    target?.focus();
+  };
+
+  const handleJoinCodeSubmit = (event: React.FormEvent) => {
+    event.preventDefault();
+    const normalized = joinCode.trim().toUpperCase();
+
+    if (!normalized) {
+      setJoinFeedback({ type: 'error', message: 'Enter a room code to continue.' });
+      return;
+    }
+
+    if (!/^[A-Z2-9]{6}$/.test(normalized)) {
+      setJoinFeedback({ type: 'error', message: 'Room code must be 6 characters using letters and numbers only.' });
+      return;
+    }
+
+    setJoinFeedback({
+      type: 'info',
+      message: 'Join-room flow is connected to the existing room workflow. Complete the backend room-join API integration to finish this action.',
+    });
+  };
+
+  useEffect(() => {
+    let isActive = true;
+
+    const loadRooms = async () => {
+      setIsRoomsLoading(true);
+      setRoomsError(null);
+
+      try {
+        const data = await api.get<RoomSummary[]>('/api/rooms');
+        if (isActive) {
+          setRooms(data);
+        }
+      } catch (err) {
+        if (isActive) {
+          setRoomsError(err instanceof HttpError ? err.message : 'Unable to load your rooms right now.');
+        }
+      } finally {
+        if (isActive) {
+          setIsRoomsLoading(false);
+        }
+      }
+    };
+
+    loadRooms();
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
 
   const testRejectWhitespace = async () => {
     setIsLoading(true);
@@ -282,7 +344,11 @@ export const DashboardPage: React.FC = () => {
       {/* Action Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
         {isTeacher ? (
-          <div className="glass-panel p-6 rounded-2xl hover:border-indigo-500/40 transition-all cursor-pointer group">
+          <div
+            id="dashboard-create-room-card"
+            tabIndex={-1}
+            className="glass-panel p-6 rounded-2xl hover:border-indigo-500/40 transition-all cursor-pointer group focus:outline-none focus:ring-2 focus:ring-indigo-500/60"
+          >
             <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/20 flex items-center justify-center text-indigo-600 dark:text-indigo-400 mb-4 group-hover:scale-110 transition-transform">
               <PlusCircle className="w-5 h-5" />
             </div>
@@ -300,16 +366,144 @@ export const DashboardPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Empty state for rooms */}
-      <div className="glass-panel rounded-2xl p-10 text-center border-dashed border-slate-300 dark:border-slate-800">
-        <div className="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-slate-800/80 mx-auto flex items-center justify-center text-slate-500 dark:text-slate-400 mb-3">
-          <Users className="w-6 h-6" />
+      <section className="mb-8">
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <div>
+            <h2 className="text-lg font-bold text-slate-900 dark:text-white">My Rooms</h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Newest rooms first</p>
+          </div>
         </div>
-        <h2 className="text-base font-semibold text-slate-800 dark:text-slate-200">No rooms active yet</h2>
-        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-sm mx-auto">
-          Your classrooms and active sessions will appear here as soon as they are created or joined.
-        </p>
-      </div>
+
+        {isRoomsLoading ? (
+          <div className="glass-panel rounded-2xl p-8 text-sm text-slate-500 dark:text-slate-400">
+            Loading your rooms...
+          </div>
+        ) : roomsError ? (
+          <div className="glass-panel rounded-2xl p-6 border border-rose-200 dark:border-rose-500/30 bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 text-sm">
+            {roomsError}
+          </div>
+        ) : rooms.length === 0 ? (
+          isTeacher ? (
+            <div className="glass-panel rounded-2xl p-8 text-center border-dashed border-indigo-300 dark:border-indigo-500/30 bg-indigo-50/40 dark:bg-indigo-500/5">
+              <div className="w-14 h-14 rounded-2xl bg-indigo-100 dark:bg-indigo-500/10 mx-auto flex items-center justify-center text-indigo-600 dark:text-indigo-300 mb-4">
+                <PlusCircle className="w-7 h-7" />
+              </div>
+              <h2 className="text-xl font-bold text-slate-900 dark:text-white">Create your first room</h2>
+              <p className="mt-2 max-w-md mx-auto text-sm text-slate-600 dark:text-slate-300">
+                Start a classroom, invite students, and share a room code so everyone can join the same workspace.
+              </p>
+              <button
+                type="button"
+                onClick={handleCreateRoomFocus}
+                className="mt-5 inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm transition-colors"
+              >
+                <PlusCircle className="w-4 h-4" />
+                Create Room
+              </button>
+            </div>
+          ) : (
+            <div className="glass-panel rounded-2xl p-8 border-dashed border-emerald-300 dark:border-emerald-500/30 bg-emerald-50/40 dark:bg-emerald-500/5">
+              <div className="w-14 h-14 rounded-2xl bg-emerald-100 dark:bg-emerald-500/10 mx-auto flex items-center justify-center text-emerald-600 dark:text-emerald-300 mb-4">
+                <DoorOpen className="w-7 h-7" />
+              </div>
+              <h2 className="text-xl font-bold text-slate-900 dark:text-white text-center">Ask your teacher for a room code and join below</h2>
+
+              <form onSubmit={handleJoinCodeSubmit} className="mt-5 max-w-md mx-auto">
+                <label htmlFor="dashboard-room-code" className="sr-only">Room code</label>
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <input
+                    id="dashboard-room-code"
+                    value={joinCode}
+                    onChange={(event) => {
+                      setJoinCode(event.target.value);
+                      if (joinFeedback) {
+                        setJoinFeedback(null);
+                      }
+                    }}
+                    placeholder="Enter 6-character code"
+                    className="flex-1 rounded-xl border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-900/70 px-3 py-2.5 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none"
+                    maxLength={6}
+                    aria-label="Room code"
+                  />
+                  <button
+                    type="submit"
+                    className="inline-flex items-center justify-center rounded-xl bg-emerald-600 hover:bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white transition-colors"
+                  >
+                    Join
+                  </button>
+                </div>
+              </form>
+
+              {joinFeedback && (
+                <p
+                  className={`mt-3 text-sm text-center ${
+                    joinFeedback.type === 'error'
+                      ? 'text-rose-600 dark:text-rose-300'
+                      : joinFeedback.type === 'success'
+                        ? 'text-emerald-600 dark:text-emerald-300'
+                        : 'text-slate-600 dark:text-slate-300'
+                  }`}
+                >
+                  {joinFeedback.message}
+                </p>
+              )}
+            </div>
+          )
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {rooms.map((room) => {
+              const isTeacherRoom = room.myRole === 'host';
+
+              return (
+                <div key={room.id} className="glass-panel rounded-2xl p-5 flex flex-col gap-4 hover:border-indigo-500/40 transition-all">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h3 className="text-base font-bold text-slate-900 dark:text-white">{room.name}</h3>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                        Hosted by <span className="font-semibold text-slate-700 dark:text-slate-200">{room.hostName}</span>
+                      </p>
+                    </div>
+                    <span className={`px-2 py-1 rounded-full text-[10px] font-semibold ${
+                      isTeacherRoom
+                        ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300'
+                        : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300'
+                    }`}>
+                      {isTeacherRoom ? 'Teacher' : 'Student'}
+                    </span>
+                  </div>
+
+                  <div className="flex flex-wrap gap-3 text-xs text-slate-600 dark:text-slate-300">
+                    <div className="flex items-center gap-1.5">
+                      <Users className="w-3.5 h-3.5" />
+                      <span>{room.memberCount} members</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <DoorOpen className="w-3.5 h-3.5" />
+                      <span>{room.activeSessionId ? 'Live' : 'Idle'}</span>
+                    </div>
+                  </div>
+
+                  {room.description ? (
+                    <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2">{room.description}</p>
+                  ) : (
+                    <p className="text-xs text-slate-400 dark:text-slate-500 italic">No room description.</p>
+                  )}
+
+                  <div className="mt-auto flex items-center justify-between gap-3 pt-2 border-t border-slate-200/80 dark:border-slate-800">
+                    <span className="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-500">{new Date(room.createdAt).toLocaleDateString()}</span>
+                    <a
+                      href={`/rooms/${room.id}`}
+                      className="inline-flex items-center justify-center px-3 py-1.5 rounded-xl text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 transition-colors"
+                    >
+                      Open room
+                    </a>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
 
       {/* Profile Settings Modal */}
       <ProfileSettingsModal
