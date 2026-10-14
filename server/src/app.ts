@@ -4,7 +4,7 @@ import helmet from 'helmet';
 import { env } from './config/env';
 import { requireAuth } from './middleware/auth';
 import { supabase, updateTokenCacheUserName } from './lib/supabase';
-import { getRoomsForUser } from './lib/rooms';
+import { getRoomsForUser, createRoom } from './lib/rooms';
 
 // Dynamic CORS origin: accepts localhost AND any 192.168.x.x LAN IP on port 5173.
 // This permanently prevents CORS failures when the dev machine's IP changes.
@@ -151,6 +151,100 @@ app.get('/api/rooms', async (req: Request, res: Response) => {
       error: {
         code: 'INTERNAL_SERVER_ERROR',
         message: 'Failed to retrieve rooms',
+      },
+    });
+  }
+});
+
+// Create room endpoint (FR-8.3, FR-2.1, US-DASH-03)
+app.post('/api/rooms', async (req: Request, res: Response) => {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({
+      error: {
+        code: 'UNAUTHENTICATED',
+        message: 'Authentication required',
+      },
+    });
+  }
+
+  // Acceptance Criterion 6: direct API call with a student token returns 403 TEACHER_ONLY
+  if (user.role !== 'teacher') {
+    return res.status(403).json({
+      error: {
+        code: 'TEACHER_ONLY',
+        message: 'Only teachers can create rooms',
+      },
+    });
+  }
+
+  const { name, description, defaultPermissions } = req.body || {};
+
+  // Acceptance Criterion 2: Room Name (required, max 80 chars)
+  if (typeof name !== 'string' || name.trim().length === 0) {
+    return res.status(400).json({
+      error: {
+        code: 'VALIDATION',
+        message: 'Room name is required and cannot be empty or whitespace only',
+      },
+    });
+  }
+
+  const trimmedName = name.trim();
+  if (trimmedName.length > 80) {
+    return res.status(400).json({
+      error: {
+        code: 'VALIDATION',
+        message: 'Room name cannot exceed 80 characters',
+      },
+    });
+  }
+
+  // Acceptance Criterion 2: Description (optional, max 500 chars)
+  let trimmedDesc: string | null = null;
+  if (description !== undefined && description !== null) {
+    if (typeof description !== 'string') {
+      return res.status(400).json({
+        error: {
+          code: 'VALIDATION',
+          message: 'Description must be a string',
+        },
+      });
+    }
+    trimmedDesc = description.trim();
+    if (trimmedDesc.length > 500) {
+      return res.status(400).json({
+        error: {
+          code: 'VALIDATION',
+          message: 'Description cannot exceed 500 characters',
+        },
+      });
+    }
+  }
+
+  // Acceptance Criterion 2: 5 default-permission toggles (Mic, Camera, Screen, Whiteboard, Code)
+  const perms = {
+    canMic: Boolean(defaultPermissions?.canMic),
+    canCamera: Boolean(defaultPermissions?.canCamera),
+    canScreen: Boolean(defaultPermissions?.canScreen),
+    canWhiteboard: Boolean(defaultPermissions?.canWhiteboard),
+    canCode: Boolean(defaultPermissions?.canCode),
+  };
+
+  try {
+    const createdRoom = await createRoom(user.id, user.fullName, {
+      name: trimmedName,
+      description: trimmedDesc,
+      defaultPermissions: perms,
+    });
+
+    return res.status(201).json(createdRoom);
+  } catch (err) {
+    console.error('[Rooms API] Error creating room:', err);
+    return res.status(500).json({
+      error: {
+        code: 'INTERNAL_SERVER_ERROR',
+        message: 'Failed to create room',
       },
     });
   }

@@ -24,6 +24,12 @@ export interface UpdateProfileDto {
   fullName: string;
 }
 
+export interface CreateRoomDto {
+  name: string;
+  description?: string | null;
+  defaultPermissions?: Partial<Permissions>;
+}
+
 export interface RoomSummary {
   id: string;
   name: string;
