@@ -67,6 +67,7 @@ export interface RoomSummary {
   activeSessionId: string | null;
   createdAt: string;
   members?: Member[];
+  presence?: PresenceEntry[];
 }
 
 export interface Room extends RoomSummary {
@@ -81,6 +82,19 @@ export interface Member {
   memberRole: MemberRole;
   permissions: Permissions;
   joinedAt: string;
+}
+
+/** US-ROOM-02: Real-time room presence tracking */
+export interface PresenceEntry {
+  userId: string;
+  fullName: string;
+  inLive: boolean;
+  handRaised: boolean;
+}
+
+export interface PresenceUpdatePayload {
+  roomId: string;
+  presence: PresenceEntry[];
 }
 
 export interface Session {

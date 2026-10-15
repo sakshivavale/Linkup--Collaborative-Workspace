@@ -63,6 +63,29 @@ export const RoomPage: React.FC = () => {
     }
   }, [room?.joinCode]);
 
+  // Join Room Socket.IO channel for real-time presence, chat, and room updates (US-ROOM-02, FR-2.4)
+  useEffect(() => {
+    if (!roomId) return;
+
+    if (!socket.connected) {
+      socket.connect();
+    }
+
+    const joinRoomChannel = () => {
+      socket.emit('room:join', roomId);
+    };
+
+    if (socket.connected) {
+      joinRoomChannel();
+    }
+    socket.on('connect', joinRoomChannel);
+
+    return () => {
+      socket.off('connect', joinRoomChannel);
+      socket.emit('room:leave', roomId);
+    };
+  }, [roomId]);
+
   useEffect(() => {
     const handleJoinCodeUpdated = (data: { roomId: string; joinCode: string }) => {
       if (data.roomId === roomId) {

@@ -4,6 +4,13 @@ import { app } from './app';
 import { env } from './config/env';
 import { socketAuthMiddleware } from './realtime/socketAuth';
 import { getRoomForUser, NotAMemberError } from './lib/rooms';
+import {
+  addSocketToRoom,
+  removeSocketFromRoom,
+  handleSocketDisconnect,
+  setUserLiveStatus,
+  setUserHandStatus,
+} from './realtime/presence';
 
 const server = http.createServer(app);
 
@@ -41,49 +48,170 @@ io.on('connection', (socket) => {
   console.log(`[Socket] Authenticated user connected: ${user?.fullName} (${user?.id}) - Socket ID: ${socket.id}`);
 
   /**
+   * Helper to extract roomId from either string or object payload
+   */
+  const extractRoomId = (payload: any): string => {
+    if (typeof payload === 'string') return payload.trim();
+    if (payload && typeof payload === 'object' && typeof payload.roomId === 'string') {
+      return payload.roomId.trim();
+    }
+    return '';
+  };
+
+  /**
    * room:join — client requests to join a room's Socket.IO channel.
    * Membership is checked server-side. Non-members receive room:error NOT_A_MEMBER
    * and are NOT subscribed to the room channel (US-ROOM-01 AC-2, FR-2.4).
+   * Presence is tracked and broadcast immediately (<1s) (US-ROOM-02, FR-2.4).
    */
-  socket.on('room:join', async (roomId: string) => {
-    if (!user?.id || typeof roomId !== 'string' || !roomId.trim()) {
-      socket.emit('room:error', { code: 'VALIDATION', message: 'Invalid room ID' });
+  socket.on('room:join', async (payload: any, ack?: (res: any) => void) => {
+    const roomId = extractRoomId(payload);
+    if (!user?.id || !roomId) {
+      const errRes = { code: 'VALIDATION', message: 'Invalid room ID' };
+      socket.emit('room:error', errRes);
+      if (typeof ack === 'function') ack({ ok: false, error: errRes });
       return;
     }
 
     try {
-      await getRoomForUser(user.id, roomId.trim());
-      // Membership confirmed — subscribe socket to the room channel
-      await socket.join(roomId.trim());
-      console.log(`[Socket] User ${user.fullName} joined room channel: ${roomId}`);
-      socket.emit('room:joined', { roomId: roomId.trim() });
+      await getRoomForUser(user.id, roomId);
+      // Membership confirmed — subscribe socket to room channels (both roomId and room:roomId)
+      await socket.join(roomId);
+      await socket.join(`room:${roomId}`);
+
+      // Register presence for US-ROOM-02
+      const presence = addSocketToRoom(roomId, socket.id, user);
+
+      console.log(`[Socket] User ${user.fullName} joined room channel: ${roomId} (${presence.length} online)`);
+
+      // Broadcast presence:update immediately to all room members
+      io.to(`room:${roomId}`).to(roomId).emit('presence:update', {
+        roomId,
+        presence,
+      });
+
+      socket.emit('room:joined', { roomId, presence });
+      if (typeof ack === 'function') {
+        ack({ ok: true, data: { roomId, presence } });
+      }
     } catch (err: any) {
       if (err instanceof NotAMemberError) {
         console.warn(`[Socket] User ${user.fullName} (${user.id}) NOT_A_MEMBER for room ${roomId}`);
-        socket.emit('room:error', { code: 'NOT_A_MEMBER', message: err.message });
+        const notMemberErr = { code: 'NOT_A_MEMBER', message: err.message };
+        socket.emit('room:error', notMemberErr);
+        if (typeof ack === 'function') ack({ ok: false, error: notMemberErr });
       } else {
         console.error(`[Socket] Error joining room ${roomId}:`, err);
-        socket.emit('room:error', { code: 'INTERNAL_SERVER_ERROR', message: 'Failed to join room' });
+        const internalErr = { code: 'INTERNAL_SERVER_ERROR', message: 'Failed to join room' };
+        socket.emit('room:error', internalErr);
+        if (typeof ack === 'function') ack({ ok: false, error: internalErr });
       }
     }
   });
 
-  socket.on('room:leave', (roomId: string) => {
-    if (typeof roomId === 'string' && roomId.trim()) {
-      socket.leave(roomId.trim());
-      console.log(`[Socket] User ${user?.fullName} left room channel: ${roomId}`);
+  socket.on('room:leave', (payload: any, ack?: (res: any) => void) => {
+    const roomId = extractRoomId(payload);
+    if (roomId) {
+      socket.leave(roomId);
+      socket.leave(`room:${roomId}`);
+      const presence = removeSocketFromRoom(roomId, socket.id);
+      console.log(`[Socket] User ${user?.fullName} left room channel: ${roomId} (${presence.length} online)`);
+
+      io.to(`room:${roomId}`).to(roomId).emit('presence:update', {
+        roomId,
+        presence,
+      });
+
+      if (typeof ack === 'function') ack({ ok: true });
+    }
+  });
+
+  /**
+   * live:joined — user enters the live call (US-ROOM-02 AC-3)
+   */
+  socket.on('live:joined', (payload: any, ack?: (res: any) => void) => {
+    const roomId = extractRoomId(payload);
+    if (roomId && user?.id) {
+      const presence = setUserLiveStatus(roomId, user.id, true);
+      if (presence) {
+        io.to(`room:${roomId}`).to(roomId).emit('presence:update', {
+          roomId,
+          presence,
+        });
+      }
+      if (typeof ack === 'function') ack({ ok: true });
+    }
+  });
+
+  /**
+   * live:left — user leaves the live call (US-ROOM-02 AC-3)
+   */
+  socket.on('live:left', (payload: any, ack?: (res: any) => void) => {
+    const roomId = extractRoomId(payload);
+    if (roomId && user?.id) {
+      const presence = setUserLiveStatus(roomId, user.id, false);
+      if (presence) {
+        io.to(`room:${roomId}`).to(roomId).emit('presence:update', {
+          roomId,
+          presence,
+        });
+      }
+      if (typeof ack === 'function') ack({ ok: true });
+    }
+  });
+
+  /**
+   * hand:raise — raise or lower hand in live session
+   */
+  socket.on('hand:raise', (payload: any) => {
+    const roomId = extractRoomId(payload);
+    const raised = Boolean(payload?.raised);
+    if (roomId && user?.id) {
+      const presence = setUserHandStatus(roomId, user.id, raised);
+      if (presence) {
+        io.to(`room:${roomId}`).to(roomId).emit('presence:update', {
+          roomId,
+          presence,
+        });
+        io.to(`room:${roomId}`).to(roomId).emit('hand:changed', {
+          roomId,
+          userId: user.id,
+          raised,
+        });
+      }
     }
   });
 
   socket.on('disconnect', (reason) => {
     console.log(`[Socket] User disconnected: ${user?.fullName} (${user?.id}) - Reason: ${reason}`);
+    const affectedRooms = handleSocketDisconnect(socket.id);
+    for (const { roomId, presence } of affectedRooms) {
+      io.to(`room:${roomId}`).to(roomId).emit('presence:update', {
+        roomId,
+        presence,
+      });
+    }
   });
 });
 
-server.listen(env.PORT, () => {
-  console.log(`[Server] LinkUp API server running on port ${env.PORT}`);
-  console.log(`[Server] Health check available at http://localhost:${env.PORT}/health`);
-  console.log(`[Server] Protected API routes mounted at http://localhost:${env.PORT}/api/*`);
+const isDirectExecution =
+  process.argv[1] &&
+  (/src[\\/]index\.ts$/.test(process.argv[1]) || /dist[\\/]index\.js$/.test(process.argv[1]));
+
+server.on('error', (err: any) => {
+  if (err.code === 'EADDRINUSE') {
+    console.warn(`[Server] Port ${env.PORT} already in use; skipping direct server.listen`);
+  } else {
+    throw err;
+  }
 });
+
+if (isDirectExecution && process.env.NODE_ENV !== 'test') {
+  server.listen(env.PORT, () => {
+    console.log(`[Server] LinkUp API server running on port ${env.PORT}`);
+    console.log(`[Server] Health check available at http://localhost:${env.PORT}/health`);
+    console.log(`[Server] Protected API routes mounted at http://localhost:${env.PORT}/api/*`);
+  });
+}
 
 export { server };

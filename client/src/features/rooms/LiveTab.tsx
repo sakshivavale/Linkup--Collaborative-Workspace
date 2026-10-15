@@ -1,5 +1,6 @@
-import React from 'react';
-import { Video, Mic, MicOff, VideoOff, PhoneOff } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Video, Mic, MicOff, VideoOff, PhoneOff, PhoneCall } from 'lucide-react';
+import { socket } from '../../lib/socket';
 
 interface LiveTabProps {
   roomId: string;
@@ -7,14 +8,33 @@ interface LiveTabProps {
 }
 
 /**
- * LiveTab — placeholder for the live audio/video call panel.
+ * LiveTab — the live audio/video call panel.
  * Audio continues even when the user switches to other tabs (US-ROOM-01 AC-3).
- * The audio/video tracks live outside the tab tree in a persistent context —
- * this panel only renders the visual call controls.
+ * Emits live:joined / live:left to sync real-time presence (US-ROOM-02 AC-3).
  */
-export const LiveTab: React.FC<LiveTabProps> = ({ sessionId }) => {
-  const [micOn, setMicOn] = React.useState(true);
-  const [camOn, setCamOn] = React.useState(false);
+export const LiveTab: React.FC<LiveTabProps> = ({ roomId, sessionId }) => {
+  const [micOn, setMicOn] = useState(true);
+  const [camOn, setCamOn] = useState(false);
+  const [inCall, setInCall] = useState(Boolean(sessionId));
+
+  useEffect(() => {
+    if (inCall && roomId) {
+      socket.emit('live:joined', { roomId });
+      return () => {
+        socket.emit('live:left', { roomId });
+      };
+    }
+  }, [inCall, roomId]);
+
+  const handleToggleCall = () => {
+    if (inCall) {
+      socket.emit('live:left', { roomId });
+      setInCall(false);
+    } else {
+      socket.emit('live:joined', { roomId });
+      setInCall(true);
+    }
+  };
 
   return (
     <div className="flex flex-col items-center justify-center h-full gap-6 py-12">
@@ -74,10 +94,15 @@ export const LiveTab: React.FC<LiveTabProps> = ({ sessionId }) => {
 
         <button
           id="room-leave-call"
-          title="Leave call"
-          className="w-12 h-12 rounded-full flex items-center justify-center bg-red-600 hover:bg-red-700 text-white transition-all shadow-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+          onClick={handleToggleCall}
+          title={inCall ? 'Leave call' : 'Join call'}
+          className={`w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+            inCall
+              ? 'bg-red-600 hover:bg-red-700 text-white focus:ring-red-500'
+              : 'bg-emerald-600 hover:bg-emerald-700 text-white focus:ring-emerald-500'
+          }`}
         >
-          <PhoneOff className="w-5 h-5" />
+          {inCall ? <PhoneOff className="w-5 h-5" /> : <PhoneCall className="w-5 h-5" />}
         </button>
       </div>
 
