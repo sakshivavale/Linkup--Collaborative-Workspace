@@ -30,6 +30,9 @@ export const io = new SocketIOServer(server, {
   },
 });
 
+// Attach io to express app for route handlers
+app.set('io', io);
+
 // Enforce Socket.IO authentication middleware (US-AUTH-05)
 io.use(socketAuthMiddleware);
 

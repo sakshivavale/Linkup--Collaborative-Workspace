@@ -15,7 +15,8 @@
     "test:auth": "npm run test:auth --workspace=server",
     "test:profile": "npm run test:profile --workspace=server",
     "test:rooms": "npm run test:rooms --workspace=server",
-    "test:dash": "npm run test:dash --workspace=server"
+    "test:dash": "npm run test:dash --workspace=server",
+    "test:create-room": "npm run test:create-room --workspace=server"
   },
   "devDependencies": {
     "typescript": "^5.4.5"

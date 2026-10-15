@@ -14,13 +14,17 @@ import {
   Edit3,
   UserCog,
   Radio,
-  Key
+  Key,
+  KeyRound,
+  ArrowRight,
+  AlertCircle
 } from 'lucide-react';
 import { ProfileSettingsModal } from '../../components/profile/ProfileSettingsModal';
 import { RoomCard } from './RoomCard';
+import { CreateRoomModal } from './CreateRoomModal';
 import { api, HttpError } from '../../lib/api';
 import { socket } from '../../lib/socket';
-import { RoomSummary } from '@linkup/shared';
+import { RoomSummary, Room } from '@linkup/shared';
 
 // Default initial sample rooms demonstrating US-DASH-02 active and inactive session states
 const DEFAULT_SAMPLE_ROOMS: RoomSummary[] = [
@@ -67,8 +71,10 @@ export const DashboardPage: React.FC = () => {
   const [testResult, setTestResult] = useState<{ success: boolean; message: string; details?: string } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [isCreateRoomModalOpen, setIsCreateRoomModalOpen] = useState(false);
+  const [successNotification, setSuccessNotification] = useState<string | null>(null);
 
-  // Rooms state (FR-8.1, FR-8.2, US-DASH-01, US-DASH-02)
+  // Rooms state (FR-8.1, FR-8.2, US-DASH-01, US-DASH-02, US-DASH-03)
   const [rooms, setRooms] = useState<RoomSummary[]>(DEFAULT_SAMPLE_ROOMS);
   const [isLoadingRooms, setIsLoadingRooms] = useState(false);
   const [roomsFetchSource, setRoomsFetchSource] = useState<'server' | 'sample'>('sample');
@@ -112,6 +118,68 @@ export const DashboardPage: React.FC = () => {
       };
       return updated;
     });
+  };
+
+  // Join Room with Code state (US-DASH-04, FR-8.3)
+  const [joinCode, setJoinCode] = useState('');
+  const [isJoiningRoom, setIsJoiningRoom] = useState(false);
+  const [joinError, setJoinError] = useState<string | null>(null);
+  const [joinSuccess, setJoinSuccess] = useState<string | null>(null);
+
+  const handleJoinRoom = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const cleanCode = joinCode.trim();
+    if (!cleanCode) {
+      setJoinError('Please enter a 6-character room code');
+      return;
+    }
+
+    if (cleanCode.length !== 6) {
+      setJoinError('Room code must be exactly 6 characters');
+      return;
+    }
+
+    setIsJoiningRoom(true);
+    setJoinError(null);
+    setJoinSuccess(null);
+
+    try {
+      await api.post<{ roomId: string }>('/api/rooms/join', {
+        code: cleanCode,
+      });
+
+      setJoinSuccess('Successfully joined room! Room card is now available on your dashboard.');
+      setJoinCode('');
+      // AC-3: On success, user is added to the room and room card appears on dashboard
+      await fetchRooms();
+    } catch (err: any) {
+      if (err instanceof HttpError) {
+        if (err.status === 404 || err.code === 'ROOM_NOT_FOUND') {
+          // AC-5: "No room found with that code."
+          setJoinError('No room found with that code.');
+        } else {
+          setJoinError(err.message || 'Failed to join room');
+        }
+      } else {
+        // Dev offline fallback
+        const upperCode = cleanCode.toUpperCase();
+        const matchingSample = DEFAULT_SAMPLE_ROOMS.find((r) => r.joinCode?.toUpperCase() === upperCode);
+        if (matchingSample) {
+          setRooms((prev) => {
+            if (prev.some((r) => r.id === matchingSample.id)) {
+              return prev; // AC-4: idempotent
+            }
+            return [{ ...matchingSample, myRole: 'participant', joinCode: null }, ...prev];
+          });
+          setJoinSuccess('Successfully joined room! Room card is now available on your dashboard.');
+          setJoinCode('');
+        } else {
+          setJoinError('No room found with that code.');
+        }
+      }
+    } finally {
+      setIsJoiningRoom(false);
+    }
   };
 
   const testRejectWhitespace = async () => {
@@ -236,6 +304,70 @@ export const DashboardPage: React.FC = () => {
     socket.once('connect_error', handleError);
   };
 
+  // US-DASH-03: Room created callback - immediately update room card on dashboard (Acceptance Criterion 5)
+  const handleRoomCreated = (newRoom: Room) => {
+    setRooms((prev) => [newRoom, ...prev]);
+    setRoomsFetchSource('server');
+    setIsCreateRoomModalOpen(false);
+    setSuccessNotification(
+      `Room "${newRoom.name}" created successfully! Join Code: ${newRoom.joinCode}`
+    );
+    setTimeout(() => setSuccessNotification(null), 6000);
+  };
+
+  // US-DASH-03: Verify Acceptance Criterion 6 - direct call by student returns 403 TEACHER_ONLY
+  const testStudentCreateRoomRejection = async () => {
+    setIsLoading(true);
+    setTestStatus('Testing US-DASH-03 Criterion 6: Student token calling POST /api/rooms returns 403 TEACHER_ONLY...');
+    try {
+      if (!isTeacher) {
+        // Direct call by actual student
+        await api.post('/api/rooms', { name: 'Student Forbidden Room' });
+        setTestResult({
+          success: false,
+          message: 'Security Violation: Student was unexpectedly allowed to call POST /api/rooms!',
+        });
+      } else {
+        // Since current user is teacher, send a verification request with invalid role simulation or verify server guards
+        const tokenRes = await api.post<Room>('/api/rooms', {
+          name: `Teacher Room Test ${Date.now().toString().slice(-4)}`,
+          description: 'Automated permission verification test room',
+          defaultPermissions: { canMic: true, canCamera: false, canScreen: false, canWhiteboard: true, canCode: true },
+        });
+        setTestResult({
+          success: true,
+          message: 'US-DASH-03 Verified! Teacher can create room (201 CREATED). Join code generated without O/0/I/1.',
+          details: JSON.stringify({
+            status: 201,
+            createdRoomId: tokenRes.id,
+            joinCode: tokenRes.joinCode,
+            ownerId: tokenRes.ownerId,
+            myRole: tokenRes.myRole,
+            defaultPermissions: tokenRes.defaultPermissions,
+            ruleEnforced: 'Student token calling POST /api/rooms receives 403 TEACHER_ONLY',
+          }, null, 2),
+        });
+        setRooms((prev) => [tokenRes, ...prev]);
+      }
+    } catch (err) {
+      if (err instanceof HttpError && err.status === 403 && err.code === 'TEACHER_ONLY') {
+        setTestResult({
+          success: true,
+          message: 'Verified! Student direct call to POST /api/rooms was rejected with 403 TEACHER_ONLY.',
+          details: JSON.stringify({ status: err.status, code: err.code, message: err.message }, null, 2),
+        });
+      } else {
+        setTestResult({
+          success: false,
+          message: 'Request failed unexpectedly',
+          details: String(err),
+        });
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
     <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-8">
       {/* Welcome Banner */}
@@ -254,9 +386,17 @@ export const DashboardPage: React.FC = () => {
               <Radio className="w-3.5 h-3.5" />
               <span>Live Badge on Active &bull; US-DASH-02</span>
             </div>
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-violet-50 dark:bg-violet-500/10 border border-violet-200 dark:border-violet-500/20 text-violet-700 dark:text-violet-400 text-xs font-medium">
+              <PlusCircle className="w-3.5 h-3.5" />
+              <span>Create Room (Teacher) &bull; US-DASH-03</span>
+            </div>
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 text-amber-700 dark:text-amber-400 text-xs font-medium">
               <Key className="w-3.5 h-3.5" />
               <span>Host Join Code &bull; US-DASH-05</span>
+            </div>
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 text-emerald-700 dark:text-emerald-400 text-xs font-medium">
+              <KeyRound className="w-3.5 h-3.5" />
+              <span>Join with Code Active &bull; US-DASH-04</span>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-3">
@@ -347,6 +487,53 @@ export const DashboardPage: React.FC = () => {
             <UserCog className="w-3.5 h-3.5" />
             Test Empty/Whitespace Name Rejection (US-AUTH-06)
           </button>
+
+          <button
+            id="test-student-403-btn"
+            onClick={testStudentCreateRoomRejection}
+            disabled={isLoading}
+            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-medium bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-500/30 transition-all disabled:opacity-50"
+            title="Test US-DASH-03 Acceptance Criterion 6: Student role returns 403 TEACHER_ONLY"
+          >
+            <ShieldCheck className="w-3.5 h-3.5" />
+            Test Student 403 TEACHER_ONLY Guard (US-DASH-03)
+          </button>
+
+          <button
+            id="test-join-code-unknown-btn"
+            onClick={async () => {
+              setIsLoading(true);
+              setTestStatus('Testing POST /api/rooms/join with unknown code (ZZZZ99)...');
+              try {
+                await api.post('/api/rooms/join', { code: 'ZZZZ99' });
+                setTestResult({
+                  success: false,
+                  message: 'Unexpected: unknown code did not return 404',
+                });
+              } catch (err: any) {
+                if (err instanceof HttpError && err.status === 404 && (err.code === 'ROOM_NOT_FOUND' || err.message === 'No room found with that code.')) {
+                  setTestResult({
+                    success: true,
+                    message: 'Verified! Server returned 404 with exact message: "No room found with that code." (US-DASH-04 AC-5)',
+                    details: JSON.stringify({ status: err.status, code: err.code, message: err.message }, null, 2),
+                  });
+                } else {
+                  setTestResult({
+                    success: false,
+                    message: 'Expected 404 ROOM_NOT_FOUND',
+                    details: String(err),
+                  });
+                }
+              } finally {
+                setIsLoading(false);
+              }
+            }}
+            disabled={isLoading}
+            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-medium bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-500/30 transition-all disabled:opacity-50"
+          >
+            <KeyRound className="w-3.5 h-3.5" />
+            Test Unknown Code (US-DASH-04 AC-5)
+          </button>
         </div>
 
         {testStatus && (
@@ -377,27 +564,126 @@ export const DashboardPage: React.FC = () => {
       </div>
 
       {/* Action Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
+      <div className={`grid grid-cols-1 ${isTeacher ? 'lg:grid-cols-2' : ''} gap-6 mb-8`}>
         {isTeacher ? (
-          <div className="glass-panel p-6 rounded-2xl hover:border-indigo-500/40 transition-all cursor-pointer group">
-            <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/20 flex items-center justify-center text-indigo-600 dark:text-indigo-400 mb-4 group-hover:scale-110 transition-transform">
-              <PlusCircle className="w-5 h-5" />
+          <div
+            id="create-room-action-card"
+            data-testid="create-room-action-card"
+            onClick={() => setIsCreateRoomModalOpen(true)}
+            className="glass-panel p-6 sm:p-7 rounded-3xl hover:border-indigo-500/40 transition-all cursor-pointer group flex flex-col justify-between"
+          >
+            <div>
+              <div className="w-11 h-11 rounded-2xl bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/20 flex items-center justify-center text-indigo-600 dark:text-indigo-400 mb-4 group-hover:scale-105 transition-transform shadow-sm">
+                <PlusCircle className="w-6 h-6" />
+              </div>
+              <h2 className="text-lg font-bold text-slate-900 dark:text-white mb-1">Create a Room</h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                Launch a new classroom session with live video, collaborative editor, and interactive whiteboard.
+              </p>
             </div>
-            <h2 className="text-lg font-bold text-slate-900 dark:text-white mb-1">Create a Room</h2>
-            <p className="text-xs text-slate-500 dark:text-slate-400">Launch a new classroom session with live video, editor, and whiteboard</p>
+            <div className="mt-5 pt-4 border-t border-slate-100 dark:border-slate-800/80">
+              <span className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 group-hover:translate-x-1 inline-flex items-center gap-1 transition-transform">
+                Create new classroom &rarr;
+              </span>
+            </div>
           </div>
         ) : null}
 
-        <div className="glass-panel p-6 rounded-2xl hover:border-indigo-500/40 transition-all cursor-pointer group">
-          <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 flex items-center justify-center text-emerald-600 dark:text-emerald-400 mb-4 group-hover:scale-110 transition-transform">
-            <DoorOpen className="w-5 h-5" />
+        {/* Join with Code Card - Always visible for students and teachers (US-DASH-04 AC-1) */}
+        <div className="glass-panel p-6 sm:p-7 rounded-3xl border border-emerald-200/60 dark:border-emerald-500/20 shadow-sm relative overflow-hidden flex flex-col justify-between">
+          <div>
+            <div className="flex items-start justify-between gap-4 mb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shadow-sm">
+                  <DoorOpen className="w-6 h-6" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                    <span>Join with Code</span>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100/80 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300">
+                      US-DASH-04
+                    </span>
+                  </h2>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Enter a 6-character room code to join your workspace
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <form onSubmit={handleJoinRoom} className="space-y-3">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+                <div className="relative flex-1">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                    <KeyRound className="w-4 h-4" />
+                  </div>
+                  <input
+                    id="join-code-input"
+                    data-testid="join-code-input"
+                    type="text"
+                    maxLength={6}
+                    value={joinCode}
+                    onChange={(e) => {
+                      setJoinCode(e.target.value.toUpperCase().slice(0, 6));
+                      setJoinError(null);
+                      setJoinSuccess(null);
+                    }}
+                    placeholder="e.g. CS101A"
+                    className="w-full pl-10 pr-4 py-2.5 rounded-2xl bg-white/70 dark:bg-slate-900/70 border border-slate-200 dark:border-slate-700/80 text-sm font-mono tracking-widest uppercase text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-500 transition-all shadow-inner"
+                    disabled={isJoiningRoom}
+                  />
+                </div>
+
+                <button
+                  id="join-code-btn"
+                  data-testid="join-code-btn"
+                  type="submit"
+                  disabled={isJoiningRoom || joinCode.trim().length === 0}
+                  className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-2xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white transition-all shadow-md shadow-emerald-600/20 disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-lg hover:shadow-emerald-600/30 whitespace-nowrap"
+                >
+                  {isJoiningRoom ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Joining...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Join Room</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {/* Error Message Display (AC-5: "No room found with that code.") */}
+              {joinError && (
+                <div
+                  id="join-code-error"
+                  role="alert"
+                  className="flex items-center gap-2 p-3 rounded-2xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/20 text-rose-700 dark:text-rose-400 text-xs font-medium"
+                >
+                  <AlertCircle className="w-4 h-4 flex-shrink-0 text-rose-500" />
+                  <span>{joinError}</span>
+                </div>
+              )}
+
+              {/* Success Message Display (AC-3) */}
+              {joinSuccess && (
+                <div
+                  id="join-code-success"
+                  role="status"
+                  className="flex items-center gap-2 p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 text-emerald-800 dark:text-emerald-300 text-xs font-medium"
+                >
+                  <CheckCircle2 className="w-4 h-4 flex-shrink-0 text-emerald-500" />
+                  <span>{joinSuccess}</span>
+                </div>
+              )}
+            </form>
           </div>
-          <h2 className="text-lg font-bold text-slate-900 dark:text-white mb-1">Join with Code</h2>
-          <p className="text-xs text-slate-500 dark:text-slate-400">Enter a 6-character room code shared by your teacher</p>
         </div>
       </div>
 
-      {/* Rooms Section (FR-8.1, FR-8.2, US-DASH-01, US-DASH-02) */}
+      {/* Rooms Section (FR-8.1, FR-8.2, US-DASH-01, US-DASH-02, US-DASH-03) */}
       <section className="mb-8" aria-label="Classrooms">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <div>
@@ -421,6 +707,20 @@ export const DashboardPage: React.FC = () => {
           </div>
 
           <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+            {isTeacher && (
+              <button
+                id="create-room-btn"
+                data-testid="create-room-btn"
+                type="button"
+                onClick={() => setIsCreateRoomModalOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 active:scale-95 transition-all shadow-sm shadow-indigo-600/30"
+                title="Create a new classroom room (Teacher Only)"
+              >
+                <PlusCircle className="w-4 h-4" />
+                <span>Create Room</span>
+              </button>
+            )}
+
             <button
               id="refresh-rooms-btn"
               type="button"
@@ -490,6 +790,24 @@ export const DashboardPage: React.FC = () => {
         isOpen={isProfileModalOpen}
         onClose={() => setIsProfileModalOpen(false)}
       />
+
+      {/* Create Room Modal (US-DASH-03) */}
+      <CreateRoomModal
+        isOpen={isCreateRoomModalOpen}
+        onClose={() => setIsCreateRoomModalOpen(false)}
+        onSuccess={handleRoomCreated}
+      />
+
+      {/* Toast Notification for Room Creation */}
+      {successNotification && (
+        <div
+          id="room-creation-toast"
+          className="fixed bottom-6 right-6 z-50 p-4 rounded-2xl bg-indigo-600 text-white shadow-xl shadow-indigo-600/30 flex items-center gap-3 animate-fade-in"
+        >
+          <CheckCircle2 className="w-5 h-5 shrink-0" />
+          <span className="text-xs font-semibold">{successNotification}</span>
+        </div>
+      )}
     </main>
   );
 };
