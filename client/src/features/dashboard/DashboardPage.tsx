@@ -118,6 +118,11 @@ export const DashboardPage: React.FC = () => {
       const timer = window.setTimeout(() => setSuccessNotification(null), 4000);
       return () => window.clearTimeout(timer);
     }
+    if (flash === 'ROOM_ARCHIVED') {
+      setSuccessNotification('This room has been archived.');
+      const timer = window.setTimeout(() => setSuccessNotification(null), 4000);
+      return () => window.clearTimeout(timer);
+    }
   }, [location.state]);
 
   const toggleFirstRoomLiveStatus = () => {
@@ -843,6 +848,18 @@ export const DashboardPage: React.FC = () => {
                   setRooms((prev) =>
                     prev.map((r) => (r.id === roomId ? { ...r, joinCode: newCode } : r))
                   );
+                }}
+                onRoomUpdated={(updated) => {
+                  setRooms((prev) =>
+                    prev.map((r) => (r.id === updated.id ? { ...r, ...updated } : r))
+                  );
+                  setSuccessNotification(`Room "${updated.name}" updated successfully.`);
+                  window.setTimeout(() => setSuccessNotification(null), 3000);
+                }}
+                onRoomArchived={(archivedId) => {
+                  setRooms((prev) => prev.filter((r) => r.id !== archivedId));
+                  setSuccessNotification('Room archived successfully.');
+                  window.setTimeout(() => setSuccessNotification(null), 3000);
                 }}
               />
             ))}

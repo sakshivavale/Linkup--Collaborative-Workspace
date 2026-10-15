@@ -6,7 +6,7 @@ import { RoomSummary } from '@linkup/shared';
 import { env } from './config/env';
 import { requireAuth } from './middleware/auth';
 import { supabase, updateTokenCacheUserName } from './lib/supabase';
-import { getRoomsForUser, createRoom, joinRoomByCode, getRoomForUser, NotAMemberError, removeRoomMember, regenerateRoomJoinCode } from './lib/rooms';
+import { getRoomsForUser, createRoom, joinRoomByCode, getRoomForUser, NotAMemberError, removeRoomMember, regenerateRoomJoinCode, updateRoom } from './lib/rooms';
 
 // Dynamic CORS origin: accepts localhost AND any 192.168.x.x LAN IP on port 5173.
 // This permanently prevents CORS failures when the dev machine's IP changes.
@@ -477,6 +477,195 @@ app.post('/api/rooms/:roomId/join-code', async (req: Request, res: Response) => 
       error: {
         code: 'INTERNAL_SERVER_ERROR',
         message: 'Failed to regenerate join code',
+      },
+    });
+  }
+});
+
+// Edit room name/description or archive room (host only) — US-ROOM-05, FR-2.7
+app.patch('/api/rooms/:roomId', async (req: Request, res: Response) => {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({
+      error: { code: 'UNAUTHENTICATED', message: 'Authentication required' },
+    });
+  }
+
+  const { roomId } = req.params;
+  const { name, description, archived } = req.body || {};
+
+  // Validation: ensure at least one field is provided
+  if (name === undefined && description === undefined && archived === undefined) {
+    return res.status(400).json({
+      error: {
+        code: 'VALIDATION',
+        message: 'At least one field (name, description, archived) must be provided',
+      },
+    });
+  }
+
+  // Validate name if provided
+  if (name !== undefined) {
+    if (typeof name !== 'string' || name.trim().length === 0) {
+      return res.status(400).json({
+        error: {
+          code: 'VALIDATION',
+          message: 'Room name cannot be empty or whitespace only',
+        },
+      });
+    }
+    if (name.trim().length > 80) {
+      return res.status(400).json({
+        error: {
+          code: 'VALIDATION',
+          message: 'Room name cannot exceed 80 characters',
+        },
+      });
+    }
+  }
+
+  // Validate description if provided
+  if (description !== undefined && description !== null) {
+    if (typeof description !== 'string') {
+      return res.status(400).json({
+        error: {
+          code: 'VALIDATION',
+          message: 'Description must be a string or null',
+        },
+      });
+    }
+    if (description.trim().length > 500) {
+      return res.status(400).json({
+        error: {
+          code: 'VALIDATION',
+          message: 'Description cannot exceed 500 characters',
+        },
+      });
+    }
+  }
+
+  // Validate archived flag if provided
+  if (archived !== undefined && typeof archived !== 'boolean') {
+    return res.status(400).json({
+      error: {
+        code: 'VALIDATION',
+        message: 'Archived must be a boolean',
+      },
+    });
+  }
+
+  try {
+    const result = await updateRoom(user.id, roomId, {
+      name: name !== undefined ? name.trim() : undefined,
+      description: description !== undefined ? (description === null ? null : description.trim()) : undefined,
+      archived,
+    });
+
+    // Broadcast socket event if io is available
+    try {
+      const io = req.app.get('io');
+      if (io) {
+        if (archived) {
+          io.to(`room:${roomId}`).emit('room:archived', { roomId });
+        } else {
+          io.to(`room:${roomId}`).emit('room:updated', {
+            roomId,
+            name: (result as any).name,
+            description: (result as any).description,
+          });
+        }
+      }
+    } catch (socketErr) {
+      console.warn('[Room API] Socket emit error on room update:', socketErr);
+    }
+
+    return res.status(200).json(result);
+  } catch (err: any) {
+    if (err?.code === 'HOST_ONLY' || err?.code === 'FORBIDDEN' || err?.status === 403) {
+      return res.status(403).json({
+        error: {
+          code: 'HOST_ONLY',
+          message: err.message || 'Only the room host can edit or archive the room',
+        },
+      });
+    }
+
+    if (err?.code === 'ROOM_NOT_FOUND' || err?.code === 'NOT_FOUND' || err?.status === 404) {
+      return res.status(404).json({
+        error: {
+          code: 'ROOM_NOT_FOUND',
+          message: err.message || 'Room not found',
+        },
+      });
+    }
+
+    if (err?.code === 'VALIDATION' || err?.status === 400) {
+      return res.status(400).json({
+        error: {
+          code: 'VALIDATION',
+          message: err.message || 'Validation error',
+        },
+      });
+    }
+
+    console.error('[Room API] Error updating room:', err);
+    return res.status(500).json({
+      error: {
+        code: 'INTERNAL_SERVER_ERROR',
+        message: 'Failed to update room',
+      },
+    });
+  }
+});
+
+// Explicit Archive room endpoint — US-ROOM-05, FR-2.7
+app.post('/api/rooms/:roomId/archive', async (req: Request, res: Response) => {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({
+      error: { code: 'UNAUTHENTICATED', message: 'Authentication required' },
+    });
+  }
+
+  const { roomId } = req.params;
+
+  try {
+    const result = await updateRoom(user.id, roomId, { archived: true });
+
+    try {
+      const io = req.app.get('io');
+      if (io) {
+        io.to(`room:${roomId}`).emit('room:archived', { roomId });
+      }
+    } catch (socketErr) {
+      console.warn('[Room API] Socket emit error on room archive:', socketErr);
+    }
+
+    return res.status(200).json(result);
+  } catch (err: any) {
+    if (err?.code === 'HOST_ONLY' || err?.code === 'FORBIDDEN' || err?.status === 403) {
+      return res.status(403).json({
+        error: {
+          code: 'HOST_ONLY',
+          message: err.message || 'Only the room host can edit or archive the room',
+        },
+      });
+    }
+
+    if (err?.code === 'ROOM_NOT_FOUND' || err?.code === 'NOT_FOUND' || err?.status === 404) {
+      return res.status(404).json({
+        error: {
+          code: 'ROOM_NOT_FOUND',
+          message: err.message || 'Room not found',
+        },
+      });
+    }
+
+    console.error('[Room API] Error archiving room:', err);
+    return res.status(500).json({
+      error: {
+        code: 'INTERNAL_SERVER_ERROR',
+        message: 'Failed to archive room',
       },
     });
   }

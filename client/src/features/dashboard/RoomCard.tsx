@@ -9,21 +9,31 @@ import {
   Check, 
   ArrowRight,
   Key,
-  RefreshCw
+  RefreshCw,
+  Edit3
 } from 'lucide-react';
 import { api } from '../../lib/api';
+import { EditRoomModal } from './EditRoomModal';
 
 interface RoomCardProps {
   room: RoomSummary;
   onJoinCodeRegenerated?: (roomId: string, newCode: string) => void;
+  onRoomUpdated?: (updatedRoom: RoomSummary) => void;
+  onRoomArchived?: (roomId: string) => void;
 }
 
-export const RoomCard: React.FC<RoomCardProps> = ({ room, onJoinCodeRegenerated }) => {
+export const RoomCard: React.FC<RoomCardProps> = ({ 
+  room, 
+  onJoinCodeRegenerated,
+  onRoomUpdated,
+  onRoomArchived
+}) => {
   const navigate = useNavigate();
   const [copiedCode, setCopiedCode] = useState(false);
   const [currentJoinCode, setCurrentJoinCode] = useState<string | null>(room.joinCode);
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [regenerated, setRegenerated] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
   useEffect(() => {
     setCurrentJoinCode(room.joinCode);
@@ -113,6 +123,23 @@ export const RoomCard: React.FC<RoomCardProps> = ({ room, onJoinCodeRegenerated 
               <UserCheck className="w-3 h-3" />
               <span>{isHost ? 'Host' : 'Participant'}</span>
             </span>
+
+            {isHost && (
+              <button
+                id={`edit-room-btn-${room.id}`}
+                data-testid="edit-room-btn"
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsEditModalOpen(true);
+                }}
+                className="p-1 rounded-lg text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-colors"
+                title="Edit room settings"
+                aria-label="Edit room settings"
+              >
+                <Edit3 className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
 
           {/* US-DASH-02: Live Badge and Join Button appear ONLY when activeSessionId is not null */}
@@ -265,6 +292,23 @@ export const RoomCard: React.FC<RoomCardProps> = ({ room, onJoinCodeRegenerated 
           )}
         </div>
       </div>
+
+      {/* Edit Room Modal for host */}
+      {isHost && isEditModalOpen && (
+        <EditRoomModal
+          isOpen={isEditModalOpen}
+          room={room}
+          onClose={() => setIsEditModalOpen(false)}
+          onSuccess={(updated) => {
+            room.name = updated.name;
+            room.description = updated.description;
+            onRoomUpdated?.(updated);
+          }}
+          onArchive={(archivedId) => {
+            onRoomArchived?.(archivedId);
+          }}
+        />
+      )}
     </div>
   );
 };
