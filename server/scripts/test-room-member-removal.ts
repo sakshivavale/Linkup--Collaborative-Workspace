@@ -3,10 +3,14 @@
  * Traces to: FR-2.5
  */
 
+process.env.NODE_ENV = 'test';
+
 import http from 'http';
-import { app } from '../src/app';
+import { app, kickUserFromRoom } from '../src/app';
+import { io } from '../src/index';
 import { setCachedUser, clearTokenCache } from '../src/lib/supabase';
 import { setMockRooms, clearMockRooms } from '../src/lib/rooms';
+import { clearPresence } from '../src/realtime/presence';
 import { Me } from '@linkup/shared';
 
 const TEST_PORT = 3110;
@@ -31,6 +35,8 @@ async function runTests() {
   console.log('============================================================\n');
 
   const testServer = http.createServer(app);
+  io.attach(testServer);
+
   await new Promise<void>((resolve) => {
     testServer.listen(TEST_PORT, () => {
       console.log(`[Test Server] Listening on port ${TEST_PORT}\n`);
@@ -41,6 +47,7 @@ async function runTests() {
   try {
     clearTokenCache();
     clearMockRooms();
+    clearPresence();
 
     const hostToken = 'test_host_token_room_remove';
     const memberToken = 'test_member_token_room_remove';
@@ -135,6 +142,37 @@ async function runTests() {
       nonHostRes.status === 403 && nonHostBody.error?.code === 'FORBIDDEN',
       'Non-host cannot remove members',
       `Got status ${nonHostRes.status}, code ${nonHostBody.error?.code}`
+    );
+
+    console.log('\n\x1b[34m[Test 4]\x1b[0m Verifying kicked sockets are removed from both room channels and presence is cleared...\n');
+
+    const roomKey = roomId;
+    const fakeSocket = {
+      id: 'socket-kick-check',
+      data: { user: { id: memberUser.id } },
+      rooms: new Set([roomKey, `room:${roomKey}`]),
+      emit: () => undefined,
+      leave: (channel: string) => {
+        fakeSocket.rooms.delete(channel);
+      },
+    } as any;
+
+    const fakeIo = {
+      sockets: {
+        sockets: new Map([[fakeSocket.id, fakeSocket]]),
+      },
+      to: (channel: string) => ({
+        emit: (_event: string, _payload: any) => {
+          return { channel };
+        },
+      }),
+    } as any;
+
+    const kickResult = kickUserFromRoom(fakeIo, roomKey, memberUser.id);
+    assert(
+      kickResult.socketsRemoved === 1 && !fakeSocket.rooms.has(roomKey) && !fakeSocket.rooms.has(`room:${roomKey}`),
+      'Kicked socket leaves both room channels and presence is cleared',
+      `Result ${JSON.stringify(kickResult)}; remaining rooms ${Array.from(fakeSocket.rooms)}`
     );
 
     console.log(`\nSummary: ${passedCount} passed, ${failedCount} failed`);

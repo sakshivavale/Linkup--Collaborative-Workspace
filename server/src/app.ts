@@ -7,6 +7,7 @@ import { env } from './config/env';
 import { requireAuth } from './middleware/auth';
 import { supabase, updateTokenCacheUserName } from './lib/supabase';
 import { getRoomsForUser, createRoom, joinRoomByCode, getRoomForUser, NotAMemberError, removeRoomMember, regenerateRoomJoinCode, updateRoom } from './lib/rooms';
+import { getRoomPresence, removeSocketFromRoom } from './realtime/presence';
 
 // Dynamic CORS origin: accepts localhost AND any 192.168.x.x LAN IP on port 5173.
 // This permanently prevents CORS failures when the dev machine's IP changes.
@@ -354,6 +355,43 @@ app.get('/api/rooms/:roomId', async (req: Request, res: Response) => {
   }
 });
 
+export function kickUserFromRoom(io: any, roomId: string, targetUserId: string) {
+  const roomKey = roomId?.trim();
+  if (!io || !roomKey || !targetUserId) {
+    return { roomId: roomKey || '', userId: targetUserId || '', socketsRemoved: 0 };
+  }
+
+  const roomSockets = Array.from(io.sockets?.sockets?.values?.() ?? []) as Socket[];
+  const matchingSockets = roomSockets.filter(
+    (socket) =>
+      socket.data?.user?.id === targetUserId &&
+      (socket.rooms.has(roomKey) || socket.rooms.has(`room:${roomKey}`))
+  );
+
+  for (const socket of matchingSockets) {
+    socket.emit('room:kicked', { roomId: roomKey });
+    socket.leave(roomKey);
+    socket.leave(`room:${roomKey}`);
+    removeSocketFromRoom(roomKey, socket.id);
+  }
+
+  const presence = getRoomPresence(roomKey);
+  io.to(roomKey).emit('presence:update', {
+    roomId: roomKey,
+    presence,
+  });
+  io.to(`room:${roomKey}`).emit('presence:update', {
+    roomId: roomKey,
+    presence,
+  });
+
+  return {
+    roomId: roomKey,
+    userId: targetUserId,
+    socketsRemoved: matchingSockets.length,
+  };
+}
+
 // Remove a room member (host-only) — US-ROOM-03, FR-2.5
 app.delete('/api/rooms/:roomId/members/:userId', async (req: Request, res: Response) => {
   const user = req.user;
@@ -370,19 +408,9 @@ app.delete('/api/rooms/:roomId/members/:userId', async (req: Request, res: Respo
 
     const io = req.app.get('io');
     if (io) {
-      const roomKey = roomId.trim();
-      const roomSockets = Array.from(io.sockets.sockets.values()) as Socket[];
-      const matchingSockets = roomSockets.filter(
-        (socket) => socket.data.user?.id === targetUserId && socket.rooms.has(roomKey)
-      );
-
-      for (const socket of matchingSockets) {
-        socket.emit('room:kicked', { roomId: roomKey });
-        socket.leave(roomKey);
-      }
-
-      io.to(`room:${roomKey}`).emit('member:removed', {
-        roomId: roomKey,
+      kickUserFromRoom(io, roomId, targetUserId);
+      io.to(`room:${roomId.trim()}`).emit('member:removed', {
+        roomId: roomId.trim(),
         userId: targetUserId,
       });
     }
