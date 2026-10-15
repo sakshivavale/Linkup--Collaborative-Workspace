@@ -94,12 +94,18 @@ export const DashboardPage: React.FC = () => {
         setRoomsFetchSource('server');
       }
     } catch {
+      if (session) {
+        setRooms([]);
+        setRoomsFetchSource('server');
+        return;
+      }
+
       setRooms(DEFAULT_SAMPLE_ROOMS);
       setRoomsFetchSource('sample');
     } finally {
       setIsLoadingRooms(false);
     }
-  }, []);
+  }, [session]);
 
   useEffect(() => {
     fetchRooms();
@@ -760,7 +766,10 @@ export const DashboardPage: React.FC = () => {
           </div>
         ) : rooms.length === 0 ? (
           isTeacher ? (
-            <div className="glass-panel rounded-3xl p-10 text-center border-dashed border-indigo-300 dark:border-indigo-500/30 bg-indigo-50/40 dark:bg-indigo-500/5">
+            <div
+              data-testid="teacher-empty-state"
+              className="glass-panel rounded-3xl p-10 text-center border-dashed border-indigo-300 dark:border-indigo-500/30 bg-indigo-50/40 dark:bg-indigo-500/5"
+            >
               <div className="w-14 h-14 rounded-2xl bg-indigo-100 dark:bg-indigo-500/10 mx-auto flex items-center justify-center text-indigo-600 dark:text-indigo-300 mb-4">
                 <PlusCircle className="w-7 h-7" />
               </div>
@@ -770,6 +779,7 @@ export const DashboardPage: React.FC = () => {
               </p>
               <button
                 type="button"
+                data-testid="create-room-empty-state-btn"
                 onClick={() => setIsCreateRoomModalOpen(true)}
                 className="mt-5 inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm transition-colors"
               >
@@ -778,7 +788,10 @@ export const DashboardPage: React.FC = () => {
               </button>
             </div>
           ) : (
-            <div className="glass-panel rounded-3xl p-8 border-dashed border-emerald-300 dark:border-emerald-500/30 bg-emerald-50/40 dark:bg-emerald-500/5">
+            <div
+              data-testid="student-empty-state"
+              className="glass-panel rounded-3xl p-8 border-dashed border-emerald-300 dark:border-emerald-500/30 bg-emerald-50/40 dark:bg-emerald-500/5"
+            >
               <div className="w-14 h-14 rounded-2xl bg-emerald-100 dark:bg-emerald-500/10 mx-auto flex items-center justify-center text-emerald-600 dark:text-emerald-300 mb-4">
                 <DoorOpen className="w-7 h-7" />
               </div>
@@ -791,7 +804,7 @@ export const DashboardPage: React.FC = () => {
                     id="dashboard-room-code"
                     value={joinCode}
                     onChange={(event) => {
-                      setJoinCode(event.target.value);
+                      setJoinCode(event.target.value.toUpperCase().slice(0, 6));
                       if (joinError) setJoinError(null);
                       if (joinSuccess) setJoinSuccess(null);
                     }}
@@ -802,7 +815,9 @@ export const DashboardPage: React.FC = () => {
                   />
                   <button
                     type="submit"
-                    className="inline-flex items-center justify-center rounded-xl bg-emerald-600 hover:bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white transition-colors"
+                    data-testid="join-room-empty-state-btn"
+                    disabled={isJoiningRoom || joinCode.trim().length === 0}
+                    className="inline-flex items-center justify-center rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed px-4 py-2.5 text-sm font-semibold text-white transition-colors"
                   >
                     Join
                   </button>
