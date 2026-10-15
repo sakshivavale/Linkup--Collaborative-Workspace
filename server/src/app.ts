@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import { RoomSummary } from '@linkup/shared';
 import { env } from './config/env';
 import { requireAuth } from './middleware/auth';
 import { supabase, updateTokenCacheUserName } from './lib/supabase';
@@ -133,6 +134,7 @@ app.patch('/api/me', async (req: Request, res: Response) => {
 // User rooms endpoint (FR-8.1, FR-8.2, US-DASH-01, US-DASH-02)
 app.get('/api/rooms', async (req: Request, res: Response) => {
   const user = req.user;
+
   if (!user) {
     return res.status(401).json({
       error: {
@@ -168,7 +170,6 @@ app.post('/api/rooms', async (req: Request, res: Response) => {
     });
   }
 
-  // Acceptance Criterion 6: direct API call with a student token returns 403 TEACHER_ONLY
   if (user.role !== 'teacher') {
     return res.status(403).json({
       error: {
@@ -180,7 +181,6 @@ app.post('/api/rooms', async (req: Request, res: Response) => {
 
   const { name, description, defaultPermissions } = req.body || {};
 
-  // Acceptance Criterion 2: Room Name (required, max 80 chars)
   if (typeof name !== 'string' || name.trim().length === 0) {
     return res.status(400).json({
       error: {
@@ -200,7 +200,6 @@ app.post('/api/rooms', async (req: Request, res: Response) => {
     });
   }
 
-  // Acceptance Criterion 2: Description (optional, max 500 chars)
   let trimmedDesc: string | null = null;
   if (description !== undefined && description !== null) {
     if (typeof description !== 'string') {
@@ -222,7 +221,6 @@ app.post('/api/rooms', async (req: Request, res: Response) => {
     }
   }
 
-  // Acceptance Criterion 2: 5 default-permission toggles (Mic, Camera, Screen, Whiteboard, Code)
   const perms = {
     canMic: Boolean(defaultPermissions?.canMic),
     canCamera: Boolean(defaultPermissions?.canCamera),
@@ -246,7 +244,6 @@ app.post('/api/rooms', async (req: Request, res: Response) => {
         code: 'INTERNAL_SERVER_ERROR',
         message: 'Failed to create room',
       },
-
     });
   }
 });
@@ -265,7 +262,6 @@ app.post('/api/rooms/join', async (req: Request, res: Response) => {
 
   const { code } = req.body || {};
 
-  // Criterion 2 & 5: Empty/missing code validation
   if (typeof code !== 'string' || !code.trim()) {
     return res.status(400).json({
       error: {
@@ -278,7 +274,6 @@ app.post('/api/rooms/join', async (req: Request, res: Response) => {
   try {
     const result = await joinRoomByCode(user.id, code);
 
-    // Side effect per API contract Section 3.2: emit member:joined to room:<id> if user is new
     if (!result.alreadyMember) {
       try {
         const io = req.app.get('io');
@@ -294,7 +289,6 @@ app.post('/api/rooms/join', async (req: Request, res: Response) => {
       }
     }
 
-    // Acceptance Criterion 3 & API contract Section 3.2: 200 { roomId }
     return res.status(200).json({
       roomId: result.roomId,
     });
@@ -328,7 +322,6 @@ app.post('/api/rooms/join', async (req: Request, res: Response) => {
 });
 
 // Get single room endpoint — membership enforced (US-ROOM-01, FR-2.4)
-// Non-members receive 403 NOT_A_MEMBER and client redirects to dashboard.
 app.get('/api/rooms/:roomId', async (req: Request, res: Response) => {
   const user = req.user;
   if (!user) {
