@@ -54,6 +54,7 @@ export interface RoomSummary {
   myRole: MemberRole;
   activeSessionId: string | null;
   createdAt: string;
+  members?: Member[];
 }
 
 export interface Room extends RoomSummary {

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import {
   GraduationCap,
@@ -62,6 +63,7 @@ const DEFAULT_SAMPLE_ROOMS: RoomSummary[] = [
 ];
 
 export const DashboardPage: React.FC = () => {
+  const location = useLocation();
   const { fullName, role, session } = useAuth();
   const isTeacher = role === 'teacher';
 
@@ -102,6 +104,15 @@ export const DashboardPage: React.FC = () => {
   useEffect(() => {
     fetchRooms();
   }, [fetchRooms]);
+
+  useEffect(() => {
+    const flash = (location.state as { flash?: string } | null)?.flash;
+    if (flash === 'ROOM_KICKED') {
+      setSuccessNotification('You were removed from this room.');
+      const timer = window.setTimeout(() => setSuccessNotification(null), 4000);
+      return () => window.clearTimeout(timer);
+    }
+  }, [location.state]);
 
   const toggleFirstRoomLiveStatus = () => {
     setRooms((prev) => {

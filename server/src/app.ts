@@ -1,11 +1,12 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import { Socket } from 'socket.io';
 import { RoomSummary } from '@linkup/shared';
 import { env } from './config/env';
 import { requireAuth } from './middleware/auth';
 import { supabase, updateTokenCacheUserName } from './lib/supabase';
-import { getRoomsForUser, createRoom, joinRoomByCode, getRoomForUser, NotAMemberError } from './lib/rooms';
+import { getRoomsForUser, createRoom, joinRoomByCode, getRoomForUser, NotAMemberError, removeRoomMember } from './lib/rooms';
 
 // Dynamic CORS origin: accepts localhost AND any 192.168.x.x LAN IP on port 5173.
 // This permanently prevents CORS failures when the dev machine's IP changes.
@@ -349,6 +350,66 @@ app.get('/api/rooms/:roomId', async (req: Request, res: Response) => {
     console.error('[Room API] Error fetching room:', err);
     return res.status(500).json({
       error: { code: 'INTERNAL_SERVER_ERROR', message: 'Failed to retrieve room' },
+    });
+  }
+});
+
+// Remove a room member (host-only) — US-ROOM-03, FR-2.5
+app.delete('/api/rooms/:roomId/members/:userId', async (req: Request, res: Response) => {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({
+      error: { code: 'UNAUTHENTICATED', message: 'Authentication required' },
+    });
+  }
+
+  const { roomId, userId: targetUserId } = req.params;
+
+  try {
+    await removeRoomMember(user.id, roomId, targetUserId);
+
+    const io = req.app.get('io');
+    if (io) {
+      const roomKey = roomId.trim();
+      const roomSockets = Array.from(io.sockets.sockets.values()) as Socket[];
+      const matchingSockets = roomSockets.filter(
+        (socket) => socket.data.user?.id === targetUserId && socket.rooms.has(roomKey)
+      );
+
+      for (const socket of matchingSockets) {
+        socket.emit('room:kicked', { roomId: roomKey });
+        socket.leave(roomKey);
+      }
+
+      io.to(`room:${roomKey}`).emit('member:removed', {
+        roomId: roomKey,
+        userId: targetUserId,
+      });
+    }
+
+    return res.status(200).json({ ok: true });
+  } catch (err: any) {
+    if (err?.code === 'FORBIDDEN' || err?.status === 403) {
+      return res.status(403).json({
+        error: { code: 'FORBIDDEN', message: err.message || 'Only the host can manage members' },
+      });
+    }
+
+    if (err?.code === 'ROOM_NOT_FOUND' || err?.status === 404 || err?.code === 'NOT_FOUND') {
+      return res.status(404).json({
+        error: { code: 'NOT_FOUND', message: err.message || 'Member or room not found' },
+      });
+    }
+
+    if (err?.code === 'VALIDATION' || err?.status === 400) {
+      return res.status(400).json({
+        error: { code: 'VALIDATION', message: err.message || 'Invalid room or user ID' },
+      });
+    }
+
+    console.error('[Room API] Error removing room member:', err);
+    return res.status(500).json({
+      error: { code: 'INTERNAL_SERVER_ERROR', message: 'Failed to remove member' },
     });
   }
 });

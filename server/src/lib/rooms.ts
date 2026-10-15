@@ -304,6 +304,45 @@ export async function getRoomForUser(
     .is('ended_at', null)
     .maybeSingle();
 
+  const { data: roomMembers } = await supabase
+    .from('room_members')
+    .select('user_id, member_role, created_at, can_mic, can_camera, can_screen, can_whiteboard, can_code')
+    .eq('room_id', roomId)
+    .order('created_at', { ascending: true });
+
+  const memberUserIds = (roomMembers || []).map((member) => member.user_id);
+  const { data: memberProfiles } = await supabase
+    .from('profiles')
+    .select('id, full_name, role')
+    .in('id', memberUserIds.length > 0 ? memberUserIds : ['__missing__']);
+
+  const profileMap = new Map<string, { full_name: string; role: 'teacher' | 'student' }>();
+  (memberProfiles || []).forEach((profile) => {
+    profileMap.set(profile.id, {
+      full_name: profile.full_name,
+      role: profile.role,
+    });
+  });
+
+  const members = (roomMembers || []).map((member) => {
+    const profile = profileMap.get(member.user_id);
+
+    return {
+      userId: member.user_id,
+      fullName: profile?.full_name || 'Unknown User',
+      userRole: profile?.role || 'student',
+      memberRole: member.member_role as MemberRole,
+      permissions: {
+        canMic: Boolean(member.can_mic),
+        canCamera: Boolean(member.can_camera),
+        canScreen: Boolean(member.can_screen),
+        canWhiteboard: Boolean(member.can_whiteboard),
+        canCode: Boolean(member.can_code),
+      },
+      joinedAt: member.created_at,
+    };
+  });
+
   return {
     id: room.id,
     name: room.name,
@@ -314,6 +353,7 @@ export async function getRoomForUser(
     myRole,
     activeSessionId: session?.id ?? null,
     createdAt: room.created_at,
+    members,
   };
 }
 
@@ -455,6 +495,135 @@ export async function createRoom(
  * 4. Idempotent: joining a room you are already a member of returns success without error/duplicate.
  * 5. Unknown code raises: "No room found with that code."
  */
+export async function removeRoomMember(
+  requesterUserId: string,
+  roomId: string,
+  targetUserId: string
+): Promise<void> {
+  const normalizedRoomId = roomId?.trim();
+  const normalizedTargetUserId = targetUserId?.trim();
+
+  if (!normalizedRoomId || !normalizedTargetUserId) {
+    const error: any = new Error('Room and member IDs are required');
+    error.code = 'VALIDATION';
+    error.status = 400;
+    throw error;
+  }
+
+  const mockRoomLists = Array.from(mockRoomsStore.values());
+  const isMockRoomKnown = mockRoomLists.some((rooms) => rooms.some((room) => room.id === normalizedRoomId));
+
+  if (isMockRoomKnown) {
+    const hostRoom = (mockRoomsStore.get(requesterUserId) || []).find((room) => room.id === normalizedRoomId);
+    if (!hostRoom) {
+      const error: any = new Error('Only the host can remove members');
+      error.code = 'FORBIDDEN';
+      error.status = 403;
+      throw error;
+    }
+
+    if (hostRoom.myRole !== 'host') {
+      const error: any = new Error('Only the host can remove members');
+      error.code = 'FORBIDDEN';
+      error.status = 403;
+      throw error;
+    }
+
+    if (requesterUserId === normalizedTargetUserId) {
+      const error: any = new Error('The host cannot be removed from the room');
+      error.code = 'FORBIDDEN';
+      error.status = 403;
+      throw error;
+    }
+
+    for (const [userId, rooms] of mockRoomsStore.entries()) {
+      const nextRooms = rooms.filter((room) => !(room.id === normalizedRoomId && userId === normalizedTargetUserId));
+      if (nextRooms.length !== rooms.length || userId === normalizedTargetUserId) {
+        mockRoomsStore.set(userId, nextRooms);
+      }
+    }
+    return;
+  }
+
+  const { data: room, error: roomError } = await supabase
+    .from('rooms')
+    .select('id, owner_id')
+    .eq('id', normalizedRoomId)
+    .maybeSingle();
+
+  if (roomError) {
+    console.warn('[Rooms Service] Error loading room for removal:', roomError.message);
+    throw new Error(roomError.message);
+  }
+
+  if (!room) {
+    const error: any = new Error('Room not found');
+    error.code = 'ROOM_NOT_FOUND';
+    error.status = 404;
+    throw error;
+  }
+
+  if (requesterUserId !== room.owner_id) {
+    const error: any = new Error('Only the host can remove members');
+    error.code = 'FORBIDDEN';
+    error.status = 403;
+    throw error;
+  }
+
+  if (normalizedTargetUserId === room.owner_id) {
+    const error: any = new Error('The host cannot be removed from the room');
+    error.code = 'FORBIDDEN';
+    error.status = 403;
+    throw error;
+  }
+
+  const { data: targetMembership, error: membershipError } = await supabase
+    .from('room_members')
+    .select('user_id')
+    .eq('room_id', normalizedRoomId)
+    .eq('user_id', normalizedTargetUserId)
+    .maybeSingle();
+
+  if (membershipError) {
+    console.warn('[Rooms Service] Error finding room member for removal:', membershipError.message);
+    throw new Error(membershipError.message);
+  }
+
+  if (!targetMembership) {
+    const error: any = new Error('Member not found in room');
+    error.code = 'NOT_FOUND';
+    error.status = 404;
+    throw error;
+  }
+
+  const { error: deleteError } = await supabase
+    .from('room_members')
+    .delete()
+    .eq('room_id', normalizedRoomId)
+    .eq('user_id', normalizedTargetUserId);
+
+  if (deleteError) {
+    console.warn('[Rooms Service] Error deleting room member:', deleteError.message);
+    throw new Error(deleteError.message);
+  }
+
+  const { data: activeSession } = await supabase
+    .from('live_sessions')
+    .select('id')
+    .eq('room_id', normalizedRoomId)
+    .is('ended_at', null)
+    .maybeSingle();
+
+  if (activeSession?.id) {
+    await supabase
+      .from('attendance')
+      .update({ left_at: new Date().toISOString() })
+      .eq('session_id', activeSession.id)
+      .eq('user_id', normalizedTargetUserId)
+      .is('left_at', null);
+  }
+}
+
 export async function joinRoomByCode(
   userId: string,
   rawCode: string
