@@ -1,13 +1,15 @@
 import { io, Socket } from 'socket.io-client';
 import { supabase } from './supabase';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+// Connect to the same origin — Vite's /socket.io proxy forwards to localhost:3001.
+// This works on ANY IP address the dev machine is assigned; no hardcoding needed.
+const SOCKET_URL = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3001';
 
 /**
  * Socket.IO client instance configured with Supabase auth token
  * and silent token refresh on connect_error UNAUTHENTICATED.
  */
-export const socket: Socket = io(API_BASE_URL, {
+export const socket: Socket = io(SOCKET_URL, {
   autoConnect: false,
   auth: async (cb: (data: { token?: string }) => void) => {
     try {

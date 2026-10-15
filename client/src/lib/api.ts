@@ -1,7 +1,10 @@
 import { supabase } from './supabase';
 import { ApiErrorResponse } from '@linkup/shared';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+// When VITE_API_BASE_URL is empty (default), requests use relative URLs
+// (e.g. /api/me) which Vite's dev-server proxy forwards to localhost:3001.
+// This permanently removes the need to hardcode any IP address.
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
 export class HttpError extends Error {
   public status: number;

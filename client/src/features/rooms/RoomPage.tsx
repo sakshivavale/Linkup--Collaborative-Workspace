@@ -1,94 +1,216 @@
-import React from 'react';
-import { useParams, Link } from 'react-router-dom';
-import { 
-  DoorOpen, 
-  ArrowLeft, 
-  ClipboardList, 
-  Code2, 
-  Users, 
-  ShieldCheck,
-  Video
+import React, { useEffect } from 'react';
+import { useParams, useNavigate, Link } from 'react-router-dom';
+import {
+  ArrowLeft,
+  Radio,
+  PenLine,
+  Code2,
+  MessageSquare,
+  Users,
+  Loader2,
+  ShieldX,
 } from 'lucide-react';
+import { useRoom } from './useRoom';
+import { LiveTab } from './LiveTab';
+import { WhiteboardTab } from './WhiteboardTab';
+import { CodeTab } from './CodeTab';
+import { ChatPanel } from './ChatPanel';
+import { PeoplePanel } from './PeoplePanel';
 
+// ─── Tab & sidebar definitions ───────────────────────────────────────────────
+type MainTab = 'live' | 'whiteboard' | 'code';
+type SideTab = 'chat' | 'people';
+
+const MAIN_TABS: { key: MainTab; label: string; Icon: React.FC<{ className?: string }> }[] = [
+  { key: 'live',       label: 'Live',        Icon: Radio    },
+  { key: 'whiteboard', label: 'Whiteboard',  Icon: PenLine  },
+  { key: 'code',       label: 'Code',        Icon: Code2    },
+];
+
+const SIDE_TABS: { key: SideTab; label: string; Icon: React.FC<{ className?: string }> }[] = [
+  { key: 'chat',   label: 'Chat',   Icon: MessageSquare },
+  { key: 'people', label: 'People', Icon: Users         },
+];
+
+// ─── RoomPage ─────────────────────────────────────────────────────────────────
 export const RoomPage: React.FC = () => {
-  const { id } = useParams<{ id: string }>();
+  const { id: roomId } = useParams<{ id: string }>();
+  const navigate = useNavigate();
 
+  const { room, loading, error } = useRoom(roomId);
+
+  const [mainTab, setMainTab] = React.useState<MainTab>('live');
+  const [sideTab, setSideTab] = React.useState<SideTab>('chat');
+  const [sidebarOpen, setSidebarOpen] = React.useState(true);
+
+  // AC-2: Non-member → redirect to dashboard with a flash message
+  useEffect(() => {
+    if (error === 'NOT_A_MEMBER') {
+      navigate('/', { replace: true, state: { flash: 'NOT_A_MEMBER' } });
+    }
+    if (error === 'NOT_FOUND') {
+      navigate('/', { replace: true, state: { flash: 'ROOM_NOT_FOUND' } });
+    }
+  }, [error, navigate]);
+
+  // ── Loading skeleton ────────────────────────────────────────────────────────
+  if (loading) {
+    return (
+      <main className="flex-1 flex items-center justify-center min-h-[60vh]">
+        <div className="flex flex-col items-center gap-4 text-slate-400 dark:text-slate-500">
+          <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
+          <p className="text-sm font-medium">Loading room…</p>
+        </div>
+      </main>
+    );
+  }
+
+  // ── Error fallback (NOT_A_MEMBER triggers redirect above, this covers UNKNOWN) ──
+  if (error === 'UNKNOWN' || !room) {
+    return (
+      <main className="flex-1 flex items-center justify-center min-h-[60vh]">
+        <div className="glass-panel rounded-3xl p-8 flex flex-col items-center gap-4 max-w-sm text-center">
+          <ShieldX className="w-12 h-12 text-rose-500" />
+          <h1 className="text-lg font-bold text-slate-900 dark:text-white">Unable to load room</h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            Something went wrong. Please try again or return to the dashboard.
+          </p>
+          <Link
+            to="/"
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Back to Dashboard
+          </Link>
+        </div>
+      </main>
+    );
+  }
+
+  // ── Main room workspace ────────────────────────────────────────────────────
   return (
-    <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-8">
-      {/* Navigation breadcrumb */}
-      <div className="mb-6">
+    <div className="flex flex-col flex-1 h-full overflow-hidden">
+      {/* ── Room Header ─────────────────────────────────────────────────────── */}
+      <header className="shrink-0 border-b border-slate-200/80 dark:border-slate-800/70 bg-white/70 dark:bg-slate-950/70 backdrop-blur-sm px-4 sm:px-6 py-3 flex items-center gap-3 z-10">
         <Link
           to="/"
-          className="inline-flex items-center gap-2 text-xs font-semibold text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-400 transition-colors"
+          id="room-back-to-dashboard"
+          className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-400 transition-colors shrink-0"
         >
           <ArrowLeft className="w-3.5 h-3.5" />
-          <span>Back to Dashboard</span>
+          Dashboard
         </Link>
-      </div>
 
-      {/* Room Hero Banner */}
-      <div className="glass-panel rounded-3xl p-6 sm:p-8 mb-8 relative overflow-hidden">
-        <div className="relative z-10 max-w-2xl">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/20 text-indigo-700 dark:text-indigo-400 text-xs font-medium mb-3">
-            <DoorOpen className="w-3.5 h-3.5" />
-            <span>Classroom Session &bull; Protected Route</span>
-          </div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">
-            Classroom: <span className="font-mono text-indigo-600 dark:text-indigo-400">{id}</span>
+        <span className="text-slate-300 dark:text-slate-700">/</span>
+
+        {/* Room name + status */}
+        <div className="flex items-center gap-2.5 flex-1 min-w-0">
+          <h1 className="text-sm font-bold text-slate-900 dark:text-white truncate">
+            {room.name}
           </h1>
-          <p className="mt-2 text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-            Welcome to room <span className="font-semibold">{id}</span>. This collaborative workspace features real-time audio/video, synchronized code editor, interactive whiteboard, and chat.
-          </p>
-          <div className="mt-4 flex flex-wrap gap-3">
-            <Link
-              to={`/rooms/${id}/attendance`}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 transition-colors shadow-sm"
+          {/* Session status badge */}
+          <div className={`shrink-0 inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide ${
+            room.activeSessionId
+              ? 'bg-red-500/15 border border-red-500/30 text-red-500 dark:text-red-400'
+              : 'bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400'
+          }`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${room.activeSessionId ? 'bg-red-500 animate-pulse' : 'bg-slate-400'}`} />
+            {room.activeSessionId ? 'Live' : 'Idle'}
+          </div>
+          <span className="hidden sm:inline text-xs text-slate-400 dark:text-slate-500 font-medium truncate">
+            Host: {room.hostName}
+          </span>
+        </div>
+
+        {/* Sidebar toggle */}
+        <button
+          id="room-sidebar-toggle"
+          onClick={() => setSidebarOpen(v => !v)}
+          title={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
+          className="shrink-0 p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500"
+        >
+          <MessageSquare className="w-4 h-4" />
+        </button>
+      </header>
+
+      {/* ── Main tab bar ────────────────────────────────────────────────────── */}
+      <nav
+        id="room-main-tabs"
+        className="shrink-0 flex items-center gap-1 px-4 sm:px-6 border-b border-slate-200/80 dark:border-slate-800/70 bg-white/60 dark:bg-slate-950/60 backdrop-blur-sm"
+        aria-label="Room workspace tabs"
+      >
+        {MAIN_TABS.map(({ key, label, Icon }) => (
+          <button
+            key={key}
+            id={`room-tab-${key}`}
+            onClick={() => setMainTab(key)}
+            className={`inline-flex items-center gap-2 px-4 py-3 text-xs font-semibold border-b-2 transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-inset ${
+              mainTab === key
+                ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
+                : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 hover:border-slate-300 dark:hover:border-slate-700'
+            }`}
+            aria-selected={mainTab === key}
+            role="tab"
+          >
+            <Icon className="w-4 h-4" />
+            {label}
+          </button>
+        ))}
+      </nav>
+
+      {/* ── Body: main content + sidebar ────────────────────────────────────── */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Main content area */}
+        <main
+          className="flex-1 overflow-y-auto p-4 sm:p-6"
+          id={`room-tab-panel-${mainTab}`}
+          role="tabpanel"
+        >
+          {mainTab === 'live'       && <LiveTab       roomId={roomId!} sessionId={room.activeSessionId} />}
+          {mainTab === 'whiteboard' && <WhiteboardTab roomId={roomId!} />}
+          {mainTab === 'code'       && <CodeTab       roomId={roomId!} />}
+        </main>
+
+        {/* Sidebar */}
+        {sidebarOpen && (
+          <aside
+            id="room-sidebar"
+            className="w-72 shrink-0 border-l border-slate-200/80 dark:border-slate-800/70 bg-white/70 dark:bg-slate-950/70 backdrop-blur-sm flex flex-col overflow-hidden"
+          >
+            {/* Sidebar tab bar */}
+            <nav
+              id="room-sidebar-tabs"
+              className="shrink-0 flex border-b border-slate-200/70 dark:border-slate-800/70"
+              aria-label="Room sidebar tabs"
             >
-              <ClipboardList className="w-3.5 h-3.5" />
-              <span>View Attendance</span>
-            </Link>
-            <Link
-              to="/playground"
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 transition-colors"
-            >
-              <Code2 className="w-3.5 h-3.5" />
-              <span>Personal Playground</span>
-            </Link>
-          </div>
-        </div>
+              {SIDE_TABS.map(({ key, label, Icon }) => (
+                <button
+                  key={key}
+                  id={`room-sidebar-tab-${key}`}
+                  onClick={() => setSideTab(key)}
+                  className={`flex-1 inline-flex items-center justify-center gap-1.5 py-3 text-xs font-semibold border-b-2 transition-all focus:outline-none ${
+                    sideTab === key
+                      ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
+                      : 'border-transparent text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200'
+                  }`}
+                  aria-selected={sideTab === key}
+                  role="tab"
+                >
+                  <Icon className="w-3.5 h-3.5" />
+                  {label}
+                </button>
+              ))}
+            </nav>
 
-        <div className="absolute right-0 top-0 bottom-0 w-1/3 opacity-10 dark:opacity-10 pointer-events-none flex items-center justify-center">
-          <Video className="w-64 h-64 text-indigo-600 dark:text-indigo-400" />
-        </div>
+            {/* Sidebar panel content */}
+            <div className="flex-1 overflow-hidden">
+              {sideTab === 'chat'   && <ChatPanel   roomId={roomId!} />}
+              {sideTab === 'people' && <PeoplePanel room={room}      />}
+            </div>
+          </aside>
+        )}
       </div>
-
-      {/* Feature Preview Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="glass-panel p-6 rounded-2xl">
-          <div className="w-9 h-9 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/20 flex items-center justify-center text-indigo-600 dark:text-indigo-400 mb-3">
-            <Users className="w-4 h-4" />
-          </div>
-          <h2 className="text-sm font-bold text-slate-900 dark:text-white mb-1">Participants & Presence</h2>
-          <p className="text-xs text-slate-500 dark:text-slate-400">Live roster, host controls, and per-student media and code permissions.</p>
-        </div>
-
-        <div className="glass-panel p-6 rounded-2xl">
-          <div className="w-9 h-9 rounded-xl bg-purple-50 dark:bg-purple-500/10 border border-purple-200 dark:border-purple-500/20 flex items-center justify-center text-purple-600 dark:text-purple-400 mb-3">
-            <Code2 className="w-4 h-4" />
-          </div>
-          <h2 className="text-sm font-bold text-slate-900 dark:text-white mb-1">Collaborative Editor</h2>
-          <p className="text-xs text-slate-500 dark:text-slate-400">Multi-language Monaco editor with remote execution powered by Piston.</p>
-        </div>
-
-        <div className="glass-panel p-6 rounded-2xl">
-          <div className="w-9 h-9 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 flex items-center justify-center text-emerald-600 dark:text-emerald-400 mb-3">
-            <ShieldCheck className="w-4 h-4" />
-          </div>
-          <h2 className="text-sm font-bold text-slate-900 dark:text-white mb-1">Access Control Active</h2>
-          <p className="text-xs text-slate-500 dark:text-slate-400">Authenticated visitor verified. Route protection working as expected (FR-1.4).</p>
-        </div>
-      </div>
-    </main>
+    </div>
   );
 };
 

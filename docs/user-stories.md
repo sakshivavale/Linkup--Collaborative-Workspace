@@ -146,9 +146,9 @@
 > As a **logged-in user**, I want to see a "Live" badge and a Join button on a room card when that room has an active session so that I can join ongoing classes instantly.
 
 **Acceptance Criteria:**
-- [ ] A room card shows a **"Live"** badge when `activeSessionId` is not null.
-- [ ] A **"Join"** button appears alongside the badge, which navigates to the room page.
-- [ ] Rooms without an active session do not show a badge or Join button.
+- [x] A room card shows a **"Live"** badge when `activeSessionId` is not null.
+- [x] A **"Join"** button appears alongside the badge, which navigates to the room page.
+- [x] Rooms without an active session do not show a badge or Join button.
 
 ---
 
@@ -158,12 +158,12 @@
 > As a **teacher**, I want to create a new room with a name, optional description, and default permissions so that I can set up a class workspace before inviting students.
 
 **Acceptance Criteria:**
-- [ ] A **"Create Room"** button is visible on the dashboard only for users with the `teacher` role.
-- [ ] Clicking it opens a modal with: Room Name (required, max 80 chars), Description (optional, max 500 chars), and 5 default-permission toggles (Mic, Camera, Screen, Whiteboard, Code).
-- [ ] Submitting creates the room and adds the teacher as host.
-- [ ] The system generates a unique 6-character join code (characters: A-Z, 2-9; no O, 0, I, 1).
-- [ ] The new room card appears on the dashboard immediately.
-- [ ] Students do not see the Create Room button; a direct API call with a student token returns `403 TEACHER_ONLY`.
+- [x] A **"Create Room"** button is visible on the dashboard only for users with the `teacher` role.
+- [x] Clicking it opens a modal with: Room Name (required, max 80 chars), Description (optional, max 500 chars), and 5 default-permission toggles (Mic, Camera, Screen, Whiteboard, Code).
+- [x] Submitting creates the room and adds the teacher as host.
+- [x] The system generates a unique 6-character join code (characters: A-Z, 2-9; no O, 0, I, 1).
+- [x] The new room card appears on the dashboard immediately.
+- [x] Students do not see the Create Room button; a direct API call with a student token returns `403 TEACHER_ONLY`.
 
 ---
 

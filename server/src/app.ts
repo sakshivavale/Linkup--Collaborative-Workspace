@@ -1,10 +1,26 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import { Socket } from 'socket.io';
 import { RoomSummary } from '@linkup/shared';
 import { env } from './config/env';
 import { requireAuth } from './middleware/auth';
 import { supabase, updateTokenCacheUserName } from './lib/supabase';
+import { getRoomsForUser, createRoom, joinRoomByCode, getRoomForUser, NotAMemberError, removeRoomMember } from './lib/rooms';
+
+// Dynamic CORS origin: accepts localhost AND any 192.168.x.x LAN IP on port 5173.
+// This permanently prevents CORS failures when the dev machine's IP changes.
+function isCorsAllowed(origin: string | undefined): boolean {
+  if (!origin) return true; // same-origin / server-to-server
+  const allowedPatterns = [
+    /^http:\/\/localhost:\d+$/,
+    /^http:\/\/127\.0\.0\.1:\d+$/,
+    /^http:\/\/192\.168\.\d{1,3}\.\d{1,3}:\d+$/,
+    /^http:\/\/10\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+$/,
+    /^http:\/\/172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}:\d+$/,
+  ];
+  return allowedPatterns.some((re) => re.test(origin));
+}
 
 export const app = express();
 
@@ -12,7 +28,13 @@ export const app = express();
 app.use(helmet());
 app.use(
   cors({
-    origin: [env.CORS_ORIGIN, 'http://localhost:5173', 'http://127.0.0.1:5173'],
+    origin: (origin, callback) => {
+      if (isCorsAllowed(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error(`CORS: origin '${origin}' not allowed`));
+      }
+    },
     credentials: true,
   })
 );
@@ -110,7 +132,7 @@ app.patch('/api/me', async (req: Request, res: Response) => {
   }
 });
 
-// My rooms dashboard list for the authenticated user
+// User rooms endpoint (FR-8.1, FR-8.2, US-DASH-01, US-DASH-02)
 app.get('/api/rooms', async (req: Request, res: Response) => {
   const user = req.user;
 
@@ -124,39 +146,270 @@ app.get('/api/rooms', async (req: Request, res: Response) => {
   }
 
   try {
-    const { data, error } = await supabase.rpc('my_rooms', { p_user: user.id });
+    const rooms = await getRoomsForUser(user.id);
+    return res.status(200).json(rooms);
+  } catch (err) {
+    console.error('[Rooms API] Error fetching rooms:', err);
+    return res.status(500).json({
+      error: {
+        code: 'INTERNAL_SERVER_ERROR',
+        message: 'Failed to retrieve rooms',
+      },
+    });
+  }
+});
 
-    if (error) {
-      console.error('[Dashboard] my_rooms RPC failed:', error.message);
-      return res.status(500).json({
+// Create room endpoint (FR-8.3, FR-2.1, US-DASH-03) — teacher only
+app.post('/api/rooms', async (req: Request, res: Response) => {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({
+      error: {
+        code: 'UNAUTHENTICATED',
+        message: 'Authentication required',
+      },
+    });
+  }
+
+  if (user.role !== 'teacher') {
+    return res.status(403).json({
+      error: {
+        code: 'TEACHER_ONLY',
+        message: 'Only teachers can create rooms',
+      },
+    });
+  }
+
+  const { name, description, defaultPermissions } = req.body || {};
+
+  if (typeof name !== 'string' || name.trim().length === 0) {
+    return res.status(400).json({
+      error: {
+        code: 'VALIDATION',
+        message: 'Room name is required and cannot be empty or whitespace only',
+      },
+    });
+  }
+
+  const trimmedName = name.trim();
+  if (trimmedName.length > 80) {
+    return res.status(400).json({
+      error: {
+        code: 'VALIDATION',
+        message: 'Room name cannot exceed 80 characters',
+      },
+    });
+  }
+
+  let trimmedDesc: string | null = null;
+  if (description !== undefined && description !== null) {
+    if (typeof description !== 'string') {
+      return res.status(400).json({
         error: {
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Failed to load your rooms',
-          details: error.message,
+          code: 'VALIDATION',
+          message: 'Description must be a string',
+        },
+      });
+    }
+    trimmedDesc = description.trim();
+    if (trimmedDesc.length > 500) {
+      return res.status(400).json({
+        error: {
+          code: 'VALIDATION',
+          message: 'Description cannot exceed 500 characters',
+        },
+      });
+    }
+  }
+
+  const perms = {
+    canMic: Boolean(defaultPermissions?.canMic),
+    canCamera: Boolean(defaultPermissions?.canCamera),
+    canScreen: Boolean(defaultPermissions?.canScreen),
+    canWhiteboard: Boolean(defaultPermissions?.canWhiteboard),
+    canCode: Boolean(defaultPermissions?.canCode),
+  };
+
+  try {
+    const createdRoom = await createRoom(user.id, user.fullName, {
+      name: trimmedName,
+      description: trimmedDesc,
+      defaultPermissions: perms,
+    });
+
+    return res.status(201).json(createdRoom);
+  } catch (err) {
+    console.error('[Rooms API] Error creating room:', err);
+    return res.status(500).json({
+      error: {
+        code: 'INTERNAL_SERVER_ERROR',
+        message: 'Failed to create room',
+      },
+    });
+  }
+});
+
+// Join room by 6-character code (FR-8.3, FR-2.3, US-DASH-04)
+app.post('/api/rooms/join', async (req: Request, res: Response) => {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({
+      error: {
+        code: 'UNAUTHENTICATED',
+        message: 'Authentication required',
+      },
+    });
+  }
+
+  const { code } = req.body || {};
+
+  if (typeof code !== 'string' || !code.trim()) {
+    return res.status(400).json({
+      error: {
+        code: 'VALIDATION',
+        message: 'Room code is required and must be 6 characters',
+      },
+    });
+  }
+
+  try {
+    const result = await joinRoomByCode(user.id, code);
+
+    if (!result.alreadyMember) {
+      try {
+        const io = req.app.get('io');
+        if (io) {
+          io.to(`room:${result.roomId}`).emit('member:joined', {
+            userId: user.id,
+            fullName: user.fullName,
+            role: user.role,
+          });
+        }
+      } catch (socketErr) {
+        console.warn('[Rooms API] Socket emit error:', socketErr);
+      }
+    }
+
+    return res.status(200).json({
+      roomId: result.roomId,
+    });
+  } catch (err: any) {
+    if (err.code === 'ROOM_NOT_FOUND' || err.status === 404) {
+      return res.status(404).json({
+        error: {
+          code: 'ROOM_NOT_FOUND',
+          message: err.message || 'No room found with that code.',
         },
       });
     }
 
-    const rooms: RoomSummary[] = (data ?? []).map((room: any) => ({
-      id: room.id,
-      name: room.name,
-      description: room.description ?? null,
-      joinCode: room.join_code ?? null,
-      hostName: room.host_name,
-      memberCount: Number(room.member_count ?? 0),
-      myRole: room.my_role === 'host' ? 'host' : 'participant',
-      activeSessionId: room.active_session_id ?? null,
-      createdAt: room.created_at,
-    }));
+    if (err.code === 'VALIDATION' || err.status === 400) {
+      return res.status(400).json({
+        error: {
+          code: 'VALIDATION',
+          message: err.message || 'Invalid room code',
+        },
+      });
+    }
 
-    return res.status(200).json(rooms);
-  } catch (err) {
-    console.error('[Dashboard] Unexpected error loading rooms:', err);
+    console.error('[Rooms API] Error joining room:', err);
     return res.status(500).json({
       error: {
         code: 'INTERNAL_SERVER_ERROR',
-        message: 'Failed to load your rooms',
+        message: 'Failed to join room',
       },
+    });
+  }
+});
+
+// Get single room endpoint — membership enforced (US-ROOM-01, FR-2.4)
+app.get('/api/rooms/:roomId', async (req: Request, res: Response) => {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({
+      error: { code: 'UNAUTHENTICATED', message: 'Authentication required' },
+    });
+  }
+
+  const { roomId } = req.params;
+
+  try {
+    const room = await getRoomForUser(user.id, roomId);
+    return res.status(200).json(room);
+  } catch (err: any) {
+    if (err instanceof NotAMemberError) {
+      return res.status(403).json({
+        error: { code: 'NOT_A_MEMBER', message: err.message },
+      });
+    }
+    if (err?.code === 'ROOM_NOT_FOUND') {
+      return res.status(404).json({
+        error: { code: 'ROOM_NOT_FOUND', message: 'Room not found' },
+      });
+    }
+    console.error('[Room API] Error fetching room:', err);
+    return res.status(500).json({
+      error: { code: 'INTERNAL_SERVER_ERROR', message: 'Failed to retrieve room' },
+    });
+  }
+});
+
+// Remove a room member (host-only) — US-ROOM-03, FR-2.5
+app.delete('/api/rooms/:roomId/members/:userId', async (req: Request, res: Response) => {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({
+      error: { code: 'UNAUTHENTICATED', message: 'Authentication required' },
+    });
+  }
+
+  const { roomId, userId: targetUserId } = req.params;
+
+  try {
+    await removeRoomMember(user.id, roomId, targetUserId);
+
+    const io = req.app.get('io');
+    if (io) {
+      const roomKey = roomId.trim();
+      const roomSockets = Array.from(io.sockets.sockets.values()) as Socket[];
+      const matchingSockets = roomSockets.filter(
+        (socket) => socket.data.user?.id === targetUserId && socket.rooms.has(roomKey)
+      );
+
+      for (const socket of matchingSockets) {
+        socket.emit('room:kicked', { roomId: roomKey });
+        socket.leave(roomKey);
+      }
+
+      io.to(`room:${roomKey}`).emit('member:removed', {
+        roomId: roomKey,
+        userId: targetUserId,
+      });
+    }
+
+    return res.status(200).json({ ok: true });
+  } catch (err: any) {
+    if (err?.code === 'FORBIDDEN' || err?.status === 403) {
+      return res.status(403).json({
+        error: { code: 'FORBIDDEN', message: err.message || 'Only the host can manage members' },
+      });
+    }
+
+    if (err?.code === 'ROOM_NOT_FOUND' || err?.status === 404 || err?.code === 'NOT_FOUND') {
+      return res.status(404).json({
+        error: { code: 'NOT_FOUND', message: err.message || 'Member or room not found' },
+      });
+    }
+
+    if (err?.code === 'VALIDATION' || err?.status === 400) {
+      return res.status(400).json({
+        error: { code: 'VALIDATION', message: err.message || 'Invalid room or user ID' },
+      });
+    }
+
+    console.error('[Room API] Error removing room member:', err);
+    return res.status(500).json({
+      error: { code: 'INTERNAL_SERVER_ERROR', message: 'Failed to remove member' },
     });
   }
 });

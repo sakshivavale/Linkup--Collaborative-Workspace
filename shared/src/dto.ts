@@ -24,6 +24,26 @@ export interface UpdateProfileDto {
   fullName: string;
 }
 
+export interface JoinRoomDto {
+  code: string;
+}
+
+export interface JoinRoomResponse {
+  roomId: string;
+}
+
+/** US-DASH-03: payload sent by teacher to create a new room */
+export interface CreateRoomDto {
+  name: string;
+  description?: string | null;
+  defaultPermissions?: Partial<Permissions>;
+}
+
+/** US-DASH-03: response after room creation — RoomSummary with join code always present */
+export interface CreateRoomResponseDto extends RoomSummary {
+  joinCode: string; // always non-null for creator
+}
+
 export interface RoomSummary {
   id: string;
   name: string;
@@ -34,6 +54,7 @@ export interface RoomSummary {
   myRole: MemberRole;
   activeSessionId: string | null;
   createdAt: string;
+  members?: Member[];
 }
 
 export interface Room extends RoomSummary {
