@@ -6,7 +6,7 @@ import { RoomSummary } from '@linkup/shared';
 import { env } from './config/env';
 import { requireAuth } from './middleware/auth';
 import { supabase, updateTokenCacheUserName } from './lib/supabase';
-import { getRoomsForUser, createRoom, joinRoomByCode, getRoomForUser, NotAMemberError, removeRoomMember } from './lib/rooms';
+import { getRoomsForUser, createRoom, joinRoomByCode, getRoomForUser, NotAMemberError, removeRoomMember, regenerateRoomJoinCode } from './lib/rooms';
 
 // Dynamic CORS origin: accepts localhost AND any 192.168.x.x LAN IP on port 5173.
 // This permanently prevents CORS failures when the dev machine's IP changes.
@@ -410,6 +410,74 @@ app.delete('/api/rooms/:roomId/members/:userId', async (req: Request, res: Respo
     console.error('[Room API] Error removing room member:', err);
     return res.status(500).json({
       error: { code: 'INTERNAL_SERVER_ERROR', message: 'Failed to remove member' },
+    });
+  }
+});
+
+// Regenerate room join code (host only) — US-ROOM-04, FR-2.6
+app.post('/api/rooms/:roomId/join-code', async (req: Request, res: Response) => {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({
+      error: { code: 'UNAUTHENTICATED', message: 'Authentication required' },
+    });
+  }
+
+  const { roomId } = req.params;
+
+  try {
+    const newJoinCode = await regenerateRoomJoinCode(user.id, roomId);
+
+    // Broadcast new join code to room sockets if available
+    try {
+      const io = req.app.get('io');
+      if (io) {
+        io.to(`room:${roomId}`).emit('room:join-code-updated', {
+          roomId,
+          joinCode: newJoinCode,
+        });
+      }
+    } catch (socketErr) {
+      console.warn('[Room API] Socket emit error on join code regeneration:', socketErr);
+    }
+
+    return res.status(200).json({
+      joinCode: newJoinCode,
+    });
+  } catch (err: any) {
+    if (err?.code === 'HOST_ONLY' || err?.code === 'FORBIDDEN' || err?.status === 403) {
+      return res.status(403).json({
+        error: {
+          code: 'HOST_ONLY',
+          message: err.message || 'Only the room host can regenerate the join code',
+        },
+      });
+    }
+
+    if (err?.code === 'ROOM_NOT_FOUND' || err?.code === 'NOT_FOUND' || err?.status === 404) {
+      return res.status(404).json({
+        error: {
+          code: 'ROOM_NOT_FOUND',
+          message: err.message || 'Room not found',
+        },
+      });
+    }
+
+    if (err?.code === 'VALIDATION' || err?.status === 400) {
+      return res.status(400).json({
+        error: {
+          code: 'VALIDATION',
+          message: err.message || 'Invalid room ID',
+        },
+      });
+    }
+
+    console.error('[Room API] Error regenerating join code:', err);
+    return res.status(500).json({
+      error: {
+        code: 'INTERNAL_SERVER_ERROR',
+        message: 'Failed to regenerate join code',
+      },
     });
   }
 });

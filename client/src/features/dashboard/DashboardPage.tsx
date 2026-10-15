@@ -836,7 +836,15 @@ export const DashboardPage: React.FC = () => {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5" data-testid="rooms-grid">
             {rooms.map((room) => (
-              <RoomCard key={room.id} room={room} />
+              <RoomCard
+                key={room.id}
+                room={room}
+                onJoinCodeRegenerated={(roomId, newCode) => {
+                  setRooms((prev) =>
+                    prev.map((r) => (r.id === roomId ? { ...r, joinCode: newCode } : r))
+                  );
+                }}
+              />
             ))}
           </div>
         )}

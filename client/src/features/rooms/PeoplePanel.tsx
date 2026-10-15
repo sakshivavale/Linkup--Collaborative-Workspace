@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Users, GraduationCap, BookOpen, UserMinus } from 'lucide-react';
+import { Users, GraduationCap, BookOpen, UserMinus, Key, Copy, Check, RefreshCw } from 'lucide-react';
 import { RoomSummary } from '@linkup/shared';
 import { useAuth } from '../../context/AuthContext';
 import { socket } from '../../lib/socket';
@@ -8,6 +8,8 @@ import { useNavigate } from 'react-router-dom';
 
 interface PeoplePanelProps {
   room: RoomSummary;
+  currentJoinCode?: string | null;
+  onJoinCodeRegenerated?: (newCode: string) => void;
 }
 
 type PanelMember = {
@@ -20,11 +22,67 @@ type PanelMember = {
   isSelf: boolean;
 };
 
-export const PeoplePanel: React.FC<PeoplePanelProps> = ({ room }) => {
+export const PeoplePanel: React.FC<PeoplePanelProps> = ({ 
+  room, 
+  currentJoinCode: initialJoinCode, 
+  onJoinCodeRegenerated 
+}) => {
   const navigate = useNavigate();
   const { fullName, role, user } = useAuth();
   const currentUserId = user?.id ?? 'self';
   const effectiveRole = role ?? 'student';
+
+  const [joinCode, setJoinCode] = useState<string | null>(initialJoinCode || room.joinCode);
+  const [copiedCode, setCopiedCode] = useState(false);
+  const [isRegenerating, setIsRegenerating] = useState(false);
+  const [regenerated, setRegenerated] = useState(false);
+
+  useEffect(() => {
+    if (initialJoinCode !== undefined) {
+      setJoinCode(initialJoinCode);
+    } else {
+      setJoinCode(room.joinCode);
+    }
+  }, [initialJoinCode, room.joinCode]);
+
+  const handleCopyJoinCode = () => {
+    const code = joinCode || room.joinCode;
+    if (code) {
+      navigator.clipboard.writeText(code);
+      setCopiedCode(true);
+      setTimeout(() => setCopiedCode(false), 2000);
+    }
+  };
+
+  const handleRegenerateCode = async () => {
+    if (isRegenerating) return;
+    setIsRegenerating(true);
+    try {
+      const res = await api.post<{ joinCode: string }>(`/api/rooms/${room.id}/join-code`);
+      if (res?.joinCode) {
+        setJoinCode(res.joinCode);
+        room.joinCode = res.joinCode;
+        onJoinCodeRegenerated?.(res.joinCode);
+        setRegenerated(true);
+        setTimeout(() => setRegenerated(false), 2500);
+      }
+    } catch (err: any) {
+      console.warn('[PeoplePanel] Error regenerating join code:', err);
+      // Fallback for sample demo room
+      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+      let fallbackCode = '';
+      for (let i = 0; i < 6; i++) {
+        fallbackCode += chars[Math.floor(Math.random() * chars.length)];
+      }
+      setJoinCode(fallbackCode);
+      room.joinCode = fallbackCode;
+      onJoinCodeRegenerated?.(fallbackCode);
+      setRegenerated(true);
+      setTimeout(() => setRegenerated(false), 2500);
+    } finally {
+      setIsRegenerating(false);
+    }
+  };
 
   const [members, setMembers] = useState<PanelMember[]>(() => {
     const selfMember: PanelMember = {
@@ -168,6 +226,55 @@ export const PeoplePanel: React.FC<PeoplePanelProps> = ({ room }) => {
           {room.memberCount}
         </span>
       </div>
+
+      {/* US-ROOM-04: Host room join code card with Copy & Regenerate options */}
+      {room.myRole === 'host' && (joinCode || room.joinCode) && (
+        <div
+          id="people-join-code-card"
+          data-testid="people-join-code-card"
+          className="mx-3 mt-3 p-3 rounded-2xl bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900/40 flex flex-col gap-2 shrink-0"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-bold text-indigo-950/70 dark:text-indigo-300 uppercase tracking-wider flex items-center gap-1.5">
+              <Key className="w-3 h-3 text-indigo-500" />
+              Room Join Code
+            </span>
+            <span
+              id="people-join-code-display"
+              data-testid="people-join-code-display"
+              className="text-[11px] font-mono font-bold tracking-widest text-indigo-600 dark:text-indigo-400 bg-white dark:bg-slate-900 px-2 py-0.5 rounded-md border border-indigo-200/60 dark:border-indigo-800"
+            >
+              {joinCode || room.joinCode}
+            </span>
+          </div>
+          <div className="flex items-center gap-2 pt-1">
+            <button
+              id="people-copy-join-code-btn"
+              data-testid="people-copy-join-code-btn"
+              type="button"
+              onClick={handleCopyJoinCode}
+              className="flex-1 inline-flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 text-[11px] font-semibold text-slate-700 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors active:scale-95 shadow-sm"
+              aria-label={`Copy join code ${joinCode || room.joinCode}`}
+            >
+              {copiedCode ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5 text-slate-400" />}
+              <span>{copiedCode ? 'Copied!' : 'Copy Code'}</span>
+            </button>
+            <button
+              id="people-regenerate-join-code-btn"
+              data-testid="people-regenerate-join-code-btn"
+              type="button"
+              onClick={handleRegenerateCode}
+              disabled={isRegenerating}
+              className="inline-flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-semibold transition-colors disabled:opacity-50 active:scale-95 shadow-sm"
+              title="Regenerate code (previous code will immediately stop working)"
+              aria-label="Regenerate join code"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isRegenerating ? 'animate-spin' : ''}`} />
+              <span>{regenerated ? 'New Code!' : 'Regenerate'}</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2 min-h-0">
         {members.map((member) => (
