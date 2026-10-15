@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { RoomSummary, Room, Permissions, MemberRole, CreateRoomDto, CreateRoomResponseDto } from '@linkup/shared';
+import { RoomSummary, Room, Permissions, MemberRole, CreateRoomDto, CreateRoomResponseDto, UpdateRoomDto } from '@linkup/shared';
 
 /**
  * Typed error thrown when a user attempts to access a room they are not a member of.
@@ -800,6 +800,177 @@ export async function regenerateRoomJoinCode(
   }
 
   return newCode;
+}
+
+/**
+ * US-ROOM-05 (FR-2.7): Edit room name/description, or archive room.
+ * Only the room host can edit or archive the room; other users get 403 HOST_ONLY.
+ */
+export async function updateRoom(
+  userId: string,
+  roomId: string,
+  updates: UpdateRoomDto
+): Promise<RoomSummary | { id: string; archived: true }> {
+  const normalizedRoomId = roomId.trim();
+
+  // 1. In-memory mock store support (e.g. for automated test suites)
+  if (mockRoomsStore.size > 0 || mockCatalogStore.size > 0) {
+    const userRooms = mockRoomsStore.get(userId) || [];
+    const hostRoom = userRooms.find((r) => r.id === normalizedRoomId);
+
+    // If requester is not the host in their room list
+    if (!hostRoom || hostRoom.myRole !== 'host') {
+      // Check if room exists for any other user to differentiate between 404 and 403
+      let existsForAnyone = false;
+      for (const rooms of mockRoomsStore.values()) {
+        if (rooms.some((r) => r.id === normalizedRoomId)) {
+          existsForAnyone = true;
+          break;
+        }
+      }
+      for (const catRoom of mockCatalogStore.values()) {
+        if (catRoom.id === normalizedRoomId) {
+          existsForAnyone = true;
+          break;
+        }
+      }
+
+      if (!existsForAnyone) {
+        const error: any = new Error('Room not found');
+        error.code = 'ROOM_NOT_FOUND';
+        error.status = 404;
+        throw error;
+      }
+
+      const error: any = new Error('Only the room host can edit or archive the room');
+      error.code = 'HOST_ONLY';
+      error.status = 403;
+      throw error;
+    }
+
+    // Archive room in mock store
+    if (updates.archived) {
+      for (const [uid, rooms] of mockRoomsStore.entries()) {
+        mockRoomsStore.set(uid, rooms.filter((r) => r.id !== normalizedRoomId));
+      }
+      for (const [code, catRoom] of mockCatalogStore.entries()) {
+        if (catRoom.id === normalizedRoomId) {
+          mockCatalogStore.delete(code);
+        }
+      }
+      return { id: normalizedRoomId, archived: true };
+    }
+
+    // Update name/description in mock store
+    let updatedSummary: RoomSummary | null = null;
+    for (const [uid, rooms] of mockRoomsStore.entries()) {
+      const updated = rooms.map((r) => {
+        if (r.id === normalizedRoomId) {
+          const newSummary = {
+            ...r,
+            name: updates.name !== undefined ? updates.name : r.name,
+            description: updates.description !== undefined ? updates.description : r.description,
+          };
+          if (uid === userId) {
+            updatedSummary = newSummary;
+          }
+          return newSummary;
+        }
+        return r;
+      });
+      mockRoomsStore.set(uid, updated);
+    }
+
+    for (const [code, catRoom] of mockCatalogStore.entries()) {
+      if (catRoom.id === normalizedRoomId) {
+        mockCatalogStore.set(code, {
+          ...catRoom,
+          name: updates.name !== undefined ? updates.name : catRoom.name,
+          description: updates.description !== undefined ? updates.description : catRoom.description,
+        });
+      }
+    }
+
+    return updatedSummary || hostRoom;
+  }
+
+  // 2. Query Supabase database
+  const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!UUID_REGEX.test(normalizedRoomId)) {
+    const error: any = new Error('Room not found');
+    error.code = 'ROOM_NOT_FOUND';
+    error.status = 404;
+    throw error;
+  }
+
+  const { data: room, error: roomError } = await supabase
+    .from('rooms')
+    .select('id, name, description, owner_id, join_code, created_at, archived_at')
+    .eq('id', normalizedRoomId)
+    .is('archived_at', null)
+    .maybeSingle();
+
+  if (roomError) {
+    console.error('[Rooms Service] Error fetching room for update:', roomError.message);
+    throw new Error('Failed to fetch room');
+  }
+
+  if (!room) {
+    const error: any = new Error('Room not found');
+    error.code = 'ROOM_NOT_FOUND';
+    error.status = 404;
+    throw error;
+  }
+
+  // Verify host status
+  let isHost = room.owner_id === userId;
+  if (!isHost) {
+    const { data: membership } = await supabase
+      .from('room_members')
+      .select('member_role')
+      .eq('room_id', normalizedRoomId)
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    isHost = membership?.member_role === 'host';
+  }
+
+  if (!isHost) {
+    const error: any = new Error('Only the room host can edit or archive the room');
+    error.code = 'HOST_ONLY';
+    error.status = 403;
+    throw error;
+  }
+
+  // Perform updates in database
+  const updatePayload: Record<string, any> = {};
+  if (updates.name !== undefined) {
+    updatePayload.name = updates.name.trim();
+  }
+  if (updates.description !== undefined) {
+    updatePayload.description = updates.description === null ? null : updates.description.trim();
+  }
+  if (updates.archived === true) {
+    updatePayload.archived_at = new Date().toISOString();
+  } else if (updates.archived === false) {
+    updatePayload.archived_at = null;
+  }
+
+  const { error: updateError } = await supabase
+    .from('rooms')
+    .update(updatePayload)
+    .eq('id', normalizedRoomId);
+
+  if (updateError) {
+    console.error('[Rooms Service] Error updating room:', updateError.message);
+    throw new Error('Failed to update room');
+  }
+
+  if (updates.archived) {
+    return { id: normalizedRoomId, archived: true };
+  }
+
+  return getRoomForUser(userId, normalizedRoomId);
 }
 
 export async function joinRoomByCode(

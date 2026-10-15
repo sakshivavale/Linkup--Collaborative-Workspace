@@ -44,6 +44,13 @@ export interface CreateRoomDto {
   defaultPermissions?: Partial<Permissions>;
 }
 
+/** US-ROOM-05: payload sent by host to edit room name/description or archive */
+export interface UpdateRoomDto {
+  name?: string;
+  description?: string | null;
+  archived?: boolean;
+}
+
 /** US-DASH-03: response after room creation — RoomSummary with join code always present */
 export interface CreateRoomResponseDto extends RoomSummary {
   joinCode: string; // always non-null for creator

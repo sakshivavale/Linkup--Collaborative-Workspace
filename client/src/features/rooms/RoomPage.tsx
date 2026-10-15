@@ -13,6 +13,7 @@ import {
   Copy,
   Check,
   RefreshCw,
+  Edit3,
 } from 'lucide-react';
 import { useRoom } from './useRoom';
 import { LiveTab } from './LiveTab';
@@ -20,6 +21,7 @@ import { WhiteboardTab } from './WhiteboardTab';
 import { CodeTab } from './CodeTab';
 import { ChatPanel } from './ChatPanel';
 import { PeoplePanel } from './PeoplePanel';
+import { EditRoomModal } from '../dashboard/EditRoomModal';
 import { api } from '../../lib/api';
 import { socket } from '../../lib/socket';
 
@@ -53,6 +55,7 @@ export const RoomPage: React.FC = () => {
   const [copiedCode, setCopiedCode] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [regenerated, setRegenerated] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
   useEffect(() => {
     if (room?.joinCode) {
@@ -67,11 +70,30 @@ export const RoomPage: React.FC = () => {
         if (room) room.joinCode = data.joinCode;
       }
     };
+
+    const handleRoomUpdated = (data: { roomId: string; name?: string; description?: string | null }) => {
+      if (data.roomId === roomId && room) {
+        if (data.name) room.name = data.name;
+        if (data.description !== undefined) room.description = data.description;
+      }
+    };
+
+    const handleRoomArchived = (data: { roomId: string }) => {
+      if (data.roomId === roomId) {
+        navigate('/', { replace: true, state: { flash: 'ROOM_ARCHIVED' } });
+      }
+    };
+
     socket.on('room:join-code-updated', handleJoinCodeUpdated);
+    socket.on('room:updated', handleRoomUpdated);
+    socket.on('room:archived', handleRoomArchived);
+
     return () => {
       socket.off('room:join-code-updated', handleJoinCodeUpdated);
+      socket.off('room:updated', handleRoomUpdated);
+      socket.off('room:archived', handleRoomArchived);
     };
-  }, [roomId, room]);
+  }, [roomId, room, navigate]);
 
   const handleCopyJoinCode = () => {
     const code = currentJoinCode || room?.joinCode;
@@ -174,6 +196,22 @@ export const RoomPage: React.FC = () => {
           <h1 className="text-sm font-bold text-slate-900 dark:text-white truncate">
             {room.name}
           </h1>
+
+          {/* Edit button for host */}
+          {room.myRole === 'host' && (
+            <button
+              id="room-header-edit-btn"
+              data-testid="room-header-edit-btn"
+              type="button"
+              onClick={() => setIsEditModalOpen(true)}
+              className="p-1 rounded-lg text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors shrink-0"
+              title="Edit room settings"
+              aria-label="Edit room settings"
+            >
+              <Edit3 className="w-3.5 h-3.5" />
+            </button>
+          )}
+
           {/* Session status badge */}
           <div className={`shrink-0 inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide ${
             room.activeSessionId
@@ -346,6 +384,22 @@ export const RoomPage: React.FC = () => {
           </aside>
         )}
       </div>
+
+      {/* Edit Room Modal for host */}
+      {room.myRole === 'host' && isEditModalOpen && (
+        <EditRoomModal
+          isOpen={isEditModalOpen}
+          room={room}
+          onClose={() => setIsEditModalOpen(false)}
+          onSuccess={(updated) => {
+            room.name = updated.name;
+            room.description = updated.description;
+          }}
+          onArchive={() => {
+            navigate('/', { replace: true, state: { flash: 'ROOM_ARCHIVED' } });
+          }}
+        />
+      )}
     </div>
   );
 };

@@ -260,9 +260,9 @@
 > As a **host**, I want to edit the room name and description, or archive a room, so that I can keep the workspace organised.
 
 **Acceptance Criteria:**
-- [ ] `PATCH /api/rooms/:roomId` accepts `{ name?, description? }` and updates the room.
-- [ ] Archived rooms do not appear on any user's dashboard.
-- [ ] Only the host can edit or archive a room; other users get `403 HOST_ONLY`.
+- [x] `PATCH /api/rooms/:roomId` accepts `{ name?, description? }` and updates the room.
+- [x] Archived rooms do not appear on any user's dashboard.
+- [x] Only the host can edit or archive a room; other users get `403 HOST_ONLY`.
 
 ---
 
