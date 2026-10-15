@@ -189,10 +189,57 @@ export async function getRoomsForUser(userId: string): Promise<RoomSummary[]> {
  * Returns null if the room does not exist (→ 404).
  * (US-ROOM-01, FR-2.4)
  */
+export const DEFAULT_SAMPLE_ROOMS: Record<string, RoomSummary> = {
+  'room-cs101-active': {
+    id: 'room-cs101-active',
+    name: 'CS101: Data Structures & Algorithms',
+    description: 'Live interactive coding workspace with real-time video, compiler, and shared whiteboard.',
+    joinCode: 'CS101A',
+    hostName: 'Prof. Alan Turing',
+    memberCount: 28,
+    myRole: 'host',
+    activeSessionId: 'session-live-cs101-888',
+    createdAt: new Date().toISOString(),
+  },
+  'room-math201-inactive': {
+    id: 'room-math201-inactive',
+    name: 'MATH201: Discrete Mathematics & Graph Theory',
+    description: 'Weekly tutorial problems and discussion room. Next session scheduled for Friday.',
+    joinCode: null,
+    hostName: 'Dr. Ada Lovelace',
+    memberCount: 16,
+    myRole: 'participant',
+    activeSessionId: null,
+    createdAt: new Date(Date.now() - 86400000).toISOString(),
+  },
+  'room-phys301-active': {
+    id: 'room-phys301-active',
+    name: 'PHYS301: Quantum Mechanics & Wave Dynamics',
+    description: 'Laboratory live lecture session with interactive formulas and visual simulations.',
+    joinCode: null,
+    hostName: 'Dr. Richard Feynman',
+    memberCount: 34,
+    myRole: 'participant',
+    activeSessionId: 'session-live-phys-999',
+    createdAt: new Date(Date.now() - 172800000).toISOString(),
+  },
+};
+
 export async function getRoomForUser(
   userId: string,
   roomId: string
 ): Promise<RoomSummary> {
+  // Check if roomId is one of the built-in sample demo rooms
+  if (DEFAULT_SAMPLE_ROOMS[roomId]) {
+    return DEFAULT_SAMPLE_ROOMS[roomId];
+  }
+
+  // Validate UUID to avoid PostgreSQL "invalid input syntax for type uuid" error
+  const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!UUID_REGEX.test(roomId)) {
+    throw Object.assign(new Error('Room not found'), { code: 'ROOM_NOT_FOUND' });
+  }
+
   // 1. Check membership
   const { data: memberRow, error: memErr } = await supabase
     .from('room_members')
