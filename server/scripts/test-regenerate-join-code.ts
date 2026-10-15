@@ -296,9 +296,9 @@ async function runTests() {
     console.log('============================================================\n');
 
     if (failedCount > 0) {
-      process.exit(1);
+      process.exitCode = 1;
     } else {
-      process.exit(0);
+      process.exitCode = 0;
     }
   }
 }

@@ -10,13 +10,15 @@ export class HttpError extends Error {
   public status: number;
   public code: string;
   public details?: unknown;
+  public data?: any;
 
-  constructor(status: number, code: string, message?: string, details?: unknown) {
+  constructor(status: number, code: string, message?: string, details?: unknown, data?: any) {
     super(message || code);
     this.name = 'HttpError';
     this.status = status;
     this.code = code;
     this.details = details;
+    this.data = data;
   }
 }
 
@@ -123,7 +125,7 @@ async function handleResponse<T>(res: Response): Promise<T> {
     const message = errorData?.error?.message || res.statusText;
     const details = errorData?.error?.details;
 
-    throw new HttpError(res.status, code, message, details);
+    throw new HttpError(res.status, code, message, details, errorData);
   }
 
   const contentType = res.headers.get('content-type');

@@ -189,6 +189,8 @@ export async function getRoomsForUser(userId: string): Promise<RoomSummary[]> {
  * Returns null if the room does not exist (→ 404).
  * (US-ROOM-01, FR-2.4)
  */
+import { getRoomPresence } from '../realtime/presence';
+
 export const DEFAULT_SAMPLE_ROOMS: Record<string, RoomSummary> = {
   'room-cs101-active': {
     id: 'room-cs101-active',
@@ -196,10 +198,40 @@ export const DEFAULT_SAMPLE_ROOMS: Record<string, RoomSummary> = {
     description: 'Live interactive coding workspace with real-time video, compiler, and shared whiteboard.',
     joinCode: 'CS101A',
     hostName: 'Prof. Alan Turing',
-    memberCount: 28,
+    memberCount: 3,
     myRole: 'host',
     activeSessionId: 'session-live-cs101-888',
     createdAt: new Date().toISOString(),
+    members: [
+      {
+        userId: 'user-turing',
+        fullName: 'Prof. Alan Turing',
+        userRole: 'teacher',
+        memberRole: 'host',
+        permissions: { canMic: true, canCamera: true, canScreen: true, canWhiteboard: true, canCode: true },
+        joinedAt: new Date(Date.now() - 3600000).toISOString(),
+      },
+      {
+        userId: 'user-grace',
+        fullName: 'Grace Hopper',
+        userRole: 'student',
+        memberRole: 'participant',
+        permissions: { canMic: true, canCamera: true, canScreen: false, canWhiteboard: true, canCode: true },
+        joinedAt: new Date(Date.now() - 1800000).toISOString(),
+      },
+      {
+        userId: 'user-john',
+        fullName: 'John von Neumann',
+        userRole: 'student',
+        memberRole: 'participant',
+        permissions: { canMic: true, canCamera: true, canScreen: false, canWhiteboard: true, canCode: true },
+        joinedAt: new Date(Date.now() - 900000).toISOString(),
+      },
+    ],
+    presence: [
+      { userId: 'user-turing', fullName: 'Prof. Alan Turing', inLive: true, handRaised: false },
+      { userId: 'user-grace', fullName: 'Grace Hopper', inLive: true, handRaised: false },
+    ],
   },
   'room-math201-inactive': {
     id: 'room-math201-inactive',
@@ -207,10 +239,31 @@ export const DEFAULT_SAMPLE_ROOMS: Record<string, RoomSummary> = {
     description: 'Weekly tutorial problems and discussion room. Next session scheduled for Friday.',
     joinCode: null,
     hostName: 'Dr. Ada Lovelace',
-    memberCount: 16,
+    memberCount: 2,
     myRole: 'participant',
     activeSessionId: null,
     createdAt: new Date(Date.now() - 86400000).toISOString(),
+    members: [
+      {
+        userId: 'user-lovelace',
+        fullName: 'Dr. Ada Lovelace',
+        userRole: 'teacher',
+        memberRole: 'host',
+        permissions: { canMic: true, canCamera: true, canScreen: true, canWhiteboard: true, canCode: true },
+        joinedAt: new Date(Date.now() - 86400000).toISOString(),
+      },
+      {
+        userId: 'user-babbage',
+        fullName: 'Charles Babbage',
+        userRole: 'student',
+        memberRole: 'participant',
+        permissions: { canMic: true, canCamera: true, canScreen: false, canWhiteboard: true, canCode: true },
+        joinedAt: new Date(Date.now() - 86000000).toISOString(),
+      },
+    ],
+    presence: [
+      { userId: 'user-lovelace', fullName: 'Dr. Ada Lovelace', inLive: false, handRaised: false },
+    ],
   },
   'room-phys301-active': {
     id: 'room-phys301-active',
@@ -218,10 +271,32 @@ export const DEFAULT_SAMPLE_ROOMS: Record<string, RoomSummary> = {
     description: 'Laboratory live lecture session with interactive formulas and visual simulations.',
     joinCode: null,
     hostName: 'Dr. Richard Feynman',
-    memberCount: 34,
+    memberCount: 2,
     myRole: 'participant',
     activeSessionId: 'session-live-phys-999',
     createdAt: new Date(Date.now() - 172800000).toISOString(),
+    members: [
+      {
+        userId: 'user-feynman',
+        fullName: 'Dr. Richard Feynman',
+        userRole: 'teacher',
+        memberRole: 'host',
+        permissions: { canMic: true, canCamera: true, canScreen: true, canWhiteboard: true, canCode: true },
+        joinedAt: new Date(Date.now() - 172800000).toISOString(),
+      },
+      {
+        userId: 'user-curie',
+        fullName: 'Marie Curie',
+        userRole: 'student',
+        memberRole: 'participant',
+        permissions: { canMic: true, canCamera: true, canScreen: true, canWhiteboard: true, canCode: true },
+        joinedAt: new Date(Date.now() - 170000000).toISOString(),
+      },
+    ],
+    presence: [
+      { userId: 'user-feynman', fullName: 'Dr. Richard Feynman', inLive: true, handRaised: false },
+      { userId: 'user-curie', fullName: 'Marie Curie', inLive: true, handRaised: false },
+    ],
   },
 };
 
@@ -231,7 +306,24 @@ export async function getRoomForUser(
 ): Promise<RoomSummary> {
   // Check if roomId is one of the built-in sample demo rooms
   if (DEFAULT_SAMPLE_ROOMS[roomId]) {
-    return DEFAULT_SAMPLE_ROOMS[roomId];
+    const sample = DEFAULT_SAMPLE_ROOMS[roomId];
+    const livePresence = getRoomPresence(roomId);
+    return {
+      ...sample,
+      presence: livePresence.length > 0 ? livePresence : sample.presence || [],
+    };
+  }
+
+  // Check mock store for testing harness (US-ROOM-01, US-ROOM-02, US-ROOM-03)
+  if (mockRoomsStore.has(userId)) {
+    const userRooms = mockRoomsStore.get(userId) || [];
+    const found = userRooms.find((r) => r.id === roomId);
+    if (found) {
+      return {
+        ...found,
+        presence: getRoomPresence(roomId),
+      };
+    }
   }
 
   // Validate UUID to avoid PostgreSQL "invalid input syntax for type uuid" error
@@ -354,6 +446,7 @@ export async function getRoomForUser(
     activeSessionId: session?.id ?? null,
     createdAt: room.created_at,
     members,
+    presence: getRoomPresence(room.id),
   };
 }
 
