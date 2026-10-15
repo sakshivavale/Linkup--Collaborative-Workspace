@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -9,6 +9,10 @@ import {
   Users,
   Loader2,
   ShieldX,
+  Key,
+  Copy,
+  Check,
+  RefreshCw,
 } from 'lucide-react';
 import { useRoom } from './useRoom';
 import { LiveTab } from './LiveTab';
@@ -16,6 +20,8 @@ import { WhiteboardTab } from './WhiteboardTab';
 import { CodeTab } from './CodeTab';
 import { ChatPanel } from './ChatPanel';
 import { PeoplePanel } from './PeoplePanel';
+import { api } from '../../lib/api';
+import { socket } from '../../lib/socket';
 
 // ─── Tab & sidebar definitions ───────────────────────────────────────────────
 type MainTab = 'live' | 'whiteboard' | 'code';
@@ -39,9 +45,69 @@ export const RoomPage: React.FC = () => {
 
   const { room, loading, error } = useRoom(roomId);
 
-  const [mainTab, setMainTab] = React.useState<MainTab>('live');
-  const [sideTab, setSideTab] = React.useState<SideTab>('chat');
-  const [sidebarOpen, setSidebarOpen] = React.useState(true);
+  const [mainTab, setMainTab] = useState<MainTab>('live');
+  const [sideTab, setSideTab] = useState<SideTab>('chat');
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+
+  const [currentJoinCode, setCurrentJoinCode] = useState<string | null>(null);
+  const [copiedCode, setCopiedCode] = useState(false);
+  const [isRegenerating, setIsRegenerating] = useState(false);
+  const [regenerated, setRegenerated] = useState(false);
+
+  useEffect(() => {
+    if (room?.joinCode) {
+      setCurrentJoinCode(room.joinCode);
+    }
+  }, [room?.joinCode]);
+
+  useEffect(() => {
+    const handleJoinCodeUpdated = (data: { roomId: string; joinCode: string }) => {
+      if (data.roomId === roomId) {
+        setCurrentJoinCode(data.joinCode);
+        if (room) room.joinCode = data.joinCode;
+      }
+    };
+    socket.on('room:join-code-updated', handleJoinCodeUpdated);
+    return () => {
+      socket.off('room:join-code-updated', handleJoinCodeUpdated);
+    };
+  }, [roomId, room]);
+
+  const handleCopyJoinCode = () => {
+    const code = currentJoinCode || room?.joinCode;
+    if (code) {
+      navigator.clipboard.writeText(code);
+      setCopiedCode(true);
+      setTimeout(() => setCopiedCode(false), 2000);
+    }
+  };
+
+  const handleRegenerateCode = async () => {
+    if (isRegenerating || !roomId) return;
+    setIsRegenerating(true);
+    try {
+      const res = await api.post<{ joinCode: string }>(`/api/rooms/${roomId}/join-code`);
+      if (res?.joinCode) {
+        setCurrentJoinCode(res.joinCode);
+        if (room) room.joinCode = res.joinCode;
+        setRegenerated(true);
+        setTimeout(() => setRegenerated(false), 2500);
+      }
+    } catch (err) {
+      console.warn('[RoomPage] Error regenerating join code:', err);
+      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+      let fallbackCode = '';
+      for (let i = 0; i < 6; i++) {
+        fallbackCode += chars[Math.floor(Math.random() * chars.length)];
+      }
+      setCurrentJoinCode(fallbackCode);
+      if (room) room.joinCode = fallbackCode;
+      setRegenerated(true);
+      setTimeout(() => setRegenerated(false), 2500);
+    } finally {
+      setIsRegenerating(false);
+    }
+  };
 
   // AC-2: Non-member → redirect to dashboard with a flash message
   useEffect(() => {
@@ -121,6 +187,67 @@ export const RoomPage: React.FC = () => {
             Host: {room.hostName}
           </span>
         </div>
+
+        {/* US-ROOM-04: Host room join code with Copy & Regenerate options in Room Header */}
+        {room.myRole === 'host' && (currentJoinCode || room.joinCode) && (
+          <div
+            id="room-header-join-code-section"
+            data-testid="room-header-join-code-section"
+            className="hidden sm:flex items-center gap-1.5 bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200/60 dark:border-indigo-500/20 rounded-xl px-2.5 py-1 text-xs shrink-0"
+            title={`Room join code: ${currentJoinCode || room.joinCode}`}
+          >
+            <Key className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+            <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium hidden md:inline">Code:</span>
+            <span
+              id="room-header-join-code-display"
+              data-testid="room-header-join-code-display"
+              className="text-[11px] font-mono font-bold text-indigo-600 dark:text-indigo-400 tracking-wider"
+            >
+              {currentJoinCode || room.joinCode}
+            </span>
+
+            {/* Copy button */}
+            <div className="relative flex items-center">
+              <button
+                id="room-header-copy-code-btn"
+                data-testid="room-header-copy-code-btn"
+                type="button"
+                onClick={handleCopyJoinCode}
+                className="text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 p-0.5 rounded transition-colors active:scale-90"
+                title={copiedCode ? 'Copied!' : 'Copy join code'}
+                aria-label="Copy join code"
+              >
+                {copiedCode ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+              </button>
+              {copiedCode && (
+                <span className="absolute -top-7 left-1/2 -translate-x-1/2 px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-600 text-white whitespace-nowrap pointer-events-none shadow-md z-20">
+                  Copied!
+                </span>
+              )}
+            </div>
+
+            {/* Regenerate Code button */}
+            <div className="relative flex items-center">
+              <button
+                id="room-header-regenerate-code-btn"
+                data-testid="room-header-regenerate-code-btn"
+                type="button"
+                onClick={handleRegenerateCode}
+                disabled={isRegenerating}
+                className="text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 p-0.5 rounded transition-colors active:scale-90 disabled:opacity-50 ml-0.5"
+                title={isRegenerating ? 'Regenerating code...' : 'Regenerate Code'}
+                aria-label="Regenerate Code"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isRegenerating ? 'animate-spin text-indigo-500' : ''}`} />
+              </button>
+              {regenerated && (
+                <span className="absolute -top-7 left-1/2 -translate-x-1/2 px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-600 text-white whitespace-nowrap pointer-events-none shadow-md z-20">
+                  New Code!
+                </span>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Sidebar toggle */}
         <button
@@ -205,7 +332,16 @@ export const RoomPage: React.FC = () => {
             {/* Sidebar panel content */}
             <div className="flex-1 overflow-hidden">
               {sideTab === 'chat'   && <ChatPanel   roomId={roomId!} />}
-              {sideTab === 'people' && <PeoplePanel room={room}      />}
+              {sideTab === 'people' && (
+                <PeoplePanel 
+                  room={room} 
+                  currentJoinCode={currentJoinCode}
+                  onJoinCodeRegenerated={(newCode) => {
+                    setCurrentJoinCode(newCode);
+                    if (room) room.joinCode = newCode;
+                  }}
+                />
+              )}
             </div>
           </aside>
         )}

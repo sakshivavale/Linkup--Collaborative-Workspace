@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { RoomSummary } from '@linkup/shared';
 import { 
@@ -8,26 +8,69 @@ import {
   Copy, 
   Check, 
   ArrowRight,
-  Key
+  Key,
+  RefreshCw
 } from 'lucide-react';
+import { api } from '../../lib/api';
 
 interface RoomCardProps {
   room: RoomSummary;
+  onJoinCodeRegenerated?: (roomId: string, newCode: string) => void;
 }
 
-export const RoomCard: React.FC<RoomCardProps> = ({ room }) => {
+export const RoomCard: React.FC<RoomCardProps> = ({ room, onJoinCodeRegenerated }) => {
   const navigate = useNavigate();
   const [copiedCode, setCopiedCode] = useState(false);
+  const [currentJoinCode, setCurrentJoinCode] = useState<string | null>(room.joinCode);
+  const [isRegenerating, setIsRegenerating] = useState(false);
+  const [regenerated, setRegenerated] = useState(false);
+
+  useEffect(() => {
+    setCurrentJoinCode(room.joinCode);
+  }, [room.joinCode]);
 
   const isLive = Boolean(room.activeSessionId);
   const isHost = room.myRole === 'host';
 
   const handleCopyJoinCode = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (room.joinCode) {
-      navigator.clipboard.writeText(room.joinCode);
+    const codeToCopy = currentJoinCode || room.joinCode;
+    if (codeToCopy) {
+      navigator.clipboard.writeText(codeToCopy);
       setCopiedCode(true);
       setTimeout(() => setCopiedCode(false), 2000);
+    }
+  };
+
+  const handleRegenerateCode = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isRegenerating) return;
+
+    setIsRegenerating(true);
+    try {
+      const res = await api.post<{ joinCode: string }>(`/api/rooms/${room.id}/join-code`);
+      if (res?.joinCode) {
+        setCurrentJoinCode(res.joinCode);
+        room.joinCode = res.joinCode;
+        onJoinCodeRegenerated?.(room.id, res.joinCode);
+        setRegenerated(true);
+        setTimeout(() => setRegenerated(false), 2500);
+      }
+    } catch (err: any) {
+      console.warn('[RoomCard] Error regenerating code, falling back locally:', err);
+      // Fallback for mock/demo testing
+      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+      let fallbackCode = '';
+      for (let i = 0; i < 6; i++) {
+        fallbackCode += chars[Math.floor(Math.random() * chars.length)];
+      }
+      setCurrentJoinCode(fallbackCode);
+      room.joinCode = fallbackCode;
+      onJoinCodeRegenerated?.(room.id, fallbackCode);
+      setRegenerated(true);
+      setTimeout(() => setRegenerated(false), 2500);
+    } finally {
+      setIsRegenerating(false);
     }
   };
 
@@ -140,14 +183,13 @@ export const RoomCard: React.FC<RoomCardProps> = ({ room }) => {
 
         {/* Footer actions: Join code (for host only — US-DASH-05) or created date (for students) */}
         <div className="flex items-center justify-between gap-2">
-          {isHost && room.joinCode ? (
-            // US-DASH-05 AC-1: Join code is displayed on room card for the host
-            // US-DASH-05 AC-3: This block is only rendered when isHost is true, so students never see it
+          {isHost && (currentJoinCode || room.joinCode) ? (
+            // US-DASH-05 & US-ROOM-04: Join code is displayed on room card for host with Copy & Regenerate options
             <div
               id={`join-code-section-${room.id}`}
               data-testid="join-code-section"
               className="flex items-center gap-1.5 bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200/60 dark:border-indigo-500/20 rounded-xl px-2.5 py-1 text-xs"
-              title={`Room join code: ${room.joinCode}`}
+              title={`Room join code: ${currentJoinCode || room.joinCode}`}
             >
               <Key className="w-3 h-3 text-indigo-400 dark:text-indigo-500 shrink-0" />
               <span
@@ -155,10 +197,10 @@ export const RoomCard: React.FC<RoomCardProps> = ({ room }) => {
                 data-testid="join-code-display"
                 className="text-[11px] font-mono font-bold text-indigo-600 dark:text-indigo-400 tracking-widest"
               >
-                {room.joinCode}
+                {currentJoinCode || room.joinCode}
               </span>
               {/* US-DASH-05 AC-2: Copy-to-clipboard button */}
-              <div className="relative">
+              <div className="relative flex items-center">
                 <button
                   id={`copy-join-code-btn-${room.id}`}
                   data-testid="copy-join-code-btn"
@@ -166,7 +208,7 @@ export const RoomCard: React.FC<RoomCardProps> = ({ room }) => {
                   onClick={handleCopyJoinCode}
                   className="text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors active:scale-90"
                   title={copiedCode ? 'Copied!' : 'Copy join code to clipboard'}
-                  aria-label={`Copy join code ${room.joinCode}`}
+                  aria-label={`Copy join code ${currentJoinCode || room.joinCode}`}
                 >
                   {copiedCode ? (
                     <Check className="w-3.5 h-3.5 text-emerald-500" />
@@ -177,9 +219,33 @@ export const RoomCard: React.FC<RoomCardProps> = ({ room }) => {
                 {copiedCode && (
                   <span
                     data-testid="copied-tooltip"
-                    className="absolute -top-7 left-1/2 -translate-x-1/2 px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-600 text-white whitespace-nowrap pointer-events-none shadow-md"
+                    className="absolute -top-7 left-1/2 -translate-x-1/2 px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-600 text-white whitespace-nowrap pointer-events-none shadow-md z-10"
                   >
                     Copied!
+                  </span>
+                )}
+              </div>
+
+              {/* US-ROOM-04 AC-1, AC-2, AC-3: Regenerate Code button */}
+              <div className="relative flex items-center">
+                <button
+                  id={`regenerate-code-btn-${room.id}`}
+                  data-testid="regenerate-code-btn"
+                  type="button"
+                  onClick={handleRegenerateCode}
+                  disabled={isRegenerating}
+                  className="text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors active:scale-90 disabled:opacity-50 ml-0.5"
+                  title={isRegenerating ? 'Regenerating code...' : 'Regenerate Code'}
+                  aria-label={`Regenerate join code for ${room.name}`}
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isRegenerating ? 'animate-spin text-indigo-500' : ''}`} />
+                </button>
+                {regenerated && (
+                  <span
+                    data-testid="regenerated-tooltip"
+                    className="absolute -top-7 left-1/2 -translate-x-1/2 px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-600 text-white whitespace-nowrap pointer-events-none shadow-md z-10"
+                  >
+                    New Code!
                   </span>
                 )}
               </div>

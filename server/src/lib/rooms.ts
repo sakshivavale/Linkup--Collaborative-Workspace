@@ -624,6 +624,184 @@ export async function removeRoomMember(
   }
 }
 
+/**
+ * Regenerates the 6-character join code for a room (US-ROOM-04, FR-2.6)
+ * - Only the host can regenerate the join code.
+ * - The old code immediately becomes invalid for joining.
+ * - Returns the newly generated join code.
+ */
+export async function regenerateRoomJoinCode(
+  requesterUserId: string,
+  roomId: string
+): Promise<string> {
+  const normalizedRoomId = roomId?.trim();
+
+  if (!normalizedRoomId || !requesterUserId) {
+    const error: any = new Error('Room ID and user ID are required');
+    error.code = 'VALIDATION';
+    error.status = 400;
+    throw error;
+  }
+
+  // Check demo sample rooms
+  if (DEFAULT_SAMPLE_ROOMS[normalizedRoomId]) {
+    const room = DEFAULT_SAMPLE_ROOMS[normalizedRoomId];
+    if (room.myRole !== 'host') {
+      const error: any = new Error('Only the room host can regenerate the join code');
+      error.code = 'HOST_ONLY';
+      error.status = 403;
+      throw error;
+    }
+    const oldCode = room.joinCode;
+    const newCode = generateJoinCode();
+    room.joinCode = newCode;
+    if (oldCode && mockCatalogStore.has(oldCode.toUpperCase())) {
+      const catalogEntry = mockCatalogStore.get(oldCode.toUpperCase())!;
+      mockCatalogStore.delete(oldCode.toUpperCase());
+      mockCatalogStore.set(newCode.toUpperCase(), {
+        ...catalogEntry,
+        joinCode: newCode.toUpperCase(),
+      });
+    }
+    return newCode;
+  }
+
+  // 1. Check in-memory mock store
+  const mockRoomLists = Array.from(mockRoomsStore.values());
+  const isMockRoomKnown = mockRoomLists.some((rooms) => rooms.some((room) => room.id === normalizedRoomId));
+
+  if (isMockRoomKnown) {
+    const hostRooms = mockRoomsStore.get(requesterUserId) || [];
+    const hostRoom = hostRooms.find((room) => room.id === normalizedRoomId);
+
+    if (!hostRoom || hostRoom.myRole !== 'host') {
+      const error: any = new Error('Only the room host can regenerate the join code');
+      error.code = 'HOST_ONLY';
+      error.status = 403;
+      throw error;
+    }
+
+    const oldCode = hostRoom.joinCode;
+
+    // Generate new unique code different from oldCode
+    const newCode = await generateUniqueJoinCode(async (candidate) => {
+      if (candidate === oldCode) return true;
+      for (const rooms of mockRoomsStore.values()) {
+        if (rooms.some((r) => r.joinCode === candidate)) return true;
+      }
+      return false;
+    });
+
+    // Update in all mock room stores: host sees new code, participants keep joinCode: null
+    for (const [userId, rooms] of mockRoomsStore.entries()) {
+      const updatedRooms = rooms.map((room) => {
+        if (room.id === normalizedRoomId) {
+          return {
+            ...room,
+            joinCode: room.myRole === 'host' ? newCode : null,
+          };
+        }
+        return room;
+      });
+      mockRoomsStore.set(userId, updatedRooms);
+    }
+
+    // Invalidate old code in mock catalog store and register new code
+    if (oldCode && mockCatalogStore.has(oldCode.toUpperCase())) {
+      const catalogEntry = mockCatalogStore.get(oldCode.toUpperCase())!;
+      mockCatalogStore.delete(oldCode.toUpperCase());
+      mockCatalogStore.set(newCode.toUpperCase(), {
+        ...catalogEntry,
+        joinCode: newCode.toUpperCase(),
+      });
+    }
+
+    return newCode;
+  }
+
+  // 2. Query Supabase database for the room
+  const { data: room, error: roomError } = await supabase
+    .from('rooms')
+    .select('id, owner_id, join_code, archived_at')
+    .eq('id', normalizedRoomId)
+    .is('archived_at', null)
+    .maybeSingle();
+
+  if (roomError) {
+    console.error('[Rooms Service] Error fetching room for join code regeneration:', roomError.message);
+    throw new Error('Failed to fetch room');
+  }
+
+  if (!room) {
+    const error: any = new Error('Room not found');
+    error.code = 'ROOM_NOT_FOUND';
+    error.status = 404;
+    throw error;
+  }
+
+  // Check host permission (owner_id or host role in room_members)
+  let isHost = room.owner_id === requesterUserId;
+  if (!isHost) {
+    const { data: membership } = await supabase
+      .from('room_members')
+      .select('member_role')
+      .eq('room_id', normalizedRoomId)
+      .eq('user_id', requesterUserId)
+      .maybeSingle();
+
+    isHost = membership?.member_role === 'host';
+  }
+
+  if (!isHost) {
+    const error: any = new Error('Only the room host can regenerate the join code');
+    error.code = 'HOST_ONLY';
+    error.status = 403;
+    throw error;
+  }
+
+  const oldCode = room.join_code;
+
+  // Generate a new unique 6-character code
+  let newCode = '';
+  const maxAttempts = 10;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const candidate = await generateUniqueJoinCode(async (code) => {
+      if (code === oldCode) return true;
+      try {
+        const { data } = await supabase
+          .from('rooms')
+          .select('id')
+          .eq('join_code', code)
+          .maybeSingle();
+        return Boolean(data);
+      } catch {
+        return false;
+      }
+    });
+
+    const { error: updateError } = await supabase
+      .from('rooms')
+      .update({ join_code: candidate })
+      .eq('id', normalizedRoomId);
+
+    if (!updateError) {
+      newCode = candidate;
+      break;
+    }
+
+    if (updateError.code !== '23505') {
+      console.error('[Rooms Service] Error updating room join code:', updateError.message);
+      throw new Error('Failed to update room join code');
+    }
+  }
+
+  if (!newCode) {
+    throw new Error('Failed to generate unique join code after multiple attempts');
+  }
+
+  return newCode;
+}
+
 export async function joinRoomByCode(
   userId: string,
   rawCode: string

@@ -32,6 +32,11 @@ export interface JoinRoomResponse {
   roomId: string;
 }
 
+/** US-ROOM-04: response after regenerating room join code */
+export interface RegenerateJoinCodeResponse {
+  joinCode: string;
+}
+
 /** US-DASH-03: payload sent by teacher to create a new room */
 export interface CreateRoomDto {
   name: string;
