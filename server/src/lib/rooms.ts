@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { RoomSummary, Room, Permissions, MemberRole, CreateRoomDto, CreateRoomResponseDto, UpdateRoomDto } from '@linkup/shared';
+import { RoomSummary, Room, Permissions, MemberRole, CreateRoomDto, CreateRoomResponseDto, UpdateRoomDto, Session } from '@linkup/shared';
 
 /**
  * Typed error thrown when a user attempts to access a room they are not a member of.
@@ -51,9 +51,18 @@ export async function generateUniqueJoinCode(
 // In-memory mock store for unit/integration testing (e.g. scripts/test-dash-live-badge.ts)
 const mockRoomsStore = new Map<string, RoomSummary[]>();
 const mockCatalogStore = new Map<string, { id: string; name: string; description: string | null; joinCode: string; hostName: string }>();
+const mockSessionsStore = new Map<string, Session>();
 
 export function setMockRooms(userId: string, rooms: RoomSummary[]) {
   mockRoomsStore.set(userId, rooms);
+}
+
+export function clearMockSessions() {
+  mockSessionsStore.clear();
+}
+
+export function getMockSessions(): Map<string, Session> {
+  return mockSessionsStore;
 }
 
 export function clearMockRooms(userId?: string) {
@@ -61,6 +70,7 @@ export function clearMockRooms(userId?: string) {
     mockRoomsStore.delete(userId);
   } else {
     mockRoomsStore.clear();
+    mockSessionsStore.clear();
   }
 }
 
@@ -1178,5 +1188,365 @@ export async function joinRoomByCode(
   }
 
   return { roomId: room.id, alreadyMember: false };
+}
+
+/**
+ * Starts a live session in a room (US-LIVE-01, FR-3.1)
+ * - Only the room host can start a session.
+ * - Only one session can be active per room at a time (409 SESSION_ACTIVE).
+ * - Returns the newly created Session.
+ */
+export async function startSession(
+  requesterUserId: string,
+  roomId: string
+): Promise<Session> {
+  const normalizedRoomId = roomId?.trim();
+  const normalizedUserId = requesterUserId?.trim();
+
+  if (!normalizedRoomId || !normalizedUserId) {
+    const error: any = new Error('Room ID and user ID are required');
+    error.code = 'VALIDATION';
+    error.status = 400;
+    throw error;
+  }
+
+  // 1. Check demo sample rooms
+  if (DEFAULT_SAMPLE_ROOMS[normalizedRoomId]) {
+    const sampleRoom = DEFAULT_SAMPLE_ROOMS[normalizedRoomId];
+    if (sampleRoom.myRole !== 'host') {
+      const error: any = new Error('Only the room host can start a session');
+      error.code = 'HOST_ONLY';
+      error.status = 403;
+      throw error;
+    }
+
+    if (sampleRoom.activeSessionId) {
+      const error: any = new Error('A session is already active in this room');
+      error.code = 'SESSION_ACTIVE';
+      error.status = 409;
+      throw error;
+    }
+
+    const newSessionId = `session-live-${Date.now()}`;
+    const startedAt = new Date().toISOString();
+    sampleRoom.activeSessionId = newSessionId;
+
+    const session: Session = {
+      id: newSessionId,
+      roomId: normalizedRoomId,
+      startedAt,
+      endedAt: null,
+      startedBy: normalizedUserId,
+    };
+    mockSessionsStore.set(newSessionId, session);
+    return session;
+  }
+
+  // 2. Check in-memory mock store
+  const mockRoomLists = Array.from(mockRoomsStore.values());
+  const isMockRoomKnown = mockRoomLists.some((rooms) => rooms.some((r) => r.id === normalizedRoomId));
+
+  if (isMockRoomKnown) {
+    const userRooms = mockRoomsStore.get(normalizedUserId) || [];
+    const hostRoom = userRooms.find((r) => r.id === normalizedRoomId);
+
+    if (!hostRoom) {
+      const error: any = new Error('Only the room host can start a session');
+      error.code = 'HOST_ONLY';
+      error.status = 403;
+      throw error;
+    }
+
+    if (hostRoom.myRole !== 'host') {
+      const error: any = new Error('Only the room host can start a session');
+      error.code = 'HOST_ONLY';
+      error.status = 403;
+      throw error;
+    }
+
+    // Check if session is already active in this room
+    if (hostRoom.activeSessionId) {
+      const error: any = new Error('A session is already active in this room');
+      error.code = 'SESSION_ACTIVE';
+      error.status = 409;
+      throw error;
+    }
+
+    const newSessionId = `session-live-${Date.now()}`;
+    const startedAt = new Date().toISOString();
+
+    // Update activeSessionId across all mock users with this room
+    for (const [uid, rList] of mockRoomsStore.entries()) {
+      const targetRoom = rList.find((r) => r.id === normalizedRoomId);
+      if (targetRoom) {
+        targetRoom.activeSessionId = newSessionId;
+      }
+    }
+
+    const session: Session = {
+      id: newSessionId,
+      roomId: normalizedRoomId,
+      startedAt,
+      endedAt: null,
+      startedBy: normalizedUserId,
+    };
+    mockSessionsStore.set(newSessionId, session);
+    return session;
+  }
+
+  // 3. PostgreSQL / Supabase
+  const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!UUID_REGEX.test(normalizedRoomId)) {
+    const error: any = new Error('Room not found');
+    error.code = 'ROOM_NOT_FOUND';
+    error.status = 404;
+    throw error;
+  }
+
+  // Check room exists
+  const { data: room, error: roomError } = await supabase
+    .from('rooms')
+    .select('id, owner_id, archived_at')
+    .eq('id', normalizedRoomId)
+    .is('archived_at', null)
+    .maybeSingle();
+
+  if (roomError) {
+    console.warn('[Session Service] Error fetching room:', roomError.message);
+    throw new Error(roomError.message);
+  }
+
+  if (!room) {
+    const error: any = new Error('Room not found');
+    error.code = 'ROOM_NOT_FOUND';
+    error.status = 404;
+    throw error;
+  }
+
+  // Check requester is host
+  if (room.owner_id !== normalizedUserId) {
+    const { data: membership } = await supabase
+      .from('room_members')
+      .select('member_role')
+      .eq('room_id', normalizedRoomId)
+      .eq('user_id', normalizedUserId)
+      .maybeSingle();
+
+    if (!membership || membership.member_role !== 'host') {
+      const error: any = new Error('Only the room host can start a session');
+      error.code = 'HOST_ONLY';
+      error.status = 403;
+      throw error;
+    }
+  }
+
+  // Check if session is already active
+  const { data: existingSession, error: sessionCheckError } = await supabase
+    .from('live_sessions')
+    .select('id, started_at, started_by')
+    .eq('room_id', normalizedRoomId)
+    .is('ended_at', null)
+    .maybeSingle();
+
+  if (sessionCheckError) {
+    console.warn('[Session Service] Error checking active session:', sessionCheckError.message);
+    throw new Error(sessionCheckError.message);
+  }
+
+  if (existingSession) {
+    const error: any = new Error('A session is already active in this room');
+    error.code = 'SESSION_ACTIVE';
+    error.status = 409;
+    throw error;
+  }
+
+  // Insert new live session
+  const startedAt = new Date().toISOString();
+  const { data: newSession, error: insertError } = await supabase
+    .from('live_sessions')
+    .insert({
+      room_id: normalizedRoomId,
+      started_by: normalizedUserId,
+      started_at: startedAt,
+    })
+    .select('id, room_id, started_at, ended_at, started_by')
+    .single();
+
+  if (insertError) {
+    if (insertError.code === '23505') {
+      const error: any = new Error('A session is already active in this room');
+      error.code = 'SESSION_ACTIVE';
+      error.status = 409;
+      throw error;
+    }
+    console.error('[Session Service] Error inserting live session:', insertError.message);
+    throw new Error('Failed to create session');
+  }
+
+  return {
+    id: newSession.id,
+    roomId: newSession.room_id,
+    startedAt: newSession.started_at,
+    endedAt: newSession.ended_at,
+    startedBy: newSession.started_by,
+  };
+}
+
+/**
+ * Returns the currently active session for a room, or null if none is active.
+ */
+export async function getActiveSession(roomId: string): Promise<Session | null> {
+  const normalizedRoomId = roomId?.trim();
+  if (!normalizedRoomId) return null;
+
+  // Check demo sample rooms
+  if (DEFAULT_SAMPLE_ROOMS[normalizedRoomId]) {
+    const sRoom = DEFAULT_SAMPLE_ROOMS[normalizedRoomId];
+    if (!sRoom.activeSessionId) return null;
+    return (
+      mockSessionsStore.get(sRoom.activeSessionId) || {
+        id: sRoom.activeSessionId,
+        roomId: normalizedRoomId,
+        startedAt: sRoom.createdAt || new Date().toISOString(),
+        endedAt: null,
+        startedBy: 'user-turing',
+      }
+    );
+  }
+
+  // Check mock store
+  for (const rooms of mockRoomsStore.values()) {
+    const r = rooms.find((rm) => rm.id === normalizedRoomId);
+    if (r && r.activeSessionId) {
+      return (
+        mockSessionsStore.get(r.activeSessionId) || {
+          id: r.activeSessionId,
+          roomId: normalizedRoomId,
+          startedAt: r.createdAt || new Date().toISOString(),
+          endedAt: null,
+          startedBy: 'host',
+        }
+      );
+    }
+  }
+
+  // Supabase DB
+  const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!UUID_REGEX.test(normalizedRoomId)) return null;
+
+  const { data: session } = await supabase
+    .from('live_sessions')
+    .select('id, room_id, started_at, ended_at, started_by')
+    .eq('room_id', normalizedRoomId)
+    .is('ended_at', null)
+    .maybeSingle();
+
+  if (!session) return null;
+
+  return {
+    id: session.id,
+    roomId: session.room_id,
+    startedAt: session.started_at,
+    endedAt: session.ended_at,
+    startedBy: session.started_by,
+  };
+}
+
+/**
+ * Fetch all sessions for a room (ordered newest first) — host only.
+ */
+export async function getSessionsForRoom(
+  userId: string,
+  roomId: string
+): Promise<Session[]> {
+  const normalizedRoomId = roomId?.trim();
+  const normalizedUserId = userId?.trim();
+
+  if (!normalizedRoomId || !normalizedUserId) {
+    const error: any = new Error('Room ID and user ID are required');
+    error.code = 'VALIDATION';
+    error.status = 400;
+    throw error;
+  }
+
+  if (DEFAULT_SAMPLE_ROOMS[normalizedRoomId]) {
+    const r = DEFAULT_SAMPLE_ROOMS[normalizedRoomId];
+    if (r.myRole !== 'host') {
+      const error: any = new Error('Only the room host can view sessions');
+      error.code = 'HOST_ONLY';
+      error.status = 403;
+      throw error;
+    }
+    const list: Session[] = [];
+    if (r.activeSessionId) {
+      const active = mockSessionsStore.get(r.activeSessionId);
+      if (active) list.push(active);
+    }
+    return list;
+  }
+
+  const mockRoomLists = Array.from(mockRoomsStore.values());
+  const isMockRoomKnown = mockRoomLists.some((rooms) => rooms.some((rm) => rm.id === normalizedRoomId));
+
+  if (isMockRoomKnown) {
+    const hostRoom = (mockRoomsStore.get(normalizedUserId) || []).find((rm) => rm.id === normalizedRoomId);
+    if (!hostRoom || hostRoom.myRole !== 'host') {
+      const error: any = new Error('Only the room host can view sessions');
+      error.code = 'HOST_ONLY';
+      error.status = 403;
+      throw error;
+    }
+    const list: Session[] = [];
+    for (const s of mockSessionsStore.values()) {
+      if (s.roomId === normalizedRoomId) list.push(s);
+    }
+    return list.sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
+  }
+
+  const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!UUID_REGEX.test(normalizedRoomId)) {
+    const error: any = new Error('Room not found');
+    error.code = 'ROOM_NOT_FOUND';
+    error.status = 404;
+    throw error;
+  }
+
+  const { data: room } = await supabase
+    .from('rooms')
+    .select('id, owner_id')
+    .eq('id', normalizedRoomId)
+    .maybeSingle();
+
+  if (!room) {
+    const error: any = new Error('Room not found');
+    error.code = 'ROOM_NOT_FOUND';
+    error.status = 404;
+    throw error;
+  }
+
+  if (room.owner_id !== normalizedUserId) {
+    const error: any = new Error('Only the room host can view sessions');
+    error.code = 'HOST_ONLY';
+    error.status = 403;
+    throw error;
+  }
+
+  const { data: sessions, error: sessErr } = await supabase
+    .from('live_sessions')
+    .select('id, room_id, started_at, ended_at, started_by')
+    .eq('room_id', normalizedRoomId)
+    .order('started_at', { ascending: false });
+
+  if (sessErr) {
+    throw new Error(sessErr.message);
+  }
+
+  return (sessions || []).map((s) => ({
+    id: s.id,
+    roomId: s.room_id,
+    startedAt: s.started_at,
+    endedAt: s.ended_at,
+    startedBy: s.started_by,
+  }));
 }
 

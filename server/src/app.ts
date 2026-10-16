@@ -6,7 +6,7 @@ import { RoomSummary } from '@linkup/shared';
 import { env } from './config/env';
 import { requireAuth } from './middleware/auth';
 import { supabase, updateTokenCacheUserName } from './lib/supabase';
-import { getRoomsForUser, createRoom, joinRoomByCode, getRoomForUser, NotAMemberError, removeRoomMember, regenerateRoomJoinCode, updateRoom } from './lib/rooms';
+import { getRoomsForUser, createRoom, joinRoomByCode, getRoomForUser, NotAMemberError, removeRoomMember, regenerateRoomJoinCode, updateRoom, startSession, getActiveSession, getSessionsForRoom } from './lib/rooms';
 import { getRoomPresence, removeSocketFromRoom } from './realtime/presence';
 
 // Dynamic CORS origin: accepts localhost AND any 192.168.x.x LAN IP on port 5173.
@@ -694,6 +694,158 @@ app.post('/api/rooms/:roomId/archive', async (req: Request, res: Response) => {
       error: {
         code: 'INTERNAL_SERVER_ERROR',
         message: 'Failed to archive room',
+      },
+    });
+  }
+});
+
+// Start live session (host only) — US-LIVE-01, FR-3.1
+app.post('/api/rooms/:roomId/sessions', async (req: Request, res: Response) => {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({
+      error: { code: 'UNAUTHENTICATED', message: 'Authentication required' },
+    });
+  }
+
+  const { roomId } = req.params;
+
+  try {
+    const session = await startSession(user.id, roomId);
+
+    // Broadcast session:started to room members (US-LIVE-01 Acceptance Criteria 2)
+    try {
+      const io = req.app.get('io');
+      if (io) {
+        io.to(`room:${roomId}`).to(roomId).emit('session:started', {
+          roomId,
+          session,
+        });
+      }
+    } catch (socketErr) {
+      console.warn('[Session API] Socket emit error on session:started:', socketErr);
+    }
+
+    return res.status(201).json(session);
+  } catch (err: any) {
+    if (err?.code === 'SESSION_ACTIVE' || err?.status === 409) {
+      return res.status(409).json({
+        error: {
+          code: 'SESSION_ACTIVE',
+          message: err.message || 'A session is already active in this room',
+        },
+      });
+    }
+
+    if (err?.code === 'HOST_ONLY' || err?.code === 'FORBIDDEN' || err?.status === 403) {
+      return res.status(403).json({
+        error: {
+          code: err.code || 'HOST_ONLY',
+          message: err.message || 'Only the host can start a session',
+        },
+      });
+    }
+
+    if (err?.code === 'NOT_A_MEMBER') {
+      return res.status(403).json({
+        error: {
+          code: 'NOT_A_MEMBER',
+          message: err.message || 'You are not a member of this room',
+        },
+      });
+    }
+
+    if (err?.code === 'ROOM_NOT_FOUND' || err?.code === 'NOT_FOUND' || err?.status === 404) {
+      return res.status(404).json({
+        error: {
+          code: 'ROOM_NOT_FOUND',
+          message: err.message || 'Room not found',
+        },
+      });
+    }
+
+    if (err?.code === 'VALIDATION' || err?.status === 400) {
+      return res.status(400).json({
+        error: {
+          code: 'VALIDATION',
+          message: err.message || 'Validation error',
+        },
+      });
+    }
+
+    console.error('[Session API] Error starting session:', err);
+    return res.status(500).json({
+      error: {
+        code: 'INTERNAL_SERVER_ERROR',
+        message: 'Failed to start session',
+      },
+    });
+  }
+});
+
+// Get active session for a room
+app.get('/api/rooms/:roomId/sessions/active', async (req: Request, res: Response) => {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({
+      error: { code: 'UNAUTHENTICATED', message: 'Authentication required' },
+    });
+  }
+
+  const { roomId } = req.params;
+
+  try {
+    const session = await getActiveSession(roomId);
+    return res.status(200).json({ session });
+  } catch (err: any) {
+    console.error('[Session API] Error fetching active session:', err);
+    return res.status(500).json({
+      error: {
+        code: 'INTERNAL_SERVER_ERROR',
+        message: 'Failed to retrieve active session',
+      },
+    });
+  }
+});
+
+// Get all sessions for a room (host only) — P0 api-contract §3.4
+app.get('/api/rooms/:roomId/sessions', async (req: Request, res: Response) => {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({
+      error: { code: 'UNAUTHENTICATED', message: 'Authentication required' },
+    });
+  }
+
+  const { roomId } = req.params;
+
+  try {
+    const sessions = await getSessionsForRoom(user.id, roomId);
+    return res.status(200).json(sessions);
+  } catch (err: any) {
+    if (err?.code === 'HOST_ONLY' || err?.code === 'FORBIDDEN' || err?.status === 403) {
+      return res.status(403).json({
+        error: {
+          code: err.code || 'HOST_ONLY',
+          message: err.message || 'Only the room host can view sessions',
+        },
+      });
+    }
+
+    if (err?.code === 'ROOM_NOT_FOUND' || err?.code === 'NOT_FOUND' || err?.status === 404) {
+      return res.status(404).json({
+        error: {
+          code: 'ROOM_NOT_FOUND',
+          message: err.message || 'Room not found',
+        },
+      });
+    }
+
+    console.error('[Session API] Error fetching sessions:', err);
+    return res.status(500).json({
+      error: {
+        code: 'INTERNAL_SERVER_ERROR',
+        message: 'Failed to retrieve sessions',
       },
     });
   }
