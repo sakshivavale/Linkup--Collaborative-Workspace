@@ -378,10 +378,10 @@
 > As a **room member**, I want to send a text message in the room chat so that I can communicate with everyone in the room.
 
 **Acceptance Criteria:**
-- [ ] A message input and Send button are always available in the Chat sidebar tab, inside or outside a live session.
-- [ ] Messages are 1-2000 characters; an empty message cannot be sent.
-- [ ] Messages appear for all online members within 500 ms (same region).
-- [ ] The sender sees an optimistic message that is confirmed or replaced once the server acknowledges it.
+- [x] A message input and Send button are always available in the Chat sidebar tab, inside or outside a live session.
+- [x] Messages are 1-2000 characters; an empty message cannot be sent.
+- [x] Messages appear for all online members within 500 ms (same region).
+- [x] The sender sees an optimistic message that is confirmed or replaced once the server acknowledges it.
 
 ---
 

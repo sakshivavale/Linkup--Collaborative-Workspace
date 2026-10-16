@@ -22,7 +22,8 @@
     "test:host-leave": "tsx scripts/test-host-leave-without-ending.ts",
     "test:reconnect": "tsx scripts/test-auto-reconnect.ts",
     "test:devices": "tsx scripts/test-switch-media-devices.ts",
-    "test:chat-history": "tsx scripts/test-chat-history.ts"
+    "test:chat-history": "tsx scripts/test-chat-history.ts",
+    "test:chat-send": "tsx scripts/test-send-message.ts"
   },
   "dependencies": {
     "@linkup/shared": "*",

@@ -124,6 +124,8 @@ export interface ChatMessage {
   senderRole: UserRole;
   body: string;
   createdAt: string;
+  clientId?: string;
+  status?: 'sending' | 'confirmed' | 'failed';
 }
 
 export interface ChatHistoryResponse {

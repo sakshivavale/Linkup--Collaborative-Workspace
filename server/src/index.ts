@@ -343,6 +343,7 @@ io.on('connection', (socket) => {
   socket.on('chat:send', async (payload: any, ack?: (res: any) => void) => {
     const roomId = extractRoomId(payload);
     const body = typeof payload?.body === 'string' ? payload.body : '';
+    const clientId = typeof payload?.clientId === 'string' ? payload.clientId : undefined;
 
     if (!roomId || !user?.id) {
       const err = { code: 'VALIDATION', message: 'Room ID required' };
@@ -353,11 +354,13 @@ io.on('connection', (socket) => {
 
     try {
       const message = await createChatMessage(user.id, roomId, body);
+      const broadcastPayload = clientId ? { ...message, clientId } : message;
       // Broadcast to room channel (both room:roomId and roomId)
-      io.to(`room:${roomId}`).to(roomId).emit('chat:new', message);
+      io.to(`room:${roomId}`).to(roomId).emit('chat:new', broadcastPayload);
+      io.to(`room:${roomId}`).to(roomId).emit('chat:new message', broadcastPayload);
 
       if (typeof ack === 'function') {
-        ack({ ok: true, data: message });
+        ack({ ok: true, data: broadcastPayload });
       }
     } catch (err: any) {
       console.warn(`[Socket] Error sending chat message in room ${roomId}:`, err.message || err);

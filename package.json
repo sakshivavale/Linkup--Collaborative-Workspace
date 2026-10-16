@@ -24,7 +24,8 @@
     "test:end-session": "npm run test:end-session --workspace=server",
     "test:host-leave": "npm run test:host-leave --workspace=server",
     "test:devices": "npm run test:devices --workspace=server",
-    "test:chat-history": "npm run test:chat-history --workspace=server"
+    "test:chat-history": "npm run test:chat-history --workspace=server",
+    "test:chat-send": "npm run test:chat-send --workspace=server"
   },
   "devDependencies": {
     "typescript": "^5.4.5"
