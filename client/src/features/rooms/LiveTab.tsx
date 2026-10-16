@@ -43,6 +43,12 @@ export const LiveTab: React.FC<LiveTabProps> = ({ roomId, sessionId }) => {
     }
   }, [inCall, roomId]);
 
+  useEffect(() => {
+    if (!sessionId && inCall) {
+      setInCall(false);
+    }
+  }, [sessionId, inCall]);
+
   // Update participant list when room presence changes
   useEffect(() => {
     const mapPresenceToParticipants = () => {
@@ -77,6 +83,7 @@ export const LiveTab: React.FC<LiveTabProps> = ({ roomId, sessionId }) => {
       socket.off('live:active-speaker', onActiveSpeaker);
     };
   }, [room, roomId]);
+
 
   const handleToggleCall = () => {
     if (inCall) {

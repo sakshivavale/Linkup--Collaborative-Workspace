@@ -3,7 +3,7 @@ import { Server as SocketIOServer } from 'socket.io';
 import { app } from './app';
 import { env } from './config/env';
 import { socketAuthMiddleware } from './realtime/socketAuth';
-import { getRoomForUser, NotAMemberError } from './lib/rooms';
+import { getRoomForUser, NotAMemberError, closeDanglingAttendanceRecords } from './lib/rooms';
 import {
   addSocketToRoom,
   removeSocketFromRoom,
@@ -211,6 +211,7 @@ if (isDirectExecution && process.env.NODE_ENV !== 'test') {
     console.log(`[Server] LinkUp API server running on port ${env.PORT}`);
     console.log(`[Server] Health check available at http://localhost:${env.PORT}/health`);
     console.log(`[Server] Protected API routes mounted at http://localhost:${env.PORT}/api/*`);
+    closeDanglingAttendanceRecords().catch(() => {});
   });
 }
 
