@@ -16,7 +16,8 @@
     "test:edit-archive": "tsx scripts/test-edit-archive-room.ts",
     "test:presence": "tsx scripts/test-room-presence.ts",
     "test:member-removal": "tsx scripts/test-room-member-removal.ts",
-    "test:session": "tsx scripts/test-start-session-host.ts"
+    "test:session": "tsx scripts/test-start-session-host.ts",
+    "test:video-grid": "tsx scripts/test-live-video-grid.ts"
   },
   "dependencies": {
     "@linkup/shared": "*",

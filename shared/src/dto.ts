@@ -84,12 +84,40 @@ export interface Member {
   joinedAt: string;
 }
 
-/** US-ROOM-02: Real-time room presence tracking */
+/** US-ROOM-02 & US-LIVE-03: Real-time room presence and live media tracking */
 export interface PresenceEntry {
   userId: string;
   fullName: string;
   inLive: boolean;
   handRaised: boolean;
+  micOn?: boolean;
+  cameraOn?: boolean;
+  isSpeaking?: boolean;
+  role?: UserRole | string;
+}
+
+export interface LiveParticipant {
+  userId: string;
+  fullName: string;
+  micOn: boolean;
+  cameraOn: boolean;
+  isSpeaking: boolean;
+  isLocal?: boolean;
+  role?: string;
+  handRaised?: boolean;
+}
+
+export interface LiveMediaStatePayload {
+  roomId: string;
+  userId: string;
+  micOn?: boolean;
+  cameraOn?: boolean;
+}
+
+export interface LiveSpeakerChangedPayload {
+  roomId: string;
+  userId: string;
+  isSpeaking: boolean;
 }
 
 export interface PresenceUpdatePayload {

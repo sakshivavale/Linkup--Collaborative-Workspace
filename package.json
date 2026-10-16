@@ -19,7 +19,9 @@
     "test:create-room": "npm run test:create-room --workspace=server",
     "test:regenerate": "npm run test:regenerate --workspace=server",
     "test:member-removal": "npm run test:member-removal --workspace=server",
-    "test:session": "npm run test:session --workspace=server"
+    "test:presence": "npm run test:presence --workspace=server",
+    "test:session": "npm run test:session --workspace=server",
+    "test:video-grid": "npm run test:video-grid --workspace=server"
   },
   "devDependencies": {
     "typescript": "^5.4.5"

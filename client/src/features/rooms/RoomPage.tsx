@@ -534,7 +534,7 @@ export const RoomPage: React.FC = () => {
           id={`room-tab-panel-${mainTab}`}
           role="tabpanel"
         >
-          {mainTab === 'live'       && <LiveTab       roomId={roomId!} sessionId={activeSession?.id ?? null} />}
+          {mainTab === 'live'       && <LiveTab       roomId={roomId!} sessionId={activeSession?.id ?? room.activeSessionId ?? null} room={room} />}
           {mainTab === 'whiteboard' && <WhiteboardTab roomId={roomId!} />}
           {mainTab === 'code'       && <CodeTab       roomId={roomId!} />}
         </main>

@@ -5,6 +5,10 @@ export interface PresenceUser {
   fullName: string;
   inLive: boolean;
   handRaised: boolean;
+  micOn?: boolean;
+  cameraOn?: boolean;
+  isSpeaking?: boolean;
+  role?: string;
   socketIds: Set<string>;
 }
 
@@ -26,6 +30,10 @@ export function getRoomPresence(roomId: string): PresenceEntry[] {
     fullName: u.fullName,
     inLive: u.inLive,
     handRaised: u.handRaised,
+    micOn: u.micOn ?? false,
+    cameraOn: u.cameraOn ?? false,
+    isSpeaking: u.isSpeaking ?? false,
+    role: u.role,
   }));
 }
 
@@ -148,7 +156,8 @@ export function handleSocketDisconnect(
 export function setUserLiveStatus(
   roomId: string,
   userId: string,
-  inLive: boolean
+  inLive: boolean,
+  initialMediaState?: { micOn?: boolean; cameraOn?: boolean }
 ): PresenceEntry[] | null {
   const roomUsers = roomPresenceMap.get(roomId);
   if (!roomUsers) return null;
@@ -157,6 +166,65 @@ export function setUserLiveStatus(
   if (!user) return null;
 
   user.inLive = inLive;
+  if (inLive) {
+    if (typeof initialMediaState?.micOn === 'boolean') {
+      user.micOn = initialMediaState.micOn;
+    }
+    if (typeof initialMediaState?.cameraOn === 'boolean') {
+      user.cameraOn = initialMediaState.cameraOn;
+    }
+  } else {
+    user.micOn = false;
+    user.cameraOn = false;
+    user.isSpeaking = false;
+  }
+  return getRoomPresence(roomId);
+}
+
+/**
+ * Update a participant's mic/camera state for a room (live:media-state).
+ */
+export function setUserMediaState(
+  roomId: string,
+  userId: string,
+  mediaState: { micOn?: boolean; cameraOn?: boolean }
+): PresenceEntry[] | null {
+  const roomUsers = roomPresenceMap.get(roomId);
+  if (!roomUsers) return null;
+
+  const user = roomUsers.get(userId);
+  if (!user) return null;
+
+  if (typeof mediaState.micOn === 'boolean') {
+    user.micOn = mediaState.micOn;
+    // If mic turned off, user cannot be speaking
+    if (!mediaState.micOn) {
+      user.isSpeaking = false;
+    }
+  }
+  if (typeof mediaState.cameraOn === 'boolean') {
+    user.cameraOn = mediaState.cameraOn;
+  }
+
+  return getRoomPresence(roomId);
+}
+
+/**
+ * Update a participant's active speaking status for a room (live:speaking).
+ */
+export function setUserSpeakingStatus(
+  roomId: string,
+  userId: string,
+  isSpeaking: boolean
+): PresenceEntry[] | null {
+  const roomUsers = roomPresenceMap.get(roomId);
+  if (!roomUsers) return null;
+
+  const user = roomUsers.get(userId);
+  if (!user) return null;
+
+  // Participant can only be speaking if mic is enabled
+  user.isSpeaking = isSpeaking && (user.micOn ?? true);
   return getRoomPresence(roomId);
 }
 
@@ -189,6 +257,10 @@ export function setMockPresence(roomId: string, presence: PresenceEntry[]): void
       fullName: p.fullName,
       inLive: p.inLive,
       handRaised: p.handRaised,
+      micOn: p.micOn ?? false,
+      cameraOn: p.cameraOn ?? false,
+      isSpeaking: p.isSpeaking ?? false,
+      role: p.role,
       socketIds: new Set(['mock-socket-' + p.userId]),
     });
   }

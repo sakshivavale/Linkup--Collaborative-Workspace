@@ -10,6 +10,8 @@ import {
   handleSocketDisconnect,
   setUserLiveStatus,
   setUserHandStatus,
+  setUserMediaState,
+  setUserSpeakingStatus,
 } from './realtime/presence';
 
 const server = http.createServer(app);
@@ -127,16 +129,28 @@ io.on('connection', (socket) => {
   });
 
   /**
-   * live:joined — user enters the live call (US-ROOM-02 AC-3)
+   * live:joined — user enters the live call (US-ROOM-02 AC-3, US-LIVE-03 AC-3)
    */
   socket.on('live:joined', (payload: any, ack?: (res: any) => void) => {
     const roomId = extractRoomId(payload);
+    const micOn = Boolean(payload?.micOn);
+    const cameraOn = Boolean(payload?.cameraOn);
     if (roomId && user?.id) {
-      const presence = setUserLiveStatus(roomId, user.id, true);
+      const presence = setUserLiveStatus(roomId, user.id, true, { micOn, cameraOn });
       if (presence) {
         io.to(`room:${roomId}`).to(roomId).emit('presence:update', {
           roomId,
           presence,
+        });
+        io.to(`room:${roomId}`).to(roomId).emit('live:participant-joined', {
+          roomId,
+          participant: {
+            userId: user.id,
+            fullName: user.fullName,
+            micOn,
+            cameraOn,
+            isSpeaking: false,
+          },
         });
       }
       if (typeof ack === 'function') ack({ ok: true });
@@ -144,7 +158,7 @@ io.on('connection', (socket) => {
   });
 
   /**
-   * live:left — user leaves the live call (US-ROOM-02 AC-3)
+   * live:left — user leaves the live call (US-ROOM-02 AC-3, US-LIVE-03 AC-3)
    */
   socket.on('live:left', (payload: any, ack?: (res: any) => void) => {
     const roomId = extractRoomId(payload);
@@ -154,6 +168,58 @@ io.on('connection', (socket) => {
         io.to(`room:${roomId}`).to(roomId).emit('presence:update', {
           roomId,
           presence,
+        });
+        io.to(`room:${roomId}`).to(roomId).emit('live:participant-left', {
+          roomId,
+          userId: user.id,
+        });
+      }
+      if (typeof ack === 'function') ack({ ok: true });
+    }
+  });
+
+  /**
+   * live:media-state — updates participant mic and camera state (US-LIVE-03 AC-1)
+   */
+  socket.on('live:media-state', (payload: any, ack?: (res: any) => void) => {
+    const roomId = extractRoomId(payload);
+    const micOn = typeof payload?.micOn === 'boolean' ? payload.micOn : undefined;
+    const cameraOn = typeof payload?.cameraOn === 'boolean' ? payload.cameraOn : undefined;
+    if (roomId && user?.id) {
+      const presence = setUserMediaState(roomId, user.id, { micOn, cameraOn });
+      if (presence) {
+        io.to(`room:${roomId}`).to(roomId).emit('presence:update', {
+          roomId,
+          presence,
+        });
+        io.to(`room:${roomId}`).to(roomId).emit('live:media-changed', {
+          roomId,
+          userId: user.id,
+          micOn,
+          cameraOn,
+        });
+      }
+      if (typeof ack === 'function') ack({ ok: true });
+    }
+  });
+
+  /**
+   * live:speaking — updates active speaker highlight status (US-LIVE-03 AC-2)
+   */
+  socket.on('live:speaking', (payload: any, ack?: (res: any) => void) => {
+    const roomId = extractRoomId(payload);
+    const isSpeaking = Boolean(payload?.isSpeaking);
+    if (roomId && user?.id) {
+      const presence = setUserSpeakingStatus(roomId, user.id, isSpeaking);
+      if (presence) {
+        io.to(`room:${roomId}`).to(roomId).emit('presence:update', {
+          roomId,
+          presence,
+        });
+        io.to(`room:${roomId}`).to(roomId).emit('live:speaker-changed', {
+          roomId,
+          userId: user.id,
+          isSpeaking,
         });
       }
       if (typeof ack === 'function') ack({ ok: true });
