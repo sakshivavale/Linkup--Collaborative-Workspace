@@ -365,8 +365,8 @@
 > As a **session participant**, I want to switch between available microphones and cameras so that I can use the correct device.
 
 **Acceptance Criteria:**
-- [ ] A device-picker control is accessible from the control bar.
-- [ ] Switching does not disconnect the user from the call.
+- [x] A device-picker control is accessible from the control bar.
+- [x] Switching does not disconnect the user from the call.
 
 ---
 

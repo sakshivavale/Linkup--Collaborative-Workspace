@@ -23,6 +23,7 @@
     "test:screen-share": "npm run test:screen-share --workspace=server",
     "test:end-session": "npm run test:end-session --workspace=server",
     "test:host-leave": "npm run test:host-leave --workspace=server",
+    "test:devices": "npm run test:devices --workspace=server",
     "test:chat-history": "npm run test:chat-history --workspace=server"
   },
   "devDependencies": {
