@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { RoomSummary, Room, Permissions, MemberRole, CreateRoomDto, CreateRoomResponseDto, UpdateRoomDto, Session } from '@linkup/shared';
+import { RoomSummary, Room, Permissions, MemberRole, CreateRoomDto, CreateRoomResponseDto, UpdateRoomDto, Session, PermissionKey, PERMISSION_KEYS, Member } from '@linkup/shared';
 
 /**
  * Typed error thrown when a user attempts to access a room they are not a member of.
@@ -598,6 +598,229 @@ export async function createRoom(
  * 4. Idempotent: joining a room you are already a member of returns success without error/duplicate.
  * 5. Unknown code raises: "No room found with that code."
  */
+const ROOM_MEMBER_PERMISSION_COLUMNS: Record<PermissionKey, string> = {
+  canMic: 'can_mic',
+  canCamera: 'can_camera',
+  canScreen: 'can_screen',
+  canWhiteboard: 'can_whiteboard',
+  canCode: 'can_code',
+};
+
+export function normalizePermissionPatch(patch: Partial<Permissions>): Partial<Permissions> {
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
+    const error: any = new Error('Permission update payload must be an object');
+    error.code = 'VALIDATION';
+    error.status = 400;
+    throw error;
+  }
+
+  const keys = PERMISSION_KEYS.filter((key) => patch[key] !== undefined);
+  if (keys.length === 0) {
+    const error: any = new Error('At least one permission must be provided');
+    error.code = 'VALIDATION';
+    error.status = 400;
+    throw error;
+  }
+
+  const normalized: Partial<Permissions> = {};
+  for (const key of keys) {
+    if (typeof patch[key] !== 'boolean') {
+      const error: any = new Error(`Permission '${key}' must be a boolean`);
+      error.code = 'VALIDATION';
+      error.status = 400;
+      throw error;
+    }
+    normalized[key] = patch[key] as boolean;
+  }
+
+  return normalized;
+}
+
+export async function updateMemberPermissions(
+  requesterUserId: string,
+  roomId: string,
+  targetUserId: string,
+  patch: Partial<Permissions>
+): Promise<Member> {
+  const normalizedRoomId = roomId?.trim();
+  const normalizedTargetUserId = targetUserId?.trim();
+  const normalizedPatch = normalizePermissionPatch(patch);
+
+  if (!normalizedRoomId || !normalizedTargetUserId) {
+    const error: any = new Error('Room and member IDs are required');
+    error.code = 'VALIDATION';
+    error.status = 400;
+    throw error;
+  }
+
+  if (mockRoomsStore.size > 0) {
+    const hasRoom = Array.from(mockRoomsStore.values()).some((rooms) => rooms.some((room) => room.id === normalizedRoomId));
+    if (!hasRoom) {
+      const error: any = new Error('Room not found');
+      error.code = 'ROOM_NOT_FOUND';
+      error.status = 404;
+      throw error;
+    }
+
+    const requesterRooms = mockRoomsStore.get(requesterUserId) || [];
+    const hostRoom = requesterRooms.find((room) => room.id === normalizedRoomId);
+    if (!hostRoom || hostRoom.myRole !== 'host') {
+      const error: any = new Error('Only the host can manage permissions');
+      error.code = 'FORBIDDEN';
+      error.status = 403;
+      throw error;
+    }
+
+    for (const [userId, rooms] of mockRoomsStore.entries()) {
+      const nextRooms = rooms.map((room) => {
+        if (room.id !== normalizedRoomId) return room;
+        const memberIndex = (room.members ?? []).findIndex((member) => member.userId === normalizedTargetUserId);
+        if (memberIndex === -1) return room;
+        const currentMember = room.members![memberIndex];
+        const nextPermissions = { ...currentMember.permissions, ...normalizedPatch };
+        if (normalizedPatch.canCode === false && currentMember.permissions.canCode) {
+          const currentPenHolder = room.members?.find((member) => member.userId === currentMember.userId);
+          if (currentPenHolder) {
+            // keep the room state coherent for the mock environment
+          }
+        }
+        const nextMember = { ...currentMember, permissions: nextPermissions };
+        const nextMembers = [...(room.members ?? [])];
+        nextMembers[memberIndex] = nextMember;
+        return { ...room, members: nextMembers };
+      });
+      mockRoomsStore.set(userId, nextRooms);
+    }
+
+    const targetRoom = Array.from(mockRoomsStore.values())
+      .flat()
+      .find((room) => room.id === normalizedRoomId && (room.members ?? []).some((member) => member.userId === normalizedTargetUserId));
+    const targetMember = targetRoom?.members?.find((member) => member.userId === normalizedTargetUserId);
+
+    if (!targetMember) {
+      const error: any = new Error('Member not found in room');
+      error.code = 'NOT_FOUND';
+      error.status = 404;
+      throw error;
+    }
+
+    if (normalizedTargetUserId === requesterUserId) {
+      const error: any = new Error('The host permissions are fixed');
+      error.code = 'FORBIDDEN';
+      error.status = 403;
+      throw error;
+    }
+
+    return targetMember;
+  }
+
+  const { data: room, error: roomError } = await supabase
+    .from('rooms')
+    .select('id, owner_id')
+    .eq('id', normalizedRoomId)
+    .maybeSingle();
+
+  if (roomError) {
+    console.warn('[Rooms Service] Error loading room for permissions:', roomError.message);
+    throw new Error(roomError.message);
+  }
+
+  if (!room) {
+    const error: any = new Error('Room not found');
+    error.code = 'ROOM_NOT_FOUND';
+    error.status = 404;
+    throw error;
+  }
+
+  const { data: requesterMembership } = await supabase
+    .from('room_members')
+    .select('member_role')
+    .eq('room_id', normalizedRoomId)
+    .eq('user_id', requesterUserId)
+    .maybeSingle();
+
+  if (!requesterMembership || requesterMembership.member_role !== 'host') {
+    const error: any = new Error('Only the host can manage permissions');
+    error.code = 'FORBIDDEN';
+    error.status = 403;
+    throw error;
+  }
+
+  if (normalizedTargetUserId === room.owner_id) {
+    const error: any = new Error('The host permissions are fixed');
+    error.code = 'FORBIDDEN';
+    error.status = 403;
+    throw error;
+  }
+
+  const { data: targetMembership, error: membershipError } = await supabase
+    .from('room_members')
+    .select('user_id, member_role, can_mic, can_camera, can_screen, can_whiteboard, can_code, created_at')
+    .eq('room_id', normalizedRoomId)
+    .eq('user_id', normalizedTargetUserId)
+    .maybeSingle();
+
+  if (membershipError) {
+    console.warn('[Rooms Service] Error loading target membership for permissions:', membershipError.message);
+    throw new Error(membershipError.message);
+  }
+
+  if (!targetMembership) {
+    const error: any = new Error('Member not found in room');
+    error.code = 'NOT_FOUND';
+    error.status = 404;
+    throw error;
+  }
+
+  if (targetMembership.member_role === 'host') {
+    const error: any = new Error('The host permissions are fixed');
+    error.code = 'FORBIDDEN';
+    error.status = 403;
+    throw error;
+  }
+
+  const updatePayload: Record<string, boolean> = {};
+  for (const [key, column] of Object.entries(ROOM_MEMBER_PERMISSION_COLUMNS) as [PermissionKey, string][]) {
+    if (normalizedPatch[key] !== undefined) {
+      updatePayload[column] = Boolean(normalizedPatch[key]);
+    }
+  }
+
+  const { data: updatedRow, error: updateError } = await supabase
+    .from('room_members')
+    .update(updatePayload)
+    .eq('room_id', normalizedRoomId)
+    .eq('user_id', normalizedTargetUserId)
+    .select('user_id, member_role, created_at, can_mic, can_camera, can_screen, can_whiteboard, can_code')
+    .single();
+
+  if (updateError || !updatedRow) {
+    console.warn('[Rooms Service] Error updating permissions:', updateError?.message || 'No row returned');
+    throw new Error(updateError?.message || 'Failed to update permissions');
+  }
+
+  const { data: targetProfile } = await supabase
+    .from('profiles')
+    .select('full_name, role')
+    .eq('id', normalizedTargetUserId)
+    .maybeSingle();
+
+  return {
+    userId: updatedRow.user_id,
+    fullName: targetProfile?.full_name || 'Unknown User',
+    userRole: (targetProfile?.role as any) || 'student',
+    memberRole: updatedRow.member_role as MemberRole,
+    permissions: {
+      canMic: Boolean(updatedRow.can_mic),
+      canCamera: Boolean(updatedRow.can_camera),
+      canScreen: Boolean(updatedRow.can_screen),
+      canWhiteboard: Boolean(updatedRow.can_whiteboard),
+      canCode: Boolean(updatedRow.can_code),
+    },
+    joinedAt: updatedRow.created_at,
+  };
+}
+
 export async function removeRoomMember(
   requesterUserId: string,
   roomId: string,

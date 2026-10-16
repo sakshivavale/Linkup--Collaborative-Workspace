@@ -6,7 +6,7 @@ import { RoomSummary } from '@linkup/shared';
 import { env } from './config/env';
 import { requireAuth } from './middleware/auth';
 import { supabase, updateTokenCacheUserName } from './lib/supabase';
-import { getRoomsForUser, createRoom, joinRoomByCode, getRoomForUser, NotAMemberError, removeRoomMember, regenerateRoomJoinCode, updateRoom, startSession, getActiveSession, getSessionsForRoom } from './lib/rooms';
+import { getRoomsForUser, createRoom, joinRoomByCode, getRoomForUser, NotAMemberError, removeRoomMember, regenerateRoomJoinCode, updateRoom, startSession, getActiveSession, getSessionsForRoom, updateMemberPermissions } from './lib/rooms';
 import { getRoomPresence, removeSocketFromRoom } from './realtime/presence';
 
 // Dynamic CORS origin: accepts localhost AND any 192.168.x.x LAN IP on port 5173.
@@ -391,6 +391,57 @@ export function kickUserFromRoom(io: any, roomId: string, targetUserId: string) 
     socketsRemoved: matchingSockets.length,
   };
 }
+
+// Toggle a member's permission (host-only) — US-PERM-02
+app.patch('/api/rooms/:roomId/members/:userId/permissions', async (req: Request, res: Response) => {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({
+      error: { code: 'UNAUTHENTICATED', message: 'Authentication required' },
+    });
+  }
+
+  const { roomId, userId: targetUserId } = req.params;
+  const patch = req.body || {};
+
+  try {
+    const member = await updateMemberPermissions(user.id, roomId, targetUserId, patch);
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`room:${roomId.trim()}`).emit('perm:changed', {
+        roomId: roomId.trim(),
+        userId: targetUserId,
+        permissions: member.permissions,
+        by: user.id,
+      });
+    }
+
+    return res.status(200).json(member);
+  } catch (err: any) {
+    if (err?.code === 'FORBIDDEN' || err?.status === 403) {
+      return res.status(403).json({
+        error: { code: 'FORBIDDEN', message: err.message || 'Only the host can manage permissions' },
+      });
+    }
+
+    if (err?.code === 'ROOM_NOT_FOUND' || err?.status === 404 || err?.code === 'NOT_FOUND') {
+      return res.status(404).json({
+        error: { code: 'NOT_FOUND', message: err.message || 'Room or member not found' },
+      });
+    }
+
+    if (err?.code === 'VALIDATION' || err?.status === 400) {
+      return res.status(400).json({
+        error: { code: 'VALIDATION', message: err.message || 'Invalid permission payload' },
+      });
+    }
+
+    console.error('[Room API] Error updating member permissions:', err);
+    return res.status(500).json({
+      error: { code: 'INTERNAL_SERVER_ERROR', message: 'Failed to update permissions' },
+    });
+  }
+});
 
 // Remove a room member (host-only) — US-ROOM-03, FR-2.5
 app.delete('/api/rooms/:roomId/members/:userId', async (req: Request, res: Response) => {
