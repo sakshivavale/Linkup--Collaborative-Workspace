@@ -149,7 +149,7 @@ async function runTests() {
 
     const nonHostBody = await nonHostRes.json();
     assert(
-      nonHostRes.status === 403 && nonHostBody.error?.code === 'FORBIDDEN',
+      nonHostRes.status === 403 && nonHostBody.error?.code === 'HOST_ONLY',
       'Non-host cannot toggle permissions',
       `Got status ${nonHostRes.status}, code ${nonHostBody.error?.code}`
     );
