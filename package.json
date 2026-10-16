@@ -28,6 +28,7 @@
     "test:chat-send": "npm run test:chat-send --workspace=server",
     "test:chat-sender": "npm run test:chat-sender --workspace=server",
     "test:chat-links": "npm run test:chat-links --workspace=server",
+    "test:permissions": "npm run test:permissions --workspace=server",
     "test:perm-toast": "npm run test:perm-toast --workspace=server"
   },
   "devDependencies": {

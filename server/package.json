@@ -26,6 +26,7 @@
     "test:chat-send": "tsx scripts/test-send-message.ts",
     "test:chat-sender": "tsx scripts/test-chat-sender-info.ts",
     "test:chat-links": "tsx scripts/test-plain-text-and-links.ts",
+    "test:permissions": "tsx scripts/test-participant-permissions.ts",
     "test:perm-toast": "tsx scripts/test-permission-toast.ts"
   },
   "dependencies": {
