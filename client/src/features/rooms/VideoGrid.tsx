@@ -1,4 +1,5 @@
-import ParticipantTile, { Participant } from './ParticipantTile';
+import ParticipantTile from './ParticipantTile';
+import { Participant } from './participantUtils';
 
 export default function VideoGrid({ participants }: { participants: Participant[] }) {
   return (

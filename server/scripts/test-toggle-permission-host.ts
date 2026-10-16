@@ -1,4 +1,4 @@
-npm run build --workspace=server/**
+/*
  * Automated Verification Script for US-PERM-02: Toggle a Permission (Host)
  */
 
