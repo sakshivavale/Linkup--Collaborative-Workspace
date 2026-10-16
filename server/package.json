@@ -24,7 +24,8 @@
     "test:devices": "tsx scripts/test-switch-media-devices.ts",
     "test:chat-history": "tsx scripts/test-chat-history.ts",
     "test:chat-send": "tsx scripts/test-send-message.ts",
-    "test:chat-sender": "tsx scripts/test-chat-sender-info.ts"
+    "test:chat-sender": "tsx scripts/test-chat-sender-info.ts",
+    "test:chat-links": "tsx scripts/test-plain-text-and-links.ts"
   },
   "dependencies": {
     "@linkup/shared": "*",

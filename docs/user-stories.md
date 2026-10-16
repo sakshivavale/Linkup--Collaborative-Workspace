@@ -415,8 +415,8 @@
 > As a **room member**, I want URLs in messages to be clickable links, while all other text is rendered as plain text, so that the chat is both useful and secure.
 
 **Acceptance Criteria:**
-- [ ] URLs (http/https) in messages are automatically converted to clickable links with `rel="noopener noreferrer"` and `target="_blank"`.
-- [ ] No HTML tags in message bodies are rendered as markup (React escaping is used; no dangerouslySetInnerHTML).
+- [x] URLs (http/https) in messages are automatically converted to clickable links with `rel="noopener noreferrer"` and `target="_blank"`.
+- [x] No HTML tags in message bodies are rendered as markup (React escaping is used; no dangerouslySetInnerHTML).
 
 ---
 ## 6. Permission Control

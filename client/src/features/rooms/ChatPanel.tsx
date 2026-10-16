@@ -18,6 +18,42 @@ interface ChatPanelProps {
  * 3. A "Loading..." indicator is shown during fetch.
  * 4. A "No more messages" indicator is shown when hasMore = false.
  */
+/**
+ * US-CHAT-04: Plain Text Rendering and Link Auto-linking (FR-3.14)
+ * - Auto-links URLs starting with http:// or https:// with target="_blank" and rel="noopener noreferrer"
+ * - All other text rendered as plain text via React escaping (markup execution prohibited)
+ */
+export function renderMessageBody(text: string, isOwn: boolean = false): React.ReactNode {
+  if (!text) return null;
+
+  // Match URLs starting with http:// or https://, excluding trailing punctuation
+  const urlRegex = /(https?:\/\/[^\s]+(?<![.,?!:;)]))/g;
+  const parts = text.split(urlRegex).filter(Boolean);
+
+  return parts.map((part, index) => {
+    if (/^https?:\/\/[^\s]+$/.test(part)) {
+      return (
+        <a
+          key={index}
+          href={part}
+          target="_blank"
+          rel="noopener noreferrer"
+          data-testid="chat-message-link"
+          className={`underline break-all font-medium hover:underline ${
+            isOwn
+              ? 'text-white underline decoration-white/70 hover:opacity-90'
+              : 'text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300'
+          }`}
+        >
+          {part}
+        </a>
+      );
+    }
+
+    return part;
+  });
+}
+
 export const ChatPanel: React.FC<ChatPanelProps> = ({ roomId, disabled = false }) => {
   const { user, fullName } = useAuth();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -395,13 +431,13 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ roomId, disabled = false }
                   )}
                 </div>
                 <div
-                  className={`max-w-[85%] px-3.5 py-2 rounded-2xl text-xs leading-relaxed break-words shadow-sm ${
+                  className={`max-w-[85%] px-3.5 py-2 rounded-2xl text-xs leading-relaxed break-words whitespace-pre-wrap shadow-sm ${
                     isOwn
                       ? 'bg-indigo-600 text-white rounded-br-sm'
                       : 'bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-bl-sm border border-slate-200/50 dark:border-slate-700/50'
                   }`}
                 >
-                  {msg.body}
+                  {renderMessageBody(msg.body, isOwn)}
                 </div>
               </div>
             );
