@@ -126,6 +126,11 @@ export interface ChatMessage {
   createdAt: string;
 }
 
+export interface ChatHistoryResponse {
+  messages: ChatMessage[];
+  hasMore: boolean;
+}
+
 export interface ActiveScreenShare {
   roomId: string;
   userId: string;

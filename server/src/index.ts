@@ -19,6 +19,7 @@ import {
   forceStopScreenShare,
   handleUserDisconnectScreenShare,
 } from './realtime/screenShare';
+import { createChatMessage } from './lib/chat';
 
 const server = http.createServer(app);
 
@@ -332,6 +333,39 @@ io.on('connection', (socket) => {
           userId: user.id,
           raised,
         });
+      }
+    }
+  });
+
+  /**
+   * chat:send — send a new chat message in a room (US-CHAT-01, US-CHAT-02, FR-3.11)
+   */
+  socket.on('chat:send', async (payload: any, ack?: (res: any) => void) => {
+    const roomId = extractRoomId(payload);
+    const body = typeof payload?.body === 'string' ? payload.body : '';
+
+    if (!roomId || !user?.id) {
+      const err = { code: 'VALIDATION', message: 'Room ID required' };
+      socket.emit('chat:error', err);
+      if (typeof ack === 'function') ack({ ok: false, error: err });
+      return;
+    }
+
+    try {
+      const message = await createChatMessage(user.id, roomId, body);
+      // Broadcast to room channel (both room:roomId and roomId)
+      io.to(`room:${roomId}`).to(roomId).emit('chat:new', message);
+
+      if (typeof ack === 'function') {
+        ack({ ok: true, data: message });
+      }
+    } catch (err: any) {
+      console.warn(`[Socket] Error sending chat message in room ${roomId}:`, err.message || err);
+      const code = err.code || (err instanceof NotAMemberError ? 'NOT_A_MEMBER' : 'INTERNAL_SERVER_ERROR');
+      const errorPayload = { code, message: err.message || 'Failed to send message' };
+      socket.emit('chat:error', errorPayload);
+      if (typeof ack === 'function') {
+        ack({ ok: false, error: errorPayload });
       }
     }
   });

@@ -352,6 +352,14 @@ export async function getRoomForUser(
     }
   }
 
+  // If mock store is being used and the room exists in the mock store for other users,
+  // but the requesting user is not a member, throw NotAMemberError
+  for (const rooms of mockRoomsStore.values()) {
+    if (rooms.some((r) => r.id === roomId)) {
+      throw new NotAMemberError();
+    }
+  }
+
   // Validate UUID to avoid PostgreSQL "invalid input syntax for type uuid" error
   const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   if (!UUID_REGEX.test(roomId)) {

@@ -391,10 +391,10 @@
 > As a **room member**, I want to see the last 50 messages when I open the chat and be able to load older messages by scrolling up so that I can follow the conversation history.
 
 **Acceptance Criteria:**
-- [ ] Opening the room loads the last 50 messages (newest at the bottom).
-- [ ] Scrolling to the top loads the next 50 older messages (cursor pagination via `before` query param).
-- [ ] A "Loading..." indicator is shown during fetch.
-- [ ] A "No more messages" indicator is shown when `hasMore = false`.
+- [x] Opening the room loads the last 50 messages (newest at the bottom).
+- [x] Scrolling to the top loads the next 50 older messages (cursor pagination via `before` query param).
+- [x] A "Loading..." indicator is shown during fetch.
+- [x] A "No more messages" indicator is shown when `hasMore = false`.
 
 ---
 
