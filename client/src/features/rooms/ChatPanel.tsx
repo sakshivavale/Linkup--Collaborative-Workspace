@@ -269,19 +269,32 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ roomId, disabled = false }
                 data-message-id={msg.id}
                 className={`flex flex-col gap-0.5 ${isOwn ? 'items-end' : 'items-start'}`}
               >
-                <div className="flex items-center gap-1.5 px-1">
-                  <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">
-                    {isOwn ? 'You' : msg.senderName}
+                <div className="flex items-center gap-1.5 px-1 mb-0.5">
+                  <span
+                    data-testid="chat-sender-name"
+                    className="text-[11px] font-semibold text-slate-700 dark:text-slate-200"
+                  >
+                    {msg.senderName}
+                    {isOwn && (
+                      <span className="ml-1 text-[10px] font-normal text-slate-400 dark:text-slate-500">
+                        (You)
+                      </span>
+                    )}
                   </span>
                   {isTeacher && (
                     <span
+                      id={`chat-teacher-badge-${msg.id}`}
                       data-testid="chat-teacher-badge"
-                      className="px-1 py-0.2 rounded text-[9px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300 dark:border-amber-700/60"
+                      className="inline-flex items-center px-1.5 py-0.2 rounded text-[9px] font-bold uppercase tracking-wider bg-amber-100 text-amber-800 dark:bg-amber-950/70 dark:text-amber-300 border border-amber-300 dark:border-amber-700/60 shadow-xs"
                     >
                       Teacher
                     </span>
                   )}
-                  <span className="text-[10px] text-slate-400 dark:text-slate-500">
+                  <span
+                    data-testid="chat-message-time"
+                    title={new Date(msg.createdAt).toLocaleString()}
+                    className="text-[10px] text-slate-400 dark:text-slate-500"
+                  >
                     · {formatTime(msg.createdAt)}
                   </span>
                 </div>
