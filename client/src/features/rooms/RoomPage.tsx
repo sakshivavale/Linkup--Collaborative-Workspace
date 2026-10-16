@@ -40,9 +40,9 @@ const MAIN_TABS: { key: MainTab; label: string; Icon: React.FC<{ className?: str
   { key: 'code',       label: 'Code',        Icon: Code2    },
 ];
 
-const SIDE_TABS: { key: SideTab; label: string; Icon: React.FC<{ className?: string }> }[] = [
+const getSideTabs = (isHost: boolean): { key: SideTab; label: string; Icon: React.FC<{ className?: string }> }[] => [
   { key: 'chat',   label: 'Chat',   Icon: MessageSquare },
-  { key: 'people', label: 'People', Icon: Users         },
+  { key: 'people', label: isHost ? 'Participants' : 'People', Icon: Users },
 ];
 
 // ─── RoomPage ─────────────────────────────────────────────────────────────────
@@ -768,10 +768,11 @@ export const RoomPage: React.FC = () => {
               className="shrink-0 flex border-b border-slate-200/70 dark:border-slate-800/70"
               aria-label="Room sidebar tabs"
             >
-              {SIDE_TABS.map(({ key, label, Icon }) => (
+              {getSideTabs(room?.myRole === 'host').map(({ key, label, Icon }) => (
                 <button
                   key={key}
                   id={`room-sidebar-tab-${key}`}
+                  data-testid={`room-sidebar-tab-${key}`}
                   onClick={() => setSideTab(key)}
                   className={`flex-1 inline-flex items-center justify-center gap-1.5 py-3 text-xs font-semibold border-b-2 transition-all focus:outline-none ${
                     sideTab === key
