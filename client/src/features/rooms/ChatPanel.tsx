@@ -18,6 +18,42 @@ interface ChatPanelProps {
  * 3. A "Loading..." indicator is shown during fetch.
  * 4. A "No more messages" indicator is shown when hasMore = false.
  */
+/**
+ * US-CHAT-04: Plain Text Rendering and Link Auto-linking (FR-3.14)
+ * - Auto-links URLs starting with http:// or https:// with target="_blank" and rel="noopener noreferrer"
+ * - All other text rendered as plain text via React escaping (markup execution prohibited)
+ */
+export function renderMessageBody(text: string, isOwn: boolean = false): React.ReactNode {
+  if (!text) return null;
+
+  // Match URLs starting with http:// or https://, excluding trailing punctuation
+  const urlRegex = /(https?:\/\/[^\s]+(?<![.,?!:;)]))/g;
+  const parts = text.split(urlRegex).filter(Boolean);
+
+  return parts.map((part, index) => {
+    if (/^https?:\/\/[^\s]+$/.test(part)) {
+      return (
+        <a
+          key={index}
+          href={part}
+          target="_blank"
+          rel="noopener noreferrer"
+          data-testid="chat-message-link"
+          className={`underline break-all font-medium hover:underline ${
+            isOwn
+              ? 'text-white underline decoration-white/70 hover:opacity-90'
+              : 'text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300'
+          }`}
+        >
+          {part}
+        </a>
+      );
+    }
+
+    return part;
+  });
+}
+
 export const ChatPanel: React.FC<ChatPanelProps> = ({ roomId, disabled = false }) => {
   const { user, fullName } = useAuth();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -75,8 +111,25 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ roomId, disabled = false }
       const msg: ChatMessage = payload?.message || payload;
       if (!msg || String(msg.roomId) !== String(roomId)) return;
 
+      const incomingClientId = payload?.clientId || msg.clientId;
+
       setMessages((prev) => {
+        // Prevent duplicate if already confirmed
         if (prev.some((m) => m.id === msg.id)) return prev;
+
+        // Replace optimistic message if matching clientId or pending temp message
+        const optIndex = prev.findIndex(
+          (m) =>
+            (incomingClientId && m.clientId === incomingClientId) ||
+            (m.id < 0 && m.senderId === msg.senderId && m.body === msg.body)
+        );
+
+        if (optIndex !== -1) {
+          const next = [...prev];
+          next[optIndex] = { ...msg, status: 'confirmed' };
+          return next;
+        }
+
         return [...prev, msg];
       });
 
@@ -93,8 +146,10 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ roomId, disabled = false }
     };
 
     socket.on('chat:new', handleNewMessage);
+    socket.on('chat:new message', handleNewMessage);
     return () => {
       socket.off('chat:new', handleNewMessage);
+      socket.off('chat:new message', handleNewMessage);
     };
   }, [roomId, user?.id]);
 
@@ -144,29 +199,84 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ roomId, disabled = false }
     }
   };
 
-  // 4. Send message handler
+  // 4. Send message handler with optimistic update (US-CHAT-01)
   const sendMessage = async () => {
     const trimmed = draft.trim();
     if (!trimmed || isSending || disabled) return;
+    if (trimmed.length > 2000) return;
 
+    const clientId = `client_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    const tempId = -Date.now();
+
+    // Optimistic message added immediately to state
+    const optimisticMsg: ChatMessage = {
+      id: tempId,
+      roomId,
+      senderId: user?.id || 'me',
+      senderName: user?.fullName || fullName || 'You',
+      senderRole: (user?.role as any) || 'student',
+      body: trimmed,
+      createdAt: new Date().toISOString(),
+      clientId,
+      status: 'sending',
+    };
+
+    setMessages((prev) => [...prev, optimisticMsg]);
+    setDraft('');
     setIsSending(true);
+
+    requestAnimationFrame(() => {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    });
+
     try {
       if (socket.connected) {
-        socket.emit('chat:send', { roomId, body: trimmed }, (res: any) => {
-          if (!res?.ok && res?.error) {
+        socket.emit('chat:send', { roomId, body: trimmed, clientId }, (res: any) => {
+          if (res?.ok && res?.data) {
+            const confirmed: ChatMessage = res.data;
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === tempId || (m.clientId && m.clientId === clientId)
+                  ? { ...confirmed, status: 'confirmed' }
+                  : m
+              )
+            );
+          } else if (res?.error) {
             console.warn('[ChatPanel] Socket chat:send failed:', res.error);
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === tempId || (m.clientId && m.clientId === clientId)
+                  ? { ...m, status: 'failed' }
+                  : m
+              )
+            );
           }
         });
       } else {
-        await api.post(`/api/rooms/${roomId}/messages`, { body: trimmed });
+        const res = await api.post<{ message: ChatMessage }>(`/api/rooms/${roomId}/messages`, {
+          body: trimmed,
+          clientId,
+        });
+        if (res?.message) {
+          const confirmed = res.message;
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === tempId || (m.clientId && m.clientId === clientId)
+                ? { ...confirmed, status: 'confirmed' }
+                : m
+            )
+          );
+        }
       }
-
-      setDraft('');
-      requestAnimationFrame(() => {
-        bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-      });
     } catch (err) {
       console.error('[ChatPanel] Failed to send message:', err);
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === tempId || (m.clientId && m.clientId === clientId)
+            ? { ...m, status: 'failed' }
+            : m
+        )
+      );
     } finally {
       setIsSending(false);
     }
@@ -261,13 +371,19 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ roomId, disabled = false }
           messages.map((msg) => {
             const isOwn = user?.id ? msg.senderId === user.id : msg.senderName === fullName;
             const isTeacher = msg.senderRole === 'teacher';
+            const isOptimistic = msg.id < 0 || msg.status === 'sending';
+            const isFailed = msg.status === 'failed';
 
             return (
               <div
                 key={msg.id}
                 data-testid="chat-message-item"
                 data-message-id={msg.id}
-                className={`flex flex-col gap-0.5 ${isOwn ? 'items-end' : 'items-start'}`}
+                data-status={msg.status || 'confirmed'}
+                data-optimistic={isOptimistic ? 'true' : 'false'}
+                className={`flex flex-col gap-0.5 ${isOwn ? 'items-end' : 'items-start'} ${
+                  isOptimistic ? 'opacity-85' : ''
+                }`}
               >
                 <div className="flex items-center gap-1.5 px-1 mb-0.5">
                   <span
@@ -297,15 +413,31 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ roomId, disabled = false }
                   >
                     · {formatTime(msg.createdAt)}
                   </span>
+                  {isOptimistic && (
+                    <span
+                      data-testid="chat-message-sending"
+                      className="text-[9px] text-indigo-400 dark:text-indigo-300 italic font-medium"
+                    >
+                      (sending...)
+                    </span>
+                  )}
+                  {isFailed && (
+                    <span
+                      data-testid="chat-message-failed"
+                      className="text-[9px] text-rose-500 font-semibold"
+                    >
+                      (failed)
+                    </span>
+                  )}
                 </div>
                 <div
-                  className={`max-w-[85%] px-3.5 py-2 rounded-2xl text-xs leading-relaxed break-words shadow-sm ${
+                  className={`max-w-[85%] px-3.5 py-2 rounded-2xl text-xs leading-relaxed break-words whitespace-pre-wrap shadow-sm ${
                     isOwn
                       ? 'bg-indigo-600 text-white rounded-br-sm'
                       : 'bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-bl-sm border border-slate-200/50 dark:border-slate-700/50'
                   }`}
                 >
-                  {msg.body}
+                  {renderMessageBody(msg.body, isOwn)}
                 </div>
               </div>
             );
@@ -340,7 +472,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ roomId, disabled = false }
             id={`room-chat-send-${roomId}`}
             data-testid="room-chat-send"
             onClick={sendMessage}
-            disabled={disabled || isSending || !draft.trim()}
+            disabled={disabled || isSending || !draft.trim() || draft.trim().length > 2000}
             title={disabled ? 'Reconnecting...' : 'Send message'}
             className="w-8 h-8 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white flex items-center justify-center transition-all shrink-0 focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm"
           >

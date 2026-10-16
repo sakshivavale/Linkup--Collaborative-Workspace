@@ -378,10 +378,10 @@
 > As a **room member**, I want to send a text message in the room chat so that I can communicate with everyone in the room.
 
 **Acceptance Criteria:**
-- [ ] A message input and Send button are always available in the Chat sidebar tab, inside or outside a live session.
-- [ ] Messages are 1-2000 characters; an empty message cannot be sent.
-- [ ] Messages appear for all online members within 500 ms (same region).
-- [ ] The sender sees an optimistic message that is confirmed or replaced once the server acknowledges it.
+- [x] A message input and Send button are always available in the Chat sidebar tab, inside or outside a live session.
+- [x] Messages are 1-2000 characters; an empty message cannot be sent.
+- [x] Messages appear for all online members within 500 ms (same region).
+- [x] The sender sees an optimistic message that is confirmed or replaced once the server acknowledges it.
 
 ---
 
@@ -415,8 +415,8 @@
 > As a **room member**, I want URLs in messages to be clickable links, while all other text is rendered as plain text, so that the chat is both useful and secure.
 
 **Acceptance Criteria:**
-- [ ] URLs (http/https) in messages are automatically converted to clickable links with `rel="noopener noreferrer"` and `target="_blank"`.
-- [ ] No HTML tags in message bodies are rendered as markup (React escaping is used; no dangerouslySetInnerHTML).
+- [x] URLs (http/https) in messages are automatically converted to clickable links with `rel="noopener noreferrer"` and `target="_blank"`.
+- [x] No HTML tags in message bodies are rendered as markup (React escaping is used; no dangerouslySetInnerHTML).
 
 ---
 ## 6. Permission Control
