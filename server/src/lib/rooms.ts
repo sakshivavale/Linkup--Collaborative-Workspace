@@ -71,6 +71,10 @@ export function clearMockSessions() {
   mockSessionsStore.clear();
 }
 
+export function getMockSessions(): Map<string, Session> {
+  return mockSessionsStore;
+}
+
 export function setMockSession(arg1: string | Session, arg2?: Session) {
   if (typeof arg1 === 'string' && arg2) {
     mockSessionsStore.set(arg1, arg2);

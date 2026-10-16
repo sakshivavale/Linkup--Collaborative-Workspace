@@ -301,14 +301,16 @@ async function runTests() {
     const studentReceivePromise = new Promise<{ msg: any; latency: number }>((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error('Timeout waiting for chat:new')), 1000);
       const onReceive = (payload: any) => {
+        const msg = payload?.message || payload;
+        if (msg?.body !== realtimeText) return;
         clearTimeout(timeout);
         studentSocket?.off('chat:new', onReceive);
         studentSocket?.off('chat:new message', onReceive);
         const latency = Date.now() - sendStartTime;
-        resolve({ msg: payload?.message || payload, latency });
+        resolve({ msg, latency });
       };
-      studentSocket?.once('chat:new', onReceive);
-      studentSocket?.once('chat:new message', onReceive);
+      studentSocket?.on('chat:new', onReceive);
+      studentSocket?.on('chat:new message', onReceive);
     });
 
     teacherSocket?.emit('chat:send', { roomId, body: realtimeText });
@@ -413,7 +415,8 @@ async function runTests() {
     teacherSocket?.disconnect();
     studentSocket?.disconnect();
     nonMemberSocket?.disconnect();
-    testServer.close();
+    await new Promise<void>((r) => testServer.close(() => r()));
+    await new Promise((r) => setTimeout(r, 100));
   }
 
   console.log('\n============================================================');

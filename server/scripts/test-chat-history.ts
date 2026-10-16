@@ -324,7 +324,8 @@ async function runTests() {
   } finally {
     memberSocket?.disconnect();
     otherMemberSocket?.disconnect();
-    testServer.close();
+    await new Promise<void>((r) => testServer.close(() => r()));
+    await new Promise((r) => setTimeout(r, 100));
   }
 
   console.log('\n============================================================');

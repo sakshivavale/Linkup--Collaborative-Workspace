@@ -427,9 +427,9 @@
 > As a **host**, I want to see all participants in a panel with 5 permission toggles per person so that I can manage access for each student.
 
 **Acceptance Criteria:**
-- [ ] The Participants tab in the host view shows a row per participant: name, online dot, and 5 toggles (Mic, Camera, Screen, Whiteboard, Code).
-- [ ] The host's own row shows all toggles permanently enabled and locked (cannot be changed).
-- [ ] Students see the People tab but do not see the toggles.
+- [x] The Participants tab in the host view shows a row per participant: name, online dot, and 5 toggles (Mic, Camera, Screen, Whiteboard, Code).
+- [x] The host's own row shows all toggles permanently enabled and locked (cannot be changed).
+- [x] Students see the People tab but do not see the toggles.
 
 ---
 

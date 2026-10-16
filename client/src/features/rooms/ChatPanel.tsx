@@ -55,7 +55,7 @@ export function renderMessageBody(text: string, isOwn: boolean = false): React.R
 }
 
 export const ChatPanel: React.FC<ChatPanelProps> = ({ roomId, disabled = false }) => {
-  const { user, fullName } = useAuth();
+  const { user, fullName, role } = useAuth();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loadingInitial, setLoadingInitial] = useState(true);
   const [loadingOlder, setLoadingOlder] = useState(false);
@@ -213,8 +213,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ roomId, disabled = false }
       id: tempId,
       roomId,
       senderId: user?.id || 'me',
-      senderName: user?.fullName || fullName || 'You',
-      senderRole: (user?.role as any) || 'student',
+      senderName: fullName || 'You',
+      senderRole: (role as any) || 'student',
       body: trimmed,
       createdAt: new Date().toISOString(),
       clientId,
