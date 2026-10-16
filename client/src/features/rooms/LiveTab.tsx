@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   Video,
   Mic,
@@ -8,6 +8,9 @@ import {
   PhoneCall,
   ScreenShare,
   ScreenShareOff,
+  Sliders,
+  ChevronDown,
+  Sparkles,
 } from 'lucide-react';
 import { socket } from '../../lib/socket';
 import VideoGrid from './VideoGrid';
@@ -15,6 +18,8 @@ import { Participant } from './ParticipantTile';
 import { useRoom } from './useRoom';
 import { useAuth } from '../../context/AuthContext';
 import { ActiveScreenShare, Permissions } from '@linkup/shared';
+import { useMediaDevices } from './useMediaDevices';
+import { DevicePickerModal } from './DevicePickerModal';
 
 interface LiveTabProps {
   roomId: string;
@@ -28,11 +33,12 @@ interface LiveTabProps {
 }
 
 /**
- * LiveTab — the live audio/video and screen share call panel (US-ROOM-01, US-LIVE-04, US-LIVE-06, US-LIVE-07).
+ * LiveTab — the live audio/video and screen share call panel (US-ROOM-01, US-LIVE-04, US-LIVE-06, US-LIVE-07, US-LIVE-08).
  * Enforces Acceptance Criteria:
  * - US-LIVE-04: Screen sharing with stage layout, permission controls, and single-share exclusivity.
  * - US-LIVE-06: Host leaves without ending, remaining participants stay connected, host re-joins via Join Live.
  * - US-LIVE-07: Chat input, media controls, and other interactive elements are disabled while reconnecting.
+ * - US-LIVE-08: Media device picker accessible from control bar, switching devices does not disconnect from call.
  */
 export const LiveTab: React.FC<LiveTabProps> = ({
   roomId,
@@ -52,6 +58,19 @@ export const LiveTab: React.FC<LiveTabProps> = ({
   const [camOn, setCamOn] = useState(false);
   const [internalInCall, setInternalInCall] = useState(Boolean(sessionId));
   const inCall = controlledInCall !== undefined ? controlledInCall : internalInCall;
+
+  // Media devices management (US-LIVE-08)
+  const [isDevicePickerOpen, setIsDevicePickerOpen] = useState(false);
+  const [deviceNotification, setDeviceNotification] = useState<string | null>(null);
+  const localVideoRef = useRef<HTMLVideoElement | null>(null);
+
+  const mediaDevices = useMediaDevices({
+    onDeviceSwitched: (kind, _deviceId, label) => {
+      const type = kind === 'audioinput' ? 'Microphone' : kind === 'videoinput' ? 'Camera' : 'Speaker';
+      setDeviceNotification(`Switched ${type} to: ${label}`);
+      setTimeout(() => setDeviceNotification(null), 3000);
+    },
+  });
 
   // Screen share state
   const [activeScreenShare, setActiveScreenShare] = useState<ActiveScreenShare | null>(
@@ -86,6 +105,53 @@ export const LiveTab: React.FC<LiveTabProps> = ({
       setMyPermissions(currentMember.permissions);
     }
   }, [currentMember?.permissions]);
+
+  // Handle local camera preview stream
+  useEffect(() => {
+    let active = true;
+    const updateCameraStream = async () => {
+      if (!camOn || !inCall) {
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = null;
+        }
+        return;
+      }
+
+      if (typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia) {
+        try {
+          const constraints: MediaStreamConstraints = {
+            video:
+              mediaDevices.selectedVideoInput !== 'default'
+                ? { deviceId: { exact: mediaDevices.selectedVideoInput } }
+                : true,
+          };
+          const stream = await navigator.mediaDevices.getUserMedia(constraints);
+          if (active) {
+            mediaDevices.setLocalStream((prev) => {
+              if (prev) {
+                prev.getVideoTracks().forEach((t) => t.stop());
+                const audioTracks = prev.getAudioTracks();
+                return new MediaStream([...audioTracks, ...stream.getVideoTracks()]);
+              }
+              return stream;
+            });
+            if (localVideoRef.current) {
+              localVideoRef.current.srcObject = stream;
+              localVideoRef.current.play().catch(() => {});
+            }
+          }
+        } catch (err) {
+          console.warn('[LiveTab] Camera getUserMedia error:', err);
+        }
+      }
+    };
+
+    updateCameraStream();
+
+    return () => {
+      active = false;
+    };
+  }, [camOn, inCall, mediaDevices.selectedVideoInput]);
 
   // participants shown in grid are derived from room.presence (inLive === true)
   const [participants, setParticipants] = useState<Participant[]>(() => {
@@ -280,6 +346,11 @@ export const LiveTab: React.FC<LiveTabProps> = ({
     }
   };
 
+  const activeCamLabel =
+    mediaDevices.videoInputs.find((d) => d.deviceId === mediaDevices.selectedVideoInput)?.label || 'Camera';
+  const activeMicLabel =
+    mediaDevices.audioInputs.find((d) => d.deviceId === mediaDevices.selectedAudioInput)?.label || 'Microphone';
+
   return (
     <div className="flex flex-col items-center justify-center h-full gap-6 py-6">
       {/* Session indicator */}
@@ -350,20 +421,54 @@ export const LiveTab: React.FC<LiveTabProps> = ({
           <div className="w-full flex flex-col items-center gap-6">
             {participants.length > 0 && <VideoGrid participants={participants} />}
 
-            {/* Video preview placeholder (shown when in call and no screen share is focused) */}
+            {/* Video preview & active device indicators (shown when in call and no screen share is focused) */}
             {inCall && (
               <div className="relative w-full max-w-xl aspect-video rounded-2xl bg-slate-900/80 dark:bg-black/60 border border-slate-700/50 overflow-hidden flex items-center justify-center shadow-2xl">
                 {camOn ? (
-                  <div className="text-slate-400 text-sm font-medium">Camera preview (integration pending)</div>
+                  <video
+                    ref={localVideoRef}
+                    id="live-local-video-preview"
+                    data-testid="live-local-video-preview"
+                    autoPlay
+                    playsInline
+                    muted
+                    className="w-full h-full object-cover"
+                  />
                 ) : (
                   <div className="flex flex-col items-center gap-3 text-slate-500">
                     <VideoOff className="w-12 h-12 opacity-40" />
                     <span className="text-xs font-medium">Camera is off</span>
                   </div>
                 )}
-                {/* Self-view PiP */}
-                <div className="absolute bottom-3 right-3 w-24 aspect-video rounded-lg bg-slate-800/90 border border-slate-700/60 flex items-center justify-center">
-                  <VideoOff className="w-5 h-5 text-slate-600" />
+
+                {/* Active device pill indicators (US-LIVE-08) */}
+                <div className="absolute top-3 left-3 flex flex-wrap items-center gap-1.5 z-10 pointer-events-none">
+                  <div
+                    id="active-camera-pill"
+                    data-testid="active-camera-pill"
+                    className="px-2 py-0.5 rounded-md bg-black/60 backdrop-blur-md border border-white/10 text-[10px] font-medium text-slate-300 flex items-center gap-1"
+                  >
+                    <Video className="w-3 h-3 text-indigo-400" />
+                    <span className="truncate max-w-[120px]">{activeCamLabel}</span>
+                  </div>
+                  <div
+                    id="active-mic-pill"
+                    data-testid="active-mic-pill"
+                    className="px-2 py-0.5 rounded-md bg-black/60 backdrop-blur-md border border-white/10 text-[10px] font-medium text-slate-300 flex items-center gap-1"
+                  >
+                    <Mic className="w-3 h-3 text-emerald-400" />
+                    <span className="truncate max-w-[120px]">{activeMicLabel}</span>
+                  </div>
+                </div>
+
+                {/* Self-view PiP / Cam status */}
+                <div className="absolute bottom-3 right-3 px-2 py-1 rounded-lg bg-slate-800/90 border border-slate-700/60 flex items-center gap-1.5 text-xs text-slate-300 z-10">
+                  {camOn ? (
+                    <Video className="w-3.5 h-3.5 text-emerald-400" />
+                  ) : (
+                    <VideoOff className="w-3.5 h-3.5 text-slate-500" />
+                  )}
+                  <span className="text-[10px] font-semibold">{camOn ? 'Live Video' : 'Cam Off'}</span>
                 </div>
               </div>
             )}
@@ -371,43 +476,83 @@ export const LiveTab: React.FC<LiveTabProps> = ({
         )}
       </div>
 
-      {/* Controls bar */}
-      <div className="flex items-center gap-3">
-        {/* Microphone Toggle */}
-        <button
-          id="room-mic-toggle"
-          data-testid="room-mic-toggle"
-          disabled={isControlsDisabled}
-          onClick={() => setMicOn((v) => !v)}
-          title={isControlsDisabled ? 'Reconnecting...' : micOn ? 'Mute microphone' : 'Unmute microphone'}
-          className={`w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-            isControlsDisabled
-              ? 'opacity-50 cursor-not-allowed bg-slate-200 dark:bg-slate-800 text-slate-400'
-              : micOn
-              ? 'bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 focus:ring-slate-400'
-              : 'bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/40 focus:ring-red-500'
-          }`}
+      {/* Device switch notification toast */}
+      {deviceNotification && (
+        <div
+          id="device-switch-toast"
+          data-testid="device-switch-toast"
+          className="px-4 py-1.5 rounded-full bg-indigo-500/15 border border-indigo-500/30 text-indigo-300 text-xs font-medium flex items-center gap-2 shadow-lg backdrop-blur-sm animate-fade-in"
         >
-          {micOn ? <Mic className="w-5 h-5" /> : <MicOff className="w-5 h-5" />}
-        </button>
+          <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+          <span>{deviceNotification}</span>
+        </div>
+      )}
 
-        {/* Camera Toggle */}
-        <button
-          id="room-cam-toggle"
-          data-testid="room-cam-toggle"
-          disabled={isControlsDisabled}
-          onClick={() => setCamOn((v) => !v)}
-          title={isControlsDisabled ? 'Reconnecting...' : camOn ? 'Turn off camera' : 'Turn on camera'}
-          className={`w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-            isControlsDisabled
-              ? 'opacity-50 cursor-not-allowed bg-slate-200 dark:bg-slate-800 text-slate-400'
-              : camOn
-              ? 'bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 focus:ring-slate-400'
-              : 'bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/40 focus:ring-red-500'
-          }`}
-        >
-          {camOn ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
-        </button>
+      {/* ── Controls bar (US-ROOM-01, US-LIVE-04, US-LIVE-06, US-LIVE-07, US-LIVE-08) ── */}
+      <div className="flex items-center gap-2 sm:gap-3">
+        {/* Microphone Toggle & Quick Switch Menu */}
+        <div className="relative inline-flex items-center">
+          <button
+            id="room-mic-toggle"
+            data-testid="room-mic-toggle"
+            disabled={isControlsDisabled}
+            onClick={() => setMicOn((v) => !v)}
+            title={isControlsDisabled ? 'Reconnecting...' : micOn ? 'Mute microphone' : 'Unmute microphone'}
+            className={`w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+              isControlsDisabled
+                ? 'opacity-50 cursor-not-allowed bg-slate-200 dark:bg-slate-800 text-slate-400'
+                : micOn
+                ? 'bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 focus:ring-slate-400'
+                : 'bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/40 focus:ring-red-500'
+            }`}
+          >
+            {micOn ? <Mic className="w-5 h-5" /> : <MicOff className="w-5 h-5" />}
+          </button>
+          <button
+            id="room-mic-device-menu-btn"
+            data-testid="room-mic-device-menu-btn"
+            type="button"
+            disabled={isControlsDisabled}
+            onClick={() => setIsDevicePickerOpen(true)}
+            title="Switch microphone"
+            aria-label="Switch microphone"
+            className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-slate-700 hover:bg-indigo-600 text-slate-200 hover:text-white flex items-center justify-center text-[10px] shadow border border-slate-600 transition-colors disabled:opacity-50 cursor-pointer"
+          >
+            <ChevronDown className="w-3 h-3" />
+          </button>
+        </div>
+
+        {/* Camera Toggle & Quick Switch Menu */}
+        <div className="relative inline-flex items-center">
+          <button
+            id="room-cam-toggle"
+            data-testid="room-cam-toggle"
+            disabled={isControlsDisabled}
+            onClick={() => setCamOn((v) => !v)}
+            title={isControlsDisabled ? 'Reconnecting...' : camOn ? 'Turn off camera' : 'Turn on camera'}
+            className={`w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+              isControlsDisabled
+                ? 'opacity-50 cursor-not-allowed bg-slate-200 dark:bg-slate-800 text-slate-400'
+                : camOn
+                ? 'bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 focus:ring-slate-400'
+                : 'bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/40 focus:ring-red-500'
+            }`}
+          >
+            {camOn ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
+          </button>
+          <button
+            id="room-cam-device-menu-btn"
+            data-testid="room-cam-device-menu-btn"
+            type="button"
+            disabled={isControlsDisabled}
+            onClick={() => setIsDevicePickerOpen(true)}
+            title="Switch camera"
+            aria-label="Switch camera"
+            className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-slate-700 hover:bg-indigo-600 text-slate-200 hover:text-white flex items-center justify-center text-[10px] shadow border border-slate-600 transition-colors disabled:opacity-50 cursor-pointer"
+          >
+            <ChevronDown className="w-3 h-3" />
+          </button>
+        </div>
 
         {/* ── Screen Share Button with Tooltip (US-LIVE-04 Acceptance Criteria 1, 3, 5, US-LIVE-07 AC-2) ── */}
         <div className="relative group inline-flex items-center justify-center">
@@ -450,6 +595,24 @@ export const LiveTab: React.FC<LiveTabProps> = ({
           )}
         </div>
 
+        {/* ── US-LIVE-08: Dedicated Device-Picker Control accessible from the control bar ── */}
+        <button
+          id="room-device-picker-btn"
+          data-testid="room-device-picker-btn"
+          type="button"
+          disabled={isControlsDisabled}
+          onClick={() => setIsDevicePickerOpen(true)}
+          title={isControlsDisabled ? 'Reconnecting...' : 'Media Device Settings: Switch Microphone & Camera'}
+          aria-label="Media Device Settings"
+          className={`w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+            isControlsDisabled
+              ? 'opacity-50 cursor-not-allowed bg-slate-200 dark:bg-slate-800 text-slate-400'
+              : 'bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 hover:text-indigo-600 dark:hover:text-indigo-400 focus:ring-indigo-400 cursor-pointer active:scale-95'
+          }`}
+        >
+          <Sliders className="w-5 h-5" />
+        </button>
+
         {/* Call Join/Leave Toggle (US-LIVE-06 AC-3, US-LIVE-07 AC-2) */}
         {inCall ? (
           <button
@@ -487,6 +650,30 @@ export const LiveTab: React.FC<LiveTabProps> = ({
           ? 'Audio continues when you switch tabs — you will stay connected to the live call.'
           : 'Waiting for the teacher to start the session.'}
       </p>
+
+      {/* ── US-LIVE-08 Device Picker Modal ── */}
+      <DevicePickerModal
+        isOpen={isDevicePickerOpen}
+        onClose={() => setIsDevicePickerOpen(false)}
+        audioInputs={mediaDevices.audioInputs}
+        videoInputs={mediaDevices.videoInputs}
+        audioOutputs={mediaDevices.audioOutputs}
+        selectedAudioInput={mediaDevices.selectedAudioInput}
+        selectedVideoInput={mediaDevices.selectedVideoInput}
+        selectedAudioOutput={mediaDevices.selectedAudioOutput}
+        onSelectAudioInput={mediaDevices.switchAudioInput}
+        onSelectVideoInput={mediaDevices.switchVideoInput}
+        onSelectAudioOutput={mediaDevices.switchAudioOutput}
+        onRefreshDevices={mediaDevices.refreshDevices}
+        onRequestPermissions={mediaDevices.requestPermissions}
+        onPlayTestSound={mediaDevices.playTestSound}
+        hasPermission={mediaDevices.hasPermission}
+        audioLevel={mediaDevices.audioLevel}
+        previewStream={mediaDevices.previewStream}
+        onStartPreview={mediaDevices.startCameraPreview}
+        onStopPreview={mediaDevices.stopCameraPreview}
+        inCall={inCall}
+      />
     </div>
   );
 };
