@@ -212,3 +212,66 @@ export interface RoomSnapshot {
   code?: CodeState;
   board?: { elements: unknown[] };
 }
+
+/**
+ * US-PERM-03: Descriptive user notification toast message for permission change (FR-4.4)
+ */
+export function getPermissionChangeMessage(key: PermissionKey, granted: boolean): string {
+  if (granted) {
+    switch (key) {
+      case 'canMic':
+        return 'You can now use your microphone.';
+      case 'canCamera':
+        return 'You can now use your camera.';
+      case 'canScreen':
+        return 'You can now share your screen.';
+      case 'canWhiteboard':
+        return 'You can now edit the whiteboard.';
+      case 'canCode':
+        return 'You can now edit code.';
+    }
+  } else {
+    switch (key) {
+      case 'canMic':
+        return 'Teacher turned off your microphone.';
+      case 'canCamera':
+        return 'Teacher turned off your camera.';
+      case 'canScreen':
+        return 'Teacher turned off your screen sharing.';
+      case 'canWhiteboard':
+        return 'Teacher turned off your whiteboard access.';
+      case 'canCode':
+        return 'Teacher turned off your code editor access.';
+    }
+  }
+}
+
+export interface PermissionDiff {
+  key: PermissionKey;
+  granted: boolean;
+  message: string;
+}
+
+/**
+ * US-PERM-03: Computes diff between previous permissions and new permissions
+ */
+export function diffPermissions(
+  prev: Partial<Permissions> | null | undefined,
+  next: Permissions
+): PermissionDiff[] {
+  if (!prev) return [];
+  const diffs: PermissionDiff[] = [];
+  for (const key of PERMISSION_KEYS) {
+    const prevVal = Boolean(prev[key]);
+    const nextVal = Boolean(next[key]);
+    if (prevVal !== nextVal) {
+      diffs.push({
+        key,
+        granted: nextVal,
+        message: getPermissionChangeMessage(key, nextVal),
+      });
+    }
+  }
+  return diffs;
+}
+

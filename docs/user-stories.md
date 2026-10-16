@@ -452,9 +452,9 @@
 > As a **student**, I want to receive a clear toast notification when the teacher changes one of my permissions so that I know why a control has been enabled or disabled.
 
 **Acceptance Criteria:**
-- [ ] When a permission is revoked, the student sees a toast like: *"Teacher turned off your microphone."*
-- [ ] When a permission is granted, the student sees: *"You can now edit the whiteboard."*
-- [ ] Toasts are non-blocking and auto-dismiss after 4 seconds.
+- [x] When a permission is revoked, the student sees a toast like: *"Teacher turned off your microphone."*
+- [x] When a permission is granted, the student sees: *"You can now edit the whiteboard."*
+- [x] Toasts are non-blocking and auto-dismiss after 4 seconds.
 
 ---
 

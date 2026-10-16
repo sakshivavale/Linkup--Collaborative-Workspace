@@ -29,6 +29,8 @@ import { PeoplePanel } from './PeoplePanel';
 import { EditRoomModal } from '../dashboard/EditRoomModal';
 import { api, HttpError } from '../../lib/api';
 import { socket } from '../../lib/socket';
+import { useAuth } from '../../context/AuthContext';
+import { PermissionToastContainer } from './PermissionToast';
 
 // ─── Tab & sidebar definitions ───────────────────────────────────────────────
 type MainTab = 'live' | 'whiteboard' | 'code';
@@ -49,8 +51,10 @@ const getSideTabs = (isHost: boolean): { key: SideTab; label: string; Icon: Reac
 export const RoomPage: React.FC = () => {
   const { id: roomId } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   const { room, setRoom, loading, error } = useRoom(roomId);
+  const currentMember = room?.members?.find((m) => m.userId === user?.id);
 
   const [mainTab, setMainTab] = useState<MainTab>('live');
   const [sideTab, setSideTab] = useState<SideTab>('chat');
@@ -752,8 +756,18 @@ export const RoomPage: React.FC = () => {
               isReconnecting={isReconnecting}
             />
           </div>
-          {mainTab === 'whiteboard' && <WhiteboardTab roomId={roomId!} />}
-          {mainTab === 'code' && <CodeTab roomId={roomId!} />}
+          {mainTab === 'whiteboard' && (
+            <WhiteboardTab
+              roomId={roomId!}
+              canWhiteboard={room.myRole === 'host' || Boolean(currentMember?.permissions?.canWhiteboard ?? true)}
+            />
+          )}
+          {mainTab === 'code' && (
+            <CodeTab
+              roomId={roomId!}
+              canCode={room.myRole === 'host' || Boolean(currentMember?.permissions?.canCode ?? true)}
+            />
+          )}
         </main>
 
         {/* Sidebar */}
@@ -821,6 +835,13 @@ export const RoomPage: React.FC = () => {
           }}
         />
       )}
+
+      {/* US-PERM-03: Real-time non-blocking permission change toast notification (FR-4.4) */}
+      <PermissionToastContainer
+        roomId={roomId}
+        currentUserId={user?.id}
+        initialPermissions={currentMember?.permissions || null}
+      />
     </div>
   );
 };
