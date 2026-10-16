@@ -62,8 +62,9 @@ export const RoomPage: React.FC = () => {
   const [regenerated, setRegenerated] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
-  // US-LIVE-01 & US-LIVE-05: Session state & timer
+  // US-LIVE-01 & US-LIVE-05 & US-LIVE-06: Session state, inCall state & timer
   const [activeSession, setActiveSession] = useState<Session | null>(null);
+  const [isInCall, setIsInCall] = useState(false);
   const [isStartingSession, setIsStartingSession] = useState(false);
   const [isEndingSession, setIsEndingSession] = useState(false);
   const [sessionEnded, setSessionEnded] = useState(false);
@@ -151,6 +152,7 @@ export const RoomPage: React.FC = () => {
       const session = await api.post<Session>(`/api/rooms/${roomId}/sessions`);
       setActiveSession(session);
       setSessionEnded(false);
+      setIsInCall(true);
       if (room) {
         room.activeSessionId = session.id;
       }
@@ -180,6 +182,7 @@ export const RoomPage: React.FC = () => {
       await api.post<Session>(url);
       setActiveSession(null);
       setSessionEnded(true);
+      setIsInCall(false);
       if (room) {
         room.activeSessionId = null;
       }
@@ -260,6 +263,7 @@ export const RoomPage: React.FC = () => {
       if (data.roomId === roomId) {
         setActiveSession(null);
         setSessionEnded(true);
+        setIsInCall(false);
         if (room) {
           room.activeSessionId = null;
         }
@@ -489,6 +493,25 @@ export const RoomPage: React.FC = () => {
             </button>
           )}
 
+          {/* US-LIVE-06 Acceptance Criteria 3: Host can re-join the call using the Join Live button */}
+          {activeSession && !isInCall && (
+            <button
+              id="room-header-join-live-btn"
+              data-testid="room-header-join-live-btn"
+              type="button"
+              onClick={() => {
+                setIsInCall(true);
+                setMainTab('live');
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 shadow-sm shadow-emerald-500/20 active:scale-95 transition-all shrink-0 cursor-pointer"
+              title="Join live call"
+              aria-label="Join Live"
+            >
+              <Radio className="w-3.5 h-3.5 animate-pulse" />
+              <span>Join Live</span>
+            </button>
+          )}
+
           {sessionError && (
             <span
               id="room-header-session-error"
@@ -636,9 +659,18 @@ export const RoomPage: React.FC = () => {
           id={`room-tab-panel-${mainTab}`}
           role="tabpanel"
         >
-          {mainTab === 'live'       && <LiveTab       roomId={roomId!} sessionId={activeSession?.id ?? null} />}
+          <div className={mainTab === 'live' ? 'h-full' : 'hidden'}>
+            <LiveTab
+              roomId={roomId!}
+              sessionId={activeSession?.id ?? null}
+              inCall={isInCall}
+              onJoinCall={() => setIsInCall(true)}
+              onLeaveCall={() => setIsInCall(false)}
+              isHost={room.myRole === 'host'}
+            />
+          </div>
           {mainTab === 'whiteboard' && <WhiteboardTab roomId={roomId!} />}
-          {mainTab === 'code'       && <CodeTab       roomId={roomId!} />}
+          {mainTab === 'code' && <CodeTab roomId={roomId!} />}
         </main>
 
         {/* Sidebar */}
