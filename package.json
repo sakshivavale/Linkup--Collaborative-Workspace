@@ -21,7 +21,8 @@
     "test:member-removal": "npm run test:member-removal --workspace=server",
     "test:session": "npm run test:session --workspace=server",
     "test:screen-share": "npm run test:screen-share --workspace=server",
-    "test:end-session": "npm run test:end-session --workspace=server"
+    "test:end-session": "npm run test:end-session --workspace=server",
+    "test:host-leave": "npm run test:host-leave --workspace=server"
   },
   "devDependencies": {
     "typescript": "^5.4.5"

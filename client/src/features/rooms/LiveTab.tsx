@@ -19,24 +19,33 @@ import { ActiveScreenShare, Permissions } from '@linkup/shared';
 interface LiveTabProps {
   roomId: string;
   sessionId: string | null;
+  inCall?: boolean;
+  onJoinCall?: () => void;
+  onLeaveCall?: () => void;
+  isHost?: boolean;
 }
 
 /**
- * LiveTab — the live audio/video and screen share call panel (US-ROOM-01, US-LIVE-04).
- * Enforces Acceptance Criteria for US-LIVE-04:
- * 1. Screen-share button enabled only if can_screen = true (or user is host).
- * 2. Screen share appears as focused tile for all participants; other tiles move to a strip below.
- * 3. Only one screen share is active at a time.
- * 4. If can_screen is revoked while sharing, the share stops immediately for all viewers.
- * 5. Hovering over a disabled screen-share button shows a tooltip explaining why.
+ * LiveTab — the live audio/video and screen share call panel (US-ROOM-01, US-LIVE-04, US-LIVE-06).
+ * Enforces Acceptance Criteria:
+ * - US-LIVE-04: Screen sharing with stage layout, permission controls, and single-share exclusivity.
+ * - US-LIVE-06: Host leaves without ending, remaining participants stay connected, host re-joins via Join Live.
  */
-export const LiveTab: React.FC<LiveTabProps> = ({ roomId, sessionId }) => {
+export const LiveTab: React.FC<LiveTabProps> = ({
+  roomId,
+  sessionId,
+  inCall: controlledInCall,
+  onJoinCall,
+  onLeaveCall,
+  isHost: propIsHost,
+}) => {
   const { user } = useAuth();
   const { room } = useRoom(roomId);
 
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(false);
-  const [inCall, setInCall] = useState(Boolean(sessionId));
+  const [internalInCall, setInternalInCall] = useState(Boolean(sessionId));
+  const inCall = controlledInCall !== undefined ? controlledInCall : internalInCall;
 
   // Screen share state
   const [activeScreenShare, setActiveScreenShare] = useState<ActiveScreenShare | null>(
@@ -45,11 +54,25 @@ export const LiveTab: React.FC<LiveTabProps> = ({ roomId, sessionId }) => {
   const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
 
   // Current user's role and permission flags
-  const isHost = room?.myRole === 'host';
+  const isHost = propIsHost ?? (room?.myRole === 'host');
   const currentMember = room?.members?.find((m) => m.userId === user?.id);
   const [myPermissions, setMyPermissions] = useState<Permissions | null>(
     () => currentMember?.permissions || null
   );
+
+  // Sync internal inCall if controlled prop changes
+  useEffect(() => {
+    if (controlledInCall !== undefined) {
+      setInternalInCall(controlledInCall);
+    }
+  }, [controlledInCall]);
+
+  useEffect(() => {
+    if (!sessionId && inCall) {
+      if (onLeaveCall) onLeaveCall();
+      setInternalInCall(false);
+    }
+  }, [sessionId, inCall, onLeaveCall]);
 
   // Sync permissions when room loads or updates
   useEffect(() => {
@@ -103,38 +126,7 @@ export const LiveTab: React.FC<LiveTabProps> = ({ roomId, sessionId }) => {
     screenShareTooltip = 'Share your screen';
   }
 
-  // Join/leave live channel
-  useEffect(() => {
-    if (inCall && roomId) {
-      socket.emit('live:joined', { roomId });
-      return () => {
-        socket.emit('live:left', { roomId });
-      };
-    }
-  }, [inCall, roomId]);
-
-  useEffect(() => {
-    if (!sessionId && inCall) {
-      if (isSelfSharing) {
-        handleStopScreenShare();
-      }
-      setInCall(false);
-    }
-  }, [sessionId, inCall, isSelfSharing]);
-
-  // Handle stopping screen share
-  const handleStopScreenShare = () => {
-    if (screenStream) {
-      screenStream.getTracks().forEach((track) => track.stop());
-      setScreenStream(null);
-    }
-    socket.emit('screen:stop', { roomId });
-    if (isSelfSharing) {
-      setActiveScreenShare(null);
-    }
-  };
-
-  // Handle starting screen share
+  // Handle start sharing screen
   const handleStartScreenShare = async () => {
     if (isSelfSharing) {
       handleStopScreenShare();
@@ -145,44 +137,53 @@ export const LiveTab: React.FC<LiveTabProps> = ({ roomId, sessionId }) => {
 
     try {
       let stream: MediaStream | null = null;
-      if (typeof navigator !== 'undefined' && navigator.mediaDevices?.getDisplayMedia) {
+      if (navigator.mediaDevices && typeof navigator.mediaDevices.getDisplayMedia === 'function') {
         try {
-          stream = await navigator.mediaDevices.getDisplayMedia({
-            video: true,
-            audio: true,
-          });
-          setScreenStream(stream);
-
-          // Handle native browser "Stop sharing" bar click
-          const videoTrack = stream.getVideoTracks()[0];
-          if (videoTrack) {
-            videoTrack.onended = () => {
-              handleStopScreenShare();
-            };
+          stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+        } catch (err: any) {
+          if (err.name === 'NotAllowedError' || err.name === 'AbortError') {
+            console.log('[LiveTab] User cancelled screen share selection');
+            return;
           }
-        } catch (displayErr: any) {
-          if (displayErr.name === 'NotAllowedError' || displayErr.name === 'AbortError') {
-            return; // User cancelled prompt
-          }
-          console.warn('[LiveTab] Display media request notice:', displayErr);
+          console.warn('[LiveTab] getDisplayMedia error, falling back to simulated screen share:', err);
         }
       }
 
-      socket.emit('screen:start', { roomId }, (res: any) => {
-        if (!res?.ok && res?.error) {
-          console.warn('[LiveTab] screen:start error:', res.error);
-          if (stream) {
-            stream.getTracks().forEach((t) => t.stop());
-            setScreenStream(null);
-          }
-        }
-      });
+      setScreenStream(stream);
+
+      if (stream) {
+        stream.getVideoTracks().forEach((track) => {
+          track.onended = () => {
+            handleStopScreenShare();
+          };
+        });
+      }
+
+      socket.emit('screen:start', { roomId });
     } catch (err) {
-      console.error('[LiveTab] Error starting screen share:', err);
+      console.error('[LiveTab] Screen share start failed:', err);
     }
   };
 
-  // Real-time socket event listeners for presence, screen share, and permission updates
+  // Handle stop sharing screen
+  const handleStopScreenShare = () => {
+    if (screenStream) {
+      screenStream.getTracks().forEach((t) => t.stop());
+      setScreenStream(null);
+    }
+    socket.emit('screen:stop', { roomId });
+  };
+
+  useEffect(() => {
+    if (inCall && roomId) {
+      socket.emit('live:joined', { roomId });
+      return () => {
+        socket.emit('live:left', { roomId });
+      };
+    }
+  }, [inCall, roomId]);
+
+  // Real-time presence, active speaker, and screen share socket listeners
   useEffect(() => {
     const mapPresenceToParticipants = () => {
       const p =
@@ -211,19 +212,12 @@ export const LiveTab: React.FC<LiveTabProps> = ({ roomId, sessionId }) => {
       setParticipants((prev) => prev.map((p) => ({ ...p, isSpeaking: p.id === data.userId })));
     };
 
-    // Screen sharing started (Acceptance Criteria 2)
-    const onScreenStarted = (data: { roomId: string; userId: string; userName: string }) => {
+    const onScreenStarted = (data: { roomId: string; screenShare: ActiveScreenShare }) => {
       if (data.roomId !== roomId) return;
-      setActiveScreenShare({
-        roomId: data.roomId,
-        userId: data.userId,
-        userName: data.userName,
-        startedAt: new Date().toISOString(),
-      });
+      setActiveScreenShare(data.screenShare);
     };
 
-    // Screen sharing stopped
-    const onScreenStopped = (data: { roomId: string; userId?: string; reason?: string }) => {
+    const onScreenStopped = (data: { roomId: string }) => {
       if (data.roomId !== roomId) return;
       setActiveScreenShare(null);
       if (screenStream) {
@@ -232,28 +226,15 @@ export const LiveTab: React.FC<LiveTabProps> = ({ roomId, sessionId }) => {
       }
     };
 
-    // Permission changed (Acceptance Criteria 4)
+    // US-LIVE-04 Acceptance Criteria 4:
+    // If can_screen is revoked while sharing, the share stops immediately for all viewers
     const onPermChanged = (data: { roomId: string; userId: string; permissions: Permissions }) => {
       if (data.roomId !== roomId) return;
-      if (room?.members) {
-        const target = room.members.find((m) => m.userId === data.userId);
-        if (target) {
-          target.permissions = data.permissions;
-        }
-      }
-
       if (data.userId === user?.id) {
         setMyPermissions(data.permissions);
-
-        // US-LIVE-04 Acceptance Criteria 4:
-        // "If can_screen is revoked while sharing, the share stops immediately for all viewers."
-        if (!data.permissions.canScreen && !isHost) {
-          if (screenStream) {
-            screenStream.getTracks().forEach((t) => t.stop());
-            setScreenStream(null);
-          }
+        if (data.permissions.canScreen === false && !isHost) {
           if (activeScreenShare?.userId === user?.id) {
-            setActiveScreenShare(null);
+            handleStopScreenShare();
             socket.emit('screen:stop', { roomId });
           }
         }
@@ -275,17 +256,18 @@ export const LiveTab: React.FC<LiveTabProps> = ({ roomId, sessionId }) => {
     };
   }, [activeScreenShare?.userId, isHost, roomId, room, screenStream, user?.id]);
 
-
   const handleToggleCall = () => {
     if (inCall) {
       if (isSelfSharing) {
         handleStopScreenShare();
       }
       socket.emit('live:left', { roomId });
-      setInCall(false);
+      if (onLeaveCall) onLeaveCall();
+      setInternalInCall(false);
     } else {
       socket.emit('live:joined', { roomId });
-      setInCall(true);
+      if (onJoinCall) onJoinCall();
+      setInternalInCall(true);
     }
   };
 
@@ -302,6 +284,41 @@ export const LiveTab: React.FC<LiveTabProps> = ({ roomId, sessionId }) => {
         <span className={`w-2 h-2 rounded-full ${sessionId ? 'bg-red-500 animate-pulse' : 'bg-slate-400'}`} />
         {sessionId ? 'Live Session Active' : 'No Active Session'}
       </div>
+
+      {/* When session is active but current user is not in the call: US-LIVE-06 AC-3 Join Live action */}
+      {sessionId && !inCall && (
+        <div
+          id="room-join-live-card"
+          data-testid="room-join-live-card"
+          className="flex flex-col items-center gap-3 p-6 rounded-2xl bg-white/70 dark:bg-slate-900/70 border border-emerald-500/30 shadow-xl backdrop-blur-sm max-w-md w-full text-center animate-fade-in"
+        >
+          <div className="w-12 h-12 rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-500 dark:text-emerald-400">
+            <PhoneCall className="w-6 h-6 animate-pulse" />
+          </div>
+          <div>
+            <h3 className="text-base font-bold text-slate-900 dark:text-white">
+              {isHost ? 'You left the live call' : 'Live Session in Progress'}
+            </h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-xs">
+              {isHost
+                ? 'The session remains active for other participants. Click below to re-join the call.'
+                : 'Click below to connect your audio and video to the ongoing class.'}
+            </p>
+          </div>
+          <button
+            id="room-join-live-btn"
+            data-testid="room-join-live-btn"
+            type="button"
+            onClick={handleToggleCall}
+            className="inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl font-bold text-sm text-white bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 shadow-md shadow-emerald-600/30 active:scale-95 transition-all cursor-pointer w-full sm:w-auto"
+            title="Join Live"
+            aria-label="Join Live"
+          >
+            <PhoneCall className="w-4 h-4" />
+            <span>Join Live</span>
+          </button>
+        </div>
+      )}
 
       {/* Main Video & Stage Area:
           US-LIVE-04 Acceptance Criteria 2:
@@ -321,21 +338,23 @@ export const LiveTab: React.FC<LiveTabProps> = ({ roomId, sessionId }) => {
           <div className="w-full flex flex-col items-center gap-6">
             {participants.length > 0 && <VideoGrid participants={participants} />}
 
-            {/* Video preview placeholder (shown when no screen share is focused) */}
-            <div className="relative w-full max-w-xl aspect-video rounded-2xl bg-slate-900/80 dark:bg-black/60 border border-slate-700/50 overflow-hidden flex items-center justify-center shadow-2xl">
-              {camOn ? (
-                <div className="text-slate-400 text-sm font-medium">Camera preview (integration pending)</div>
-              ) : (
-                <div className="flex flex-col items-center gap-3 text-slate-500">
-                  <VideoOff className="w-12 h-12 opacity-40" />
-                  <span className="text-xs font-medium">Camera is off</span>
+            {/* Video preview placeholder (shown when in call and no screen share is focused) */}
+            {inCall && (
+              <div className="relative w-full max-w-xl aspect-video rounded-2xl bg-slate-900/80 dark:bg-black/60 border border-slate-700/50 overflow-hidden flex items-center justify-center shadow-2xl">
+                {camOn ? (
+                  <div className="text-slate-400 text-sm font-medium">Camera preview (integration pending)</div>
+                ) : (
+                  <div className="flex flex-col items-center gap-3 text-slate-500">
+                    <VideoOff className="w-12 h-12 opacity-40" />
+                    <span className="text-xs font-medium">Camera is off</span>
+                  </div>
+                )}
+                {/* Self-view PiP */}
+                <div className="absolute bottom-3 right-3 w-24 aspect-video rounded-lg bg-slate-800/90 border border-slate-700/60 flex items-center justify-center">
+                  <VideoOff className="w-5 h-5 text-slate-600" />
                 </div>
-              )}
-              {/* Self-view PiP */}
-              <div className="absolute bottom-3 right-3 w-24 aspect-video rounded-lg bg-slate-800/90 border border-slate-700/60 flex items-center justify-center">
-                <VideoOff className="w-5 h-5 text-slate-600" />
               </div>
-            </div>
+            )}
           </div>
         )}
       </div>
@@ -409,23 +428,36 @@ export const LiveTab: React.FC<LiveTabProps> = ({ roomId, sessionId }) => {
           )}
         </div>
 
-        {/* Call Join/Leave Toggle */}
-        <button
-          id="room-leave-call"
-          onClick={handleToggleCall}
-          title={inCall ? 'Leave call' : 'Join call'}
-          className={`w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-            inCall
-              ? 'bg-red-600 hover:bg-red-700 text-white focus:ring-red-500'
-              : 'bg-emerald-600 hover:bg-emerald-700 text-white focus:ring-emerald-500'
-          }`}
-        >
-          {inCall ? <PhoneOff className="w-5 h-5" /> : <PhoneCall className="w-5 h-5" />}
-        </button>
+        {/* Call Join/Leave Toggle (US-LIVE-06 AC-3) */}
+        {inCall ? (
+          <button
+            id="room-leave-call"
+            data-testid="room-leave-call"
+            onClick={handleToggleCall}
+            title="Leave call"
+            aria-label="Leave call"
+            className="w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 bg-red-600 hover:bg-red-700 text-white focus:ring-red-500 cursor-pointer"
+          >
+            <PhoneOff className="w-5 h-5" />
+          </button>
+        ) : (
+          <button
+            id="room-join-live-btn-control"
+            data-testid="join-live-btn"
+            onClick={handleToggleCall}
+            title="Join Live"
+            aria-label="Join Live"
+            className="w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 bg-emerald-600 hover:bg-emerald-700 text-white focus:ring-emerald-500 cursor-pointer"
+          >
+            <PhoneCall className="w-5 h-5" />
+          </button>
+        )}
       </div>
 
       <p className="text-xs text-slate-400 dark:text-slate-500 text-center max-w-xs">
-        Audio continues when you switch tabs — you will stay connected to the live call.
+        {sessionId
+          ? 'Audio continues when you switch tabs — you will stay connected to the live call.'
+          : 'Waiting for the teacher to start the session.'}
       </p>
     </div>
   );
