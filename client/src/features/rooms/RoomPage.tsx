@@ -15,6 +15,9 @@ import {
   RefreshCw,
   Edit3,
   Clock,
+  PhoneOff,
+  Info,
+  X,
 } from 'lucide-react';
 import { Session } from '@linkup/shared';
 import { useRoom } from './useRoom';
@@ -59,9 +62,11 @@ export const RoomPage: React.FC = () => {
   const [regenerated, setRegenerated] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
-  // US-LIVE-01: Session state & timer
+  // US-LIVE-01 & US-LIVE-05: Session state & timer
   const [activeSession, setActiveSession] = useState<Session | null>(null);
   const [isStartingSession, setIsStartingSession] = useState(false);
+  const [isEndingSession, setIsEndingSession] = useState(false);
+  const [sessionEnded, setSessionEnded] = useState(false);
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
@@ -145,6 +150,7 @@ export const RoomPage: React.FC = () => {
     try {
       const session = await api.post<Session>(`/api/rooms/${roomId}/sessions`);
       setActiveSession(session);
+      setSessionEnded(false);
       if (room) {
         room.activeSessionId = session.id;
       }
@@ -158,6 +164,33 @@ export const RoomPage: React.FC = () => {
       setTimeout(() => setSessionError(null), 4000);
     } finally {
       setIsStartingSession(false);
+    }
+  };
+
+  // US-LIVE-05 Acceptance Criteria 1 & 2: End session handler (Host only)
+  const handleEndSession = async () => {
+    if (!roomId || isEndingSession) return;
+    setIsEndingSession(true);
+    setSessionError(null);
+    try {
+      const sessId = activeSession?.id;
+      const url = sessId
+        ? `/api/rooms/${roomId}/sessions/${sessId}/end`
+        : `/api/rooms/${roomId}/sessions/end`;
+      await api.post<Session>(url);
+      setActiveSession(null);
+      setSessionEnded(true);
+      if (room) {
+        room.activeSessionId = null;
+      }
+      // Return to non-live view if currently on live tab (US-LIVE-05 AC-3)
+      setMainTab((prev) => (prev === 'live' ? 'whiteboard' : prev));
+    } catch (err: any) {
+      console.error('[RoomPage] Error ending session:', err);
+      setSessionError(err?.message || 'Failed to end session');
+      setTimeout(() => setSessionError(null), 4000);
+    } finally {
+      setIsEndingSession(false);
     }
   };
 
@@ -215,18 +248,23 @@ export const RoomPage: React.FC = () => {
     const handleSessionStarted = (data: { roomId: string; session: Session }) => {
       if (data.roomId === roomId) {
         setActiveSession(data.session);
+        setSessionEnded(false);
         if (room) {
           room.activeSessionId = data.session.id;
         }
       }
     };
 
+    // US-LIVE-05 Acceptance Criteria 2 & 3: session:ended broadcast handler
     const handleSessionEnded = (data: { roomId: string; sessionId: string }) => {
       if (data.roomId === roomId) {
         setActiveSession(null);
+        setSessionEnded(true);
         if (room) {
           room.activeSessionId = null;
         }
+        // US-LIVE-05 AC-3: All participants return to the room's non-live view
+        setMainTab((prev) => (prev === 'live' ? 'whiteboard' : prev));
       }
     };
 
@@ -376,8 +414,8 @@ export const RoomPage: React.FC = () => {
             {activeSession ? 'Live' : 'Idle'}
           </div>
 
-          {/* US-LIVE-01 Acceptance Criteria 4: Session timer in header counting from 00:00 */}
-          {activeSession && (
+          {/* US-LIVE-01 & US-LIVE-05: Session timer in header stops and is replaced with "Session ended" */}
+          {activeSession ? (
             <div
               id="room-header-session-timer"
               data-testid="room-header-session-timer"
@@ -387,7 +425,17 @@ export const RoomPage: React.FC = () => {
               <Clock className="w-3.5 h-3.5 animate-pulse text-red-500" />
               <span>{formatTimer(elapsedSeconds)}</span>
             </div>
-          )}
+          ) : sessionEnded ? (
+            <div
+              id="room-header-session-timer"
+              data-testid="room-header-session-timer"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 font-mono text-xs font-semibold shrink-0 animate-fade-in"
+              title="Session ended"
+            >
+              <Clock className="w-3.5 h-3.5 text-slate-400" />
+              <span>Session ended</span>
+            </div>
+          ) : null}
 
           {/* US-LIVE-01 Acceptance Criteria 1: Start Session button for host when no session is active */}
           {room.myRole === 'host' && !activeSession && (
@@ -410,6 +458,32 @@ export const RoomPage: React.FC = () => {
                 <>
                   <Radio className="w-3.5 h-3.5 animate-pulse" />
                   <span>Start Session</span>
+                </>
+              )}
+            </button>
+          )}
+
+          {/* US-LIVE-05 Acceptance Criteria 1: End Session button visible for host during active session */}
+          {room.myRole === 'host' && activeSession && (
+            <button
+              id="room-header-end-session-btn"
+              data-testid="room-header-end-session-btn"
+              type="button"
+              onClick={handleEndSession}
+              disabled={isEndingSession}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-rose-700 to-red-700 hover:from-rose-600 hover:to-red-600 shadow-sm shadow-red-500/20 active:scale-95 disabled:opacity-50 transition-all shrink-0 cursor-pointer"
+              title="End live session"
+              aria-label="End live session"
+            >
+              {isEndingSession ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Ending…</span>
+                </>
+              ) : (
+                <>
+                  <PhoneOff className="w-3.5 h-3.5 text-rose-200" />
+                  <span>End Session</span>
                 </>
               )}
             </button>
@@ -500,6 +574,34 @@ export const RoomPage: React.FC = () => {
           <MessageSquare className="w-4 h-4" />
         </button>
       </header>
+
+      {/* US-LIVE-05 Acceptance Criteria 3: All participants see a "Session has ended" message */}
+      {sessionEnded && (
+        <div
+          id="room-session-ended-notice"
+          data-testid="room-session-ended-notice"
+          className="shrink-0 bg-amber-500/10 dark:bg-amber-500/15 border-b border-amber-500/30 text-amber-800 dark:text-amber-200 px-4 sm:px-6 py-2.5 text-xs font-medium flex items-center justify-between z-10 transition-all animate-fade-in"
+        >
+          <div className="flex items-center gap-2">
+            <Info className="w-4 h-4 text-amber-500 shrink-0" />
+            <span className="font-semibold">Session has ended</span>
+            <span className="text-amber-600/80 dark:text-amber-400/80 hidden sm:inline">
+              — The host has ended the live call. You have been returned to the workspace.
+            </span>
+          </div>
+          <button
+            id="room-dismiss-ended-notice-btn"
+            data-testid="room-dismiss-ended-notice-btn"
+            type="button"
+            onClick={() => setSessionEnded(false)}
+            className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-300 hover:text-amber-900 dark:hover:text-amber-100 text-xs font-semibold px-2 py-0.5 rounded hover:bg-amber-500/20 transition-colors cursor-pointer"
+            aria-label="Dismiss message"
+          >
+            <X className="w-3.5 h-3.5" />
+            <span>Dismiss</span>
+          </button>
+        </div>
+      )}
 
       {/* ── Main tab bar ────────────────────────────────────────────────────── */}
       <nav

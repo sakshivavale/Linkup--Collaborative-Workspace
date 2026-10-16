@@ -113,6 +113,15 @@ export const LiveTab: React.FC<LiveTabProps> = ({ roomId, sessionId }) => {
     }
   }, [inCall, roomId]);
 
+  useEffect(() => {
+    if (!sessionId && inCall) {
+      if (isSelfSharing) {
+        handleStopScreenShare();
+      }
+      setInCall(false);
+    }
+  }, [sessionId, inCall, isSelfSharing]);
+
   // Handle stopping screen share
   const handleStopScreenShare = () => {
     if (screenStream) {
@@ -265,6 +274,7 @@ export const LiveTab: React.FC<LiveTabProps> = ({ roomId, sessionId }) => {
       socket.off('perm:changed', onPermChanged);
     };
   }, [activeScreenShare?.userId, isHost, roomId, room, screenStream, user?.id]);
+
 
   const handleToggleCall = () => {
     if (inCall) {

@@ -1,6 +1,7 @@
 import { supabase } from './supabase';
 import { RoomSummary, Room, Permissions, MemberRole, CreateRoomDto, CreateRoomResponseDto, UpdateRoomDto, Session, Member } from '@linkup/shared';
 import { getActiveScreenShare } from '../realtime/screenShare';
+import { deleteLivekitRoom } from './livekit';
 
 /**
  * Typed error thrown when a user attempts to access a room they are not a member of.
@@ -54,6 +55,16 @@ const mockRoomsStore = new Map<string, RoomSummary[]>();
 const mockCatalogStore = new Map<string, { id: string; name: string; description: string | null; joinCode: string; hostName: string }>();
 const mockSessionsStore = new Map<string, Session>();
 
+export interface MockAttendanceRecord {
+  id: number;
+  sessionId: string;
+  roomId: string;
+  userId: string;
+  joinedAt: string;
+  leftAt: string | null;
+}
+const mockAttendanceStore: MockAttendanceRecord[] = [];
+
 export function setMockRooms(userId: string, rooms: RoomSummary[]) {
   mockRoomsStore.set(userId, rooms);
 }
@@ -66,12 +77,25 @@ export function getMockSessions(): Map<string, Session> {
   return mockSessionsStore;
 }
 
+export function getMockAttendance(): MockAttendanceRecord[] {
+  return mockAttendanceStore;
+}
+
+export function clearMockAttendance() {
+  mockAttendanceStore.length = 0;
+}
+
+export function addMockAttendance(rec: MockAttendanceRecord) {
+  mockAttendanceStore.push(rec);
+}
+
 export function clearMockRooms(userId?: string) {
   if (userId) {
     mockRoomsStore.delete(userId);
   } else {
     mockRoomsStore.clear();
     mockSessionsStore.clear();
+    mockAttendanceStore.length = 0;
   }
 }
 
@@ -1564,6 +1588,291 @@ export async function startSession(
     endedAt: newSession.ended_at,
     startedBy: newSession.started_by,
   };
+}
+
+/**
+ * Ends an active live session in a room (US-LIVE-05, FR-3.6)
+ * - Only the room host can end the session (403 HOST_ONLY).
+ * - Sets ended_at on the session.
+ * - Deletes the LiveKit room.
+ * - Closes all open attendance records.
+ * - Emits session:ended to room members via caller.
+ * - Returns the updated Session.
+ */
+export async function endSession(
+  requesterUserId: string,
+  roomId: string,
+  sessionId?: string
+): Promise<Session> {
+  const normalizedRoomId = roomId?.trim();
+  const normalizedUserId = requesterUserId?.trim();
+  const normalizedSessionId = sessionId?.trim();
+
+  if (!normalizedRoomId || !normalizedUserId) {
+    const error: any = new Error('Room ID and user ID are required');
+    error.code = 'VALIDATION';
+    error.status = 400;
+    throw error;
+  }
+
+  const endedAt = new Date().toISOString();
+
+  // 1. Check demo sample rooms
+  if (DEFAULT_SAMPLE_ROOMS[normalizedRoomId]) {
+    const sampleRoom = DEFAULT_SAMPLE_ROOMS[normalizedRoomId];
+    if (sampleRoom.myRole !== 'host') {
+      const error: any = new Error('Only the room host can end a session');
+      error.code = 'HOST_ONLY';
+      error.status = 403;
+      throw error;
+    }
+
+    const currentSessionId = sampleRoom.activeSessionId;
+    if (!currentSessionId) {
+      const error: any = new Error('No active session found in this room');
+      error.code = 'NO_ACTIVE_SESSION';
+      error.status = 404;
+      throw error;
+    }
+
+    if (normalizedSessionId && normalizedSessionId !== currentSessionId) {
+      const error: any = new Error('Session not found or already ended');
+      error.code = 'SESSION_NOT_FOUND';
+      error.status = 404;
+      throw error;
+    }
+
+    sampleRoom.activeSessionId = null;
+
+    let session = mockSessionsStore.get(currentSessionId);
+    if (!session) {
+      session = {
+        id: currentSessionId,
+        roomId: normalizedRoomId,
+        startedAt: sampleRoom.createdAt || endedAt,
+        endedAt,
+        startedBy: normalizedUserId,
+      };
+    } else {
+      session.endedAt = endedAt;
+    }
+    mockSessionsStore.set(currentSessionId, session);
+
+    // Close all open mock attendance records
+    for (const att of mockAttendanceStore) {
+      if (att.sessionId === currentSessionId && att.leftAt === null) {
+        att.leftAt = endedAt;
+      }
+    }
+
+    await deleteLivekitRoom(`linkup-${currentSessionId}`);
+    return session;
+  }
+
+  // 2. Check in-memory mock store
+  const mockRoomLists = Array.from(mockRoomsStore.values());
+  const isMockRoomKnown = mockRoomLists.some((rooms) => rooms.some((r) => r.id === normalizedRoomId));
+
+  if (isMockRoomKnown) {
+    const userRooms = mockRoomsStore.get(normalizedUserId) || [];
+    const hostRoom = userRooms.find((r) => r.id === normalizedRoomId);
+
+    if (!hostRoom || hostRoom.myRole !== 'host') {
+      const error: any = new Error('Only the room host can end a session');
+      error.code = 'HOST_ONLY';
+      error.status = 403;
+      throw error;
+    }
+
+    const currentSessionId = hostRoom.activeSessionId;
+    if (!currentSessionId) {
+      const error: any = new Error('No active session found in this room');
+      error.code = 'NO_ACTIVE_SESSION';
+      error.status = 404;
+      throw error;
+    }
+
+    if (normalizedSessionId && normalizedSessionId !== currentSessionId) {
+      const error: any = new Error('Session not found or already ended');
+      error.code = 'SESSION_NOT_FOUND';
+      error.status = 404;
+      throw error;
+    }
+
+    // Reset activeSessionId across all mock users for this room
+    for (const [, rList] of mockRoomsStore.entries()) {
+      const targetRoom = rList.find((r) => r.id === normalizedRoomId);
+      if (targetRoom) {
+        targetRoom.activeSessionId = null;
+      }
+    }
+
+    let session = mockSessionsStore.get(currentSessionId);
+    if (!session) {
+      session = {
+        id: currentSessionId,
+        roomId: normalizedRoomId,
+        startedAt: hostRoom.createdAt || endedAt,
+        endedAt,
+        startedBy: normalizedUserId,
+      };
+    } else {
+      session.endedAt = endedAt;
+    }
+    mockSessionsStore.set(currentSessionId, session);
+
+    // Close all open mock attendance records
+    for (const att of mockAttendanceStore) {
+      if (att.sessionId === currentSessionId && att.leftAt === null) {
+        att.leftAt = endedAt;
+      }
+    }
+
+    await deleteLivekitRoom(`linkup-${currentSessionId}`);
+    return session;
+  }
+
+  // 3. PostgreSQL / Supabase
+  const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!UUID_REGEX.test(normalizedRoomId)) {
+    const error: any = new Error('Room not found');
+    error.code = 'ROOM_NOT_FOUND';
+    error.status = 404;
+    throw error;
+  }
+
+  // Check room exists
+  const { data: room, error: roomError } = await supabase
+    .from('rooms')
+    .select('id, owner_id, archived_at')
+    .eq('id', normalizedRoomId)
+    .is('archived_at', null)
+    .maybeSingle();
+
+  if (roomError) {
+    console.warn('[Session Service] Error fetching room:', roomError.message);
+    throw new Error(roomError.message);
+  }
+
+  if (!room) {
+    const error: any = new Error('Room not found');
+    error.code = 'ROOM_NOT_FOUND';
+    error.status = 404;
+    throw error;
+  }
+
+  // Check requester is host
+  if (room.owner_id !== normalizedUserId) {
+    const { data: membership } = await supabase
+      .from('room_members')
+      .select('member_role')
+      .eq('room_id', normalizedRoomId)
+      .eq('user_id', normalizedUserId)
+      .maybeSingle();
+
+    if (!membership || membership.member_role !== 'host') {
+      const error: any = new Error('Only the room host can end a session');
+      error.code = 'HOST_ONLY';
+      error.status = 403;
+      throw error;
+    }
+  }
+
+  // Fetch active session in room
+  let sessionQuery = supabase
+    .from('live_sessions')
+    .select('id, room_id, started_at, ended_at, started_by, livekit_room')
+    .eq('room_id', normalizedRoomId)
+    .is('ended_at', null);
+
+  if (normalizedSessionId) {
+    sessionQuery = sessionQuery.eq('id', normalizedSessionId);
+  }
+
+  const { data: activeSession, error: sessionFetchErr } = await sessionQuery.maybeSingle();
+
+  if (sessionFetchErr) {
+    console.warn('[Session Service] Error fetching active session:', sessionFetchErr.message);
+    throw new Error(sessionFetchErr.message);
+  }
+
+  if (!activeSession) {
+    const error: any = new Error('No active session found in this room');
+    error.code = 'NO_ACTIVE_SESSION';
+    error.status = 404;
+    throw error;
+  }
+
+  // 1. Set ended_at on session
+  const { data: updatedSession, error: updateError } = await supabase
+    .from('live_sessions')
+    .update({ ended_at: endedAt })
+    .eq('id', activeSession.id)
+    .select('id, room_id, started_at, ended_at, started_by, livekit_room')
+    .single();
+
+  if (updateError) {
+    console.error('[Session Service] Error ending live session:', updateError.message);
+    throw new Error('Failed to end session');
+  }
+
+  // 2. Close all open attendance records (US-ATT-05, FR-6.5)
+  try {
+    await supabase.rpc('close_session_attendance', {
+      p_session: activeSession.id,
+      p_at: endedAt,
+    });
+  } catch (rpcErr) {
+    console.warn('[Session Service] close_session_attendance RPC failed, using fallback update:', rpcErr);
+  }
+
+  try {
+    await supabase
+      .from('attendance')
+      .update({ left_at: endedAt })
+      .eq('session_id', activeSession.id)
+      .is('left_at', null);
+  } catch (attErr) {
+    console.warn('[Session Service] Error updating open attendance records:', attErr);
+  }
+
+  // 3. Delete LiveKit room
+  const livekitRoomName = activeSession.livekit_room || `linkup-${activeSession.id}`;
+  await deleteLivekitRoom(livekitRoomName);
+
+  return {
+    id: updatedSession.id,
+    roomId: updatedSession.room_id,
+    startedAt: updatedSession.started_at,
+    endedAt: updatedSession.ended_at,
+    startedBy: updatedSession.started_by,
+  };
+}
+
+/**
+ * On server boot, close open records for already-ended sessions (US-ATT-05 crash recovery)
+ */
+export async function closeDanglingAttendanceRecords(): Promise<void> {
+  try {
+    const { data: dangling, error } = await supabase
+      .from('attendance')
+      .select('id, session_id, live_sessions!inner(ended_at)')
+      .is('left_at', null)
+      .not('live_sessions.ended_at', 'is', null);
+
+    if (!error && dangling && dangling.length > 0) {
+      for (const row of dangling as any[]) {
+        const endedAt = row.live_sessions?.ended_at || new Date().toISOString();
+        await supabase
+          .from('attendance')
+          .update({ left_at: endedAt })
+          .eq('id', row.id);
+      }
+      console.log(`[Attendance] Closed ${dangling.length} dangling attendance records from ended sessions.`);
+    }
+  } catch (err) {
+    // Non-fatal on boot
+  }
 }
 
 /**
