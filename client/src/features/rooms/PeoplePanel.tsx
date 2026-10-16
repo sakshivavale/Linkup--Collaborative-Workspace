@@ -10,8 +10,14 @@ import {
   RefreshCw,
   Radio,
   ScreenShare,
+  Mic,
+  MicOff,
+  Video,
+  VideoOff,
+  PenLine,
+  Code2,
 } from 'lucide-react';
-import { RoomSummary, PresenceEntry, Member } from '@linkup/shared';
+import { RoomSummary, PresenceEntry, Member, PermissionKey, Permissions } from '@linkup/shared';
 import { useAuth } from '../../context/AuthContext';
 import { socket } from '../../lib/socket';
 import { api, HttpError } from '../../lib/api';
@@ -235,33 +241,38 @@ export const PeoplePanel: React.FC<PeoplePanelProps> = ({
     };
   }, [currentUserId, navigate, room.id, room.members]);
 
-  const handleToggleScreenPermission = async (member: PanelMember) => {
+  const handleTogglePermission = async (member: PanelMember, permKey: PermissionKey) => {
     if (!member.userId || member.userId === currentUserId) return;
     const currentMemberRecord = room.members?.find((m) => m.userId === member.userId);
-    const currentCanScreen = Boolean(currentMemberRecord?.permissions?.canScreen);
-    const nextCanScreen = !currentCanScreen;
+    const prevPerms: Permissions = currentMemberRecord?.permissions || {
+      canMic: true,
+      canCamera: true,
+      canScreen: false,
+      canWhiteboard: true,
+      canCode: true,
+    };
+    const nextVal = !Boolean(prevPerms[permKey]);
+
+    // Optimistic update
+    if (currentMemberRecord) {
+      currentMemberRecord.permissions = {
+        ...prevPerms,
+        [permKey]: nextVal,
+      };
+    }
+    setMembers((prev) => [...prev]);
 
     try {
       await api.patch(`/api/rooms/${room.id}/members/${member.userId}/permissions`, {
-        canScreen: nextCanScreen,
+        [permKey]: nextVal,
       });
-
-      if (currentMemberRecord) {
-        if (!currentMemberRecord.permissions) {
-          currentMemberRecord.permissions = {
-            canMic: true,
-            canCamera: true,
-            canScreen: nextCanScreen,
-            canWhiteboard: true,
-            canCode: true,
-          };
-        } else {
-          currentMemberRecord.permissions.canScreen = nextCanScreen;
-        }
-      }
-      setMembers((prev) => [...prev]);
     } catch (err: any) {
       console.error('[PeoplePanel] Failed to update permissions:', err);
+      // Rollback on error (US-PERM-02)
+      if (currentMemberRecord) {
+        currentMemberRecord.permissions = { ...prevPerms };
+      }
+      setMembers((prev) => [...prev]);
       window.alert(err?.message || 'Failed to update permission');
     }
   };
@@ -372,7 +383,11 @@ export const PeoplePanel: React.FC<PeoplePanelProps> = ({
             : Boolean(presenceEntry);
           const isInCall = Boolean(presenceEntry?.inLive);
           const memberRecord = room.members?.find((m) => m.userId === member.userId);
+          const hasMicPerm = member.memberRole === 'host' || Boolean(memberRecord?.permissions?.canMic ?? true);
+          const hasCameraPerm = member.memberRole === 'host' || Boolean(memberRecord?.permissions?.canCamera ?? true);
           const hasScreenPerm = member.memberRole === 'host' || Boolean(memberRecord?.permissions?.canScreen);
+          const hasWbPerm = member.memberRole === 'host' || Boolean(memberRecord?.permissions?.canWhiteboard ?? true);
+          const hasCodePerm = member.memberRole === 'host' || Boolean(memberRecord?.permissions?.canCode ?? true);
 
           return (
             <div
@@ -468,27 +483,107 @@ export const PeoplePanel: React.FC<PeoplePanelProps> = ({
                 </div>
               </div>
 
-              {/* Host actions: permission toggle & remove member (US-ROOM-03, US-LIVE-04) */}
+              {/* Host actions: 5 permission toggles & remove member (US-ROOM-03, US-LIVE-04, US-PERM-01, US-PERM-02, US-PERM-03) */}
               {room.myRole === 'host' && !member.isSelf && member.memberRole !== 'host' && (
-                <div className="flex items-center gap-1.5 shrink-0">
-                  {/* Screen share permission toggle */}
+                <div className="flex items-center gap-1 shrink-0 flex-wrap justify-end">
+                  {/* Mic toggle */}
+                  <button
+                    id={`toggle-mic-perm-${member.userId || member.id}`}
+                    data-testid={`toggle-mic-perm-${member.userId || member.id}`}
+                    type="button"
+                    onClick={() => handleTogglePermission(member, 'canMic')}
+                    title={
+                      hasMicPerm
+                        ? 'Microphone allowed (click to revoke)'
+                        : 'Microphone disabled (click to grant)'
+                    }
+                    className={`p-1.5 rounded-lg border text-xs transition-all flex items-center justify-center ${
+                      hasMicPerm
+                        ? 'bg-emerald-50 border-emerald-200 text-emerald-600 dark:bg-emerald-950/60 dark:border-emerald-800 dark:text-emerald-300'
+                        : 'bg-slate-100 border-slate-200 text-slate-400 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-500 hover:text-slate-600'
+                    }`}
+                  >
+                    {hasMicPerm ? <Mic className="w-3.5 h-3.5" /> : <MicOff className="w-3.5 h-3.5" />}
+                  </button>
+
+                  {/* Camera toggle */}
+                  <button
+                    id={`toggle-camera-perm-${member.userId || member.id}`}
+                    data-testid={`toggle-camera-perm-${member.userId || member.id}`}
+                    type="button"
+                    onClick={() => handleTogglePermission(member, 'canCamera')}
+                    title={
+                      hasCameraPerm
+                        ? 'Camera allowed (click to revoke)'
+                        : 'Camera disabled (click to grant)'
+                    }
+                    className={`p-1.5 rounded-lg border text-xs transition-all flex items-center justify-center ${
+                      hasCameraPerm
+                        ? 'bg-emerald-50 border-emerald-200 text-emerald-600 dark:bg-emerald-950/60 dark:border-emerald-800 dark:text-emerald-300'
+                        : 'bg-slate-100 border-slate-200 text-slate-400 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-500 hover:text-slate-600'
+                    }`}
+                  >
+                    {hasCameraPerm ? <Video className="w-3.5 h-3.5" /> : <VideoOff className="w-3.5 h-3.5" />}
+                  </button>
+
+                  {/* Screen share toggle */}
                   <button
                     id={`toggle-screen-perm-${member.userId || member.id}`}
                     data-testid={`toggle-screen-perm-${member.userId || member.id}`}
                     type="button"
-                    onClick={() => handleToggleScreenPermission(member)}
+                    onClick={() => handleTogglePermission(member, 'canScreen')}
                     title={
                       hasScreenPerm
                         ? 'Screen share allowed (click to revoke)'
                         : 'Screen share disabled (click to grant)'
                     }
-                    className={`p-1.5 rounded-lg border text-xs transition-all flex items-center gap-1 ${
+                    className={`p-1.5 rounded-lg border text-xs transition-all flex items-center justify-center ${
                       hasScreenPerm
                         ? 'bg-indigo-50 border-indigo-200 text-indigo-600 dark:bg-indigo-950/60 dark:border-indigo-800 dark:text-indigo-300'
                         : 'bg-slate-100 border-slate-200 text-slate-400 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-500 hover:text-slate-600'
                     }`}
                   >
                     <ScreenShare className="w-3.5 h-3.5" />
+                  </button>
+
+                  {/* Whiteboard toggle */}
+                  <button
+                    id={`toggle-whiteboard-perm-${member.userId || member.id}`}
+                    data-testid={`toggle-whiteboard-perm-${member.userId || member.id}`}
+                    type="button"
+                    onClick={() => handleTogglePermission(member, 'canWhiteboard')}
+                    title={
+                      hasWbPerm
+                        ? 'Whiteboard allowed (click to revoke)'
+                        : 'Whiteboard disabled (click to grant)'
+                    }
+                    className={`p-1.5 rounded-lg border text-xs transition-all flex items-center justify-center ${
+                      hasWbPerm
+                        ? 'bg-purple-50 border-purple-200 text-purple-600 dark:bg-purple-950/60 dark:border-purple-800 dark:text-purple-300'
+                        : 'bg-slate-100 border-slate-200 text-slate-400 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-500 hover:text-slate-600'
+                    }`}
+                  >
+                    <PenLine className="w-3.5 h-3.5" />
+                  </button>
+
+                  {/* Code toggle */}
+                  <button
+                    id={`toggle-code-perm-${member.userId || member.id}`}
+                    data-testid={`toggle-code-perm-${member.userId || member.id}`}
+                    type="button"
+                    onClick={() => handleTogglePermission(member, 'canCode')}
+                    title={
+                      hasCodePerm
+                        ? 'Code editor allowed (click to revoke)'
+                        : 'Code editor disabled (click to grant)'
+                    }
+                    className={`p-1.5 rounded-lg border text-xs transition-all flex items-center justify-center ${
+                      hasCodePerm
+                        ? 'bg-blue-50 border-blue-200 text-blue-600 dark:bg-blue-950/60 dark:border-blue-800 dark:text-blue-300'
+                        : 'bg-slate-100 border-slate-200 text-slate-400 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-500 hover:text-slate-600'
+                    }`}
+                  >
+                    <Code2 className="w-3.5 h-3.5" />
                   </button>
 
                   <button
@@ -498,7 +593,6 @@ export const PeoplePanel: React.FC<PeoplePanelProps> = ({
                     aria-label={`Remove ${member.name} from room`}
                   >
                     <UserMinus className="w-3 h-3" />
-                    Remove
                   </button>
                 </div>
               )}

@@ -307,10 +307,18 @@ export const LiveTab: React.FC<LiveTabProps> = ({
       if (data.roomId !== roomId) return;
       if (data.userId === user?.id) {
         setMyPermissions(data.permissions);
-        if (data.permissions.canScreen === false && !isHost) {
-          if (activeScreenShare?.userId === user?.id) {
-            handleStopScreenShare();
-            socket.emit('screen:stop', { roomId });
+        if (!isHost) {
+          if (data.permissions.canScreen === false) {
+            if (activeScreenShare?.userId === user?.id) {
+              handleStopScreenShare();
+              socket.emit('screen:stop', { roomId });
+            }
+          }
+          if (data.permissions.canMic === false) {
+            setMicOn(false);
+          }
+          if (data.permissions.canCamera === false) {
+            setCamOn(false);
           }
         }
       }
@@ -495,11 +503,19 @@ export const LiveTab: React.FC<LiveTabProps> = ({
           <button
             id="room-mic-toggle"
             data-testid="room-mic-toggle"
-            disabled={isControlsDisabled}
+            disabled={isControlsDisabled || (!isHost && myPermissions?.canMic === false)}
             onClick={() => setMicOn((v) => !v)}
-            title={isControlsDisabled ? 'Reconnecting...' : micOn ? 'Mute microphone' : 'Unmute microphone'}
-            className={`w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+            title={
               isControlsDisabled
+                ? 'Reconnecting...'
+                : !isHost && myPermissions?.canMic === false
+                ? 'Teacher turned off your microphone'
+                : micOn
+                ? 'Mute microphone'
+                : 'Unmute microphone'
+            }
+            className={`w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+              isControlsDisabled || (!isHost && myPermissions?.canMic === false)
                 ? 'opacity-50 cursor-not-allowed bg-slate-200 dark:bg-slate-800 text-slate-400'
                 : micOn
                 ? 'bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 focus:ring-slate-400'
@@ -512,7 +528,7 @@ export const LiveTab: React.FC<LiveTabProps> = ({
             id="room-mic-device-menu-btn"
             data-testid="room-mic-device-menu-btn"
             type="button"
-            disabled={isControlsDisabled}
+            disabled={isControlsDisabled || (!isHost && myPermissions?.canMic === false)}
             onClick={() => setIsDevicePickerOpen(true)}
             title="Switch microphone"
             aria-label="Switch microphone"
@@ -527,11 +543,19 @@ export const LiveTab: React.FC<LiveTabProps> = ({
           <button
             id="room-cam-toggle"
             data-testid="room-cam-toggle"
-            disabled={isControlsDisabled}
+            disabled={isControlsDisabled || (!isHost && myPermissions?.canCamera === false)}
             onClick={() => setCamOn((v) => !v)}
-            title={isControlsDisabled ? 'Reconnecting...' : camOn ? 'Turn off camera' : 'Turn on camera'}
-            className={`w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+            title={
               isControlsDisabled
+                ? 'Reconnecting...'
+                : !isHost && myPermissions?.canCamera === false
+                ? 'Teacher turned off your camera'
+                : camOn
+                ? 'Turn off camera'
+                : 'Turn on camera'
+            }
+            className={`w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+              isControlsDisabled || (!isHost && myPermissions?.canCamera === false)
                 ? 'opacity-50 cursor-not-allowed bg-slate-200 dark:bg-slate-800 text-slate-400'
                 : camOn
                 ? 'bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 focus:ring-slate-400'
@@ -544,7 +568,7 @@ export const LiveTab: React.FC<LiveTabProps> = ({
             id="room-cam-device-menu-btn"
             data-testid="room-cam-device-menu-btn"
             type="button"
-            disabled={isControlsDisabled}
+            disabled={isControlsDisabled || (!isHost && myPermissions?.canCamera === false)}
             onClick={() => setIsDevicePickerOpen(true)}
             title="Switch camera"
             aria-label="Switch camera"
