@@ -1,7 +1,20 @@
 import { supabase } from './supabase';
-import { RoomSummary, Room, Permissions, MemberRole, CreateRoomDto, CreateRoomResponseDto, UpdateRoomDto, Session, Member } from '@linkup/shared';
+import {
+  RoomSummary,
+  Room,
+  Permissions,
+  MemberRole,
+  CreateRoomDto,
+  CreateRoomResponseDto,
+  UpdateRoomDto,
+  Session,
+  PermissionKey,
+  PERMISSION_KEYS,
+  Member,
+} from '@linkup/shared';
 import { getActiveScreenShare } from '../realtime/screenShare';
 import { deleteLivekitRoom } from './livekit';
+
 export const mockAttendanceStore = new Map<string, any>();
 
 export class NotAMemberError extends Error {
@@ -627,6 +640,44 @@ export async function createRoom(
  * 4. Idempotent: joining a room you are already a member of returns success without error/duplicate.
  * 5. Unknown code raises: "No room found with that code."
  */
+const ROOM_MEMBER_PERMISSION_COLUMNS: Record<PermissionKey, string> = {
+  canMic: 'can_mic',
+  canCamera: 'can_camera',
+  canScreen: 'can_screen',
+  canWhiteboard: 'can_whiteboard',
+  canCode: 'can_code',
+};
+
+export function normalizePermissionPatch(patch: Partial<Permissions>): Partial<Permissions> {
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
+    const error: any = new Error('Permission update payload must be an object');
+    error.code = 'VALIDATION';
+    error.status = 400;
+    throw error;
+  }
+
+  const keys = PERMISSION_KEYS.filter((key) => patch[key] !== undefined);
+  if (keys.length === 0) {
+    const error: any = new Error('At least one permission must be provided');
+    error.code = 'VALIDATION';
+    error.status = 400;
+    throw error;
+  }
+
+  const normalized: Partial<Permissions> = {};
+  for (const key of keys) {
+    if (typeof patch[key] !== 'boolean') {
+      const error: any = new Error(`Permission '${key}' must be a boolean`);
+      error.code = 'VALIDATION';
+      error.status = 400;
+      throw error;
+    }
+    normalized[key] = patch[key] as boolean;
+  }
+
+  return normalized;
+}
+
 export async function removeRoomMember(
   requesterUserId: string,
   roomId: string,

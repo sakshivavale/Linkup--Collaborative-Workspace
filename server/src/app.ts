@@ -6,7 +6,21 @@ import { RoomSummary } from '@linkup/shared';
 import { env } from './config/env';
 import { requireAuth } from './middleware/auth';
 import { supabase, updateTokenCacheUserName } from './lib/supabase';
-import { getRoomsForUser, createRoom, joinRoomByCode, getRoomForUser, NotAMemberError, removeRoomMember, regenerateRoomJoinCode, updateRoom, startSession, endSession, getActiveSession, getSessionsForRoom, updateMemberPermissions } from './lib/rooms';
+import {
+  getRoomsForUser,
+  createRoom,
+  joinRoomByCode,
+  getRoomForUser,
+  NotAMemberError,
+  removeRoomMember,
+  regenerateRoomJoinCode,
+  updateRoom,
+  startSession,
+  endSession,
+  getActiveSession,
+  getSessionsForRoom,
+  updateMemberPermissions,
+} from './lib/rooms';
 import { getRoomPresence, removeSocketFromRoom } from './realtime/presence';
 import { getActiveScreenShare, stopScreenShare } from './realtime/screenShare';
 import { getChatMessages, createChatMessage } from './lib/chat';

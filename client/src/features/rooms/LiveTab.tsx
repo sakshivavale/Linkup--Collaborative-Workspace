@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { socket } from '../../lib/socket';
 import VideoGrid from './VideoGrid';
-import { Participant } from './ParticipantTile';
+import { mapParticipantsFromPresence, Participant } from './participantUtils';
 import { useRoom } from './useRoom';
 import { useAuth } from '../../context/AuthContext';
 import { ActiveScreenShare, Permissions } from '@linkup/shared';
@@ -85,6 +85,11 @@ export const LiveTab: React.FC<LiveTabProps> = ({
     () => currentMember?.permissions || null
   );
 
+  const [activeSpeakerId, setActiveSpeakerId] = useState<string | null>(null);
+  const [participants, setParticipants] = useState<Participant[]>(() =>
+    mapParticipantsFromPresence(room?.presence, activeSpeakerId)
+  );
+
   // Sync internal inCall if controlled prop changes
   useEffect(() => {
     if (controlledInCall !== undefined) {
@@ -152,22 +157,6 @@ export const LiveTab: React.FC<LiveTabProps> = ({
       active = false;
     };
   }, [camOn, inCall, mediaDevices.selectedVideoInput]);
-
-  // participants shown in grid are derived from room.presence (inLive === true)
-  const [participants, setParticipants] = useState<Participant[]>(() => {
-    const p =
-      room?.presence
-        ?.filter((x) => x.inLive)
-        .map((entry) => ({
-          id: entry.userId,
-          name: entry.fullName,
-          isMuted: false,
-          cameraOff: true,
-          isSpeaking: false,
-          stream: null,
-        })) ?? [];
-    return p;
-  });
 
   // US-LIVE-04 Acceptance Criteria 1:
   // can_screen = true (or user is host)
@@ -261,30 +250,20 @@ export const LiveTab: React.FC<LiveTabProps> = ({
   // Real-time presence, active speaker, and screen share socket listeners
   useEffect(() => {
     const mapPresenceToParticipants = () => {
-      const p =
-        room?.presence
-          ?.filter((x) => x.inLive)
-          .map((entry) => ({
-            id: entry.userId,
-            name: entry.fullName,
-            isMuted: false,
-            cameraOff: true,
-            isSpeaking: false,
-            stream: null,
-          })) ?? [];
-      setParticipants(p);
+      setParticipants(mapParticipantsFromPresence(room?.presence, activeSpeakerId));
     };
 
     mapPresenceToParticipants();
 
     const onPresenceUpdate = (data: { roomId: string; presence: any[] }) => {
       if (data.roomId !== roomId) return;
-      mapPresenceToParticipants();
+      setParticipants(mapParticipantsFromPresence(data.presence, activeSpeakerId));
     };
 
     const onActiveSpeaker = (data: { roomId: string; userId: string | null }) => {
       if (data.roomId !== roomId) return;
-      setParticipants((prev) => prev.map((p) => ({ ...p, isSpeaking: p.id === data.userId })));
+      setActiveSpeakerId(data.userId ?? null);
+      setParticipants(mapParticipantsFromPresence(room?.presence, data.userId ?? null));
     };
 
     const onScreenStarted = (data: { roomId: string; screenShare: ActiveScreenShare }) => {
@@ -337,7 +316,7 @@ export const LiveTab: React.FC<LiveTabProps> = ({
       socket.off('screen:stopped', onScreenStopped);
       socket.off('perm:changed', onPermChanged);
     };
-  }, [activeScreenShare?.userId, isHost, roomId, room, screenStream, user?.id]);
+  }, [activeScreenShare?.userId, activeSpeakerId, isHost, roomId, room, screenStream, user?.id]);
 
   const handleToggleCall = () => {
     if (inCall) {
