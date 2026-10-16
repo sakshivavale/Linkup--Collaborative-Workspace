@@ -20,7 +20,8 @@
     "test:screen-share": "tsx scripts/test-screen-sharing.ts",
     "test:end-session": "tsx scripts/test-end-session-host.ts",
     "test:host-leave": "tsx scripts/test-host-leave-without-ending.ts",
-    "test:reconnect": "tsx scripts/test-auto-reconnect.ts"
+    "test:reconnect": "tsx scripts/test-auto-reconnect.ts",
+    "test:devices": "tsx scripts/test-switch-media-devices.ts"
   },
   "dependencies": {
     "@linkup/shared": "*",
