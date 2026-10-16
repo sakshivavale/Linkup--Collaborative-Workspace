@@ -1,6 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { Video, Mic, MicOff, VideoOff, PhoneOff, PhoneCall } from 'lucide-react';
 import { socket } from '../../lib/socket';
+import VideoGrid from './VideoGrid';
+import { Participant } from './ParticipantTile';
+import { useRoom } from './useRoom';
 
 interface LiveTabProps {
   roomId: string;
@@ -16,6 +19,20 @@ export const LiveTab: React.FC<LiveTabProps> = ({ roomId, sessionId }) => {
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(false);
   const [inCall, setInCall] = useState(Boolean(sessionId));
+  const { room } = useRoom(roomId);
+
+  // participants shown in grid are derived from room.presence (inLive === true)
+  const [participants, setParticipants] = useState<Participant[]>(() => {
+    const p = room?.presence?.filter((x) => x.inLive).map((entry) => ({
+      id: entry.userId,
+      name: entry.fullName,
+      isMuted: false,
+      cameraOff: true,
+      isSpeaking: false,
+      stream: null,
+    })) ?? [];
+    return p;
+  });
 
   useEffect(() => {
     if (inCall && roomId) {
@@ -31,6 +48,42 @@ export const LiveTab: React.FC<LiveTabProps> = ({ roomId, sessionId }) => {
       setInCall(false);
     }
   }, [sessionId, inCall]);
+
+  // Update participant list when room presence changes
+  useEffect(() => {
+    const mapPresenceToParticipants = () => {
+      const p = room?.presence?.filter((x) => x.inLive).map((entry) => ({
+        id: entry.userId,
+        name: entry.fullName,
+        isMuted: false,
+        cameraOff: true,
+        isSpeaking: false,
+        stream: null,
+      })) ?? [];
+      setParticipants(p);
+    };
+
+    mapPresenceToParticipants();
+
+    const onPresenceUpdate = (data: { roomId: string; presence: any[] }) => {
+      if (data.roomId !== roomId) return;
+      mapPresenceToParticipants();
+    };
+
+    const onActiveSpeaker = (data: { roomId: string; userId: string | null }) => {
+      if (data.roomId !== roomId) return;
+      setParticipants((prev) => prev.map((p) => ({ ...p, isSpeaking: p.id === data.userId })));
+    };
+
+    socket.on('presence:update', onPresenceUpdate);
+    socket.on('live:active-speaker', onActiveSpeaker);
+
+    return () => {
+      socket.off('presence:update', onPresenceUpdate);
+      socket.off('live:active-speaker', onActiveSpeaker);
+    };
+  }, [room, roomId]);
+
 
   const handleToggleCall = () => {
     if (inCall) {
@@ -53,6 +106,13 @@ export const LiveTab: React.FC<LiveTabProps> = ({ roomId, sessionId }) => {
         <span className={`w-2 h-2 rounded-full ${sessionId ? 'bg-red-500 animate-pulse' : 'bg-slate-400'}`} />
         {sessionId ? 'Live Session Active' : 'No Active Session'}
       </div>
+
+      {/* Video grid of in-call participants */}
+      {participants.length > 0 && (
+        <div className="w-full max-w-4xl px-4">
+          <VideoGrid participants={participants} />
+        </div>
+      )}
 
       {/* Video preview placeholder */}
       <div className="relative w-full max-w-xl aspect-video rounded-2xl bg-slate-900/80 dark:bg-black/60 border border-slate-700/50 overflow-hidden flex items-center justify-center shadow-2xl">
