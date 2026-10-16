@@ -26,6 +26,12 @@ export const LiveTab: React.FC<LiveTabProps> = ({ roomId, sessionId }) => {
     }
   }, [inCall, roomId]);
 
+  useEffect(() => {
+    if (!sessionId && inCall) {
+      setInCall(false);
+    }
+  }, [sessionId, inCall]);
+
   const handleToggleCall = () => {
     if (inCall) {
       socket.emit('live:left', { roomId });

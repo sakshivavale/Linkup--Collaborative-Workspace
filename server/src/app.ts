@@ -6,7 +6,7 @@ import { RoomSummary } from '@linkup/shared';
 import { env } from './config/env';
 import { requireAuth } from './middleware/auth';
 import { supabase, updateTokenCacheUserName } from './lib/supabase';
-import { getRoomsForUser, createRoom, joinRoomByCode, getRoomForUser, NotAMemberError, removeRoomMember, regenerateRoomJoinCode, updateRoom, startSession, getActiveSession, getSessionsForRoom } from './lib/rooms';
+import { getRoomsForUser, createRoom, joinRoomByCode, getRoomForUser, NotAMemberError, removeRoomMember, regenerateRoomJoinCode, updateRoom, startSession, endSession, getActiveSession, getSessionsForRoom } from './lib/rooms';
 import { getRoomPresence, removeSocketFromRoom } from './realtime/presence';
 
 // Dynamic CORS origin: accepts localhost AND any 192.168.x.x LAN IP on port 5173.
@@ -782,6 +782,84 @@ app.post('/api/rooms/:roomId/sessions', async (req: Request, res: Response) => {
     });
   }
 });
+
+// End live session (host only) — US-LIVE-05, FR-3.6, api-contract §3.4
+const handleEndSessionRoute = async (req: Request, res: Response) => {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({
+      error: { code: 'UNAUTHENTICATED', message: 'Authentication required' },
+    });
+  }
+
+  const { roomId, sessionId } = req.params;
+
+  try {
+    const session = await endSession(user.id, roomId, sessionId);
+
+    // Broadcast session:ended to room members (US-LIVE-05 Acceptance Criteria 2)
+    try {
+      const io = req.app.get('io');
+      if (io) {
+        io.to(`room:${roomId}`).to(roomId).emit('session:ended', {
+          roomId,
+          sessionId: session.id,
+        });
+      }
+    } catch (socketErr) {
+      console.warn('[Session API] Socket emit error on session:ended:', socketErr);
+    }
+
+    return res.status(200).json(session);
+  } catch (err: any) {
+    if (err?.code === 'HOST_ONLY' || err?.code === 'FORBIDDEN' || err?.status === 403) {
+      return res.status(403).json({
+        error: {
+          code: err.code || 'HOST_ONLY',
+          message: err.message || 'Only the host can end a session',
+        },
+      });
+    }
+
+    if (err?.code === 'NO_ACTIVE_SESSION' || err?.code === 'SESSION_NOT_FOUND' || err?.status === 404) {
+      return res.status(404).json({
+        error: {
+          code: err.code || 'NO_ACTIVE_SESSION',
+          message: err.message || 'No active session found',
+        },
+      });
+    }
+
+    if (err?.code === 'ROOM_NOT_FOUND' || err?.status === 404) {
+      return res.status(404).json({
+        error: {
+          code: 'ROOM_NOT_FOUND',
+          message: err.message || 'Room not found',
+        },
+      });
+    }
+
+    if (err?.code === 'VALIDATION' || err?.status === 400) {
+      return res.status(400).json({
+        error: {
+          code: 'VALIDATION',
+          message: err.message || 'Validation error',
+        },
+      });
+    }
+
+    console.error('[Session API] Error ending session:', err);
+    return res.status(500).json({
+      error: {
+        code: 'INTERNAL_SERVER_ERROR',
+        message: 'Failed to end session',
+      },
+    });
+  }
+};
+
+app.post('/api/rooms/:roomId/sessions/:sessionId/end', handleEndSessionRoute);
+app.post('/api/rooms/:roomId/sessions/end', handleEndSessionRoute);
 
 // Get active session for a room
 app.get('/api/rooms/:roomId/sessions/active', async (req: Request, res: Response) => {
