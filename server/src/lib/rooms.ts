@@ -2,11 +2,8 @@ import { supabase } from './supabase';
 import { RoomSummary, Room, Permissions, MemberRole, CreateRoomDto, CreateRoomResponseDto, UpdateRoomDto, Session, Member } from '@linkup/shared';
 import { getActiveScreenShare } from '../realtime/screenShare';
 import { deleteLivekitRoom } from './livekit';
+export const mockAttendanceStore = new Map<string, any>();
 
-/**
- * Typed error thrown when a user attempts to access a room they are not a member of.
- * Maps to HTTP 403 NOT_A_MEMBER (US-ROOM-01, FR-2.4 AC-2).
- */
 export class NotAMemberError extends Error {
   public readonly code = 'NOT_A_MEMBER';
   constructor() {
@@ -15,13 +12,11 @@ export class NotAMemberError extends Error {
   }
 }
 
-// Characters: A-Z, 2-9; no O, 0, I, 1 (US-DASH-03, FR-2.2)
+
 export const JOIN_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 
-/**
- * Generate a 6-character uppercase alphanumeric join code without ambiguous characters (O, 0, I, 1)
- */
+
 export function generateJoinCode(): string {
   let code = '';
   for (let i = 0; i < 6; i++) {
@@ -76,8 +71,14 @@ export function clearMockSessions() {
   mockSessionsStore.clear();
 }
 
-export function getMockSessions(): Map<string, Session> {
-  return mockSessionsStore;
+export function setMockSession(arg1: string | Session, arg2?: Session) {
+  if (typeof arg1 === 'string' && arg2) {
+    mockSessionsStore.set(arg1, arg2);
+    if (arg2.id) mockSessionsStore.set(arg2.id, arg2);
+  } else if (typeof arg1 === 'object' && arg1) {
+    mockSessionsStore.set(arg1.id, arg1);
+    if (arg1.roomId) mockSessionsStore.set(arg1.roomId, arg1);
+  }
 }
 
 export function clearMockRooms(userId?: string) {
@@ -86,7 +87,6 @@ export function clearMockRooms(userId?: string) {
   } else {
     mockRoomsStore.clear();
     mockSessionsStore.clear();
-    clearMockAttendance();
   }
 }
 
@@ -355,7 +355,7 @@ export async function getRoomForUser(
   // If mock store is being used and the room exists in the mock store for other users,
   // but the requesting user is not a member, throw NotAMemberError
   for (const rooms of mockRoomsStore.values()) {
-    if (rooms.some((r) => r.id === roomId)) {
+    if (Array.isArray(rooms) && rooms.some((r) => r.id === roomId)) {
       throw new NotAMemberError();
     }
   }
@@ -363,7 +363,7 @@ export async function getRoomForUser(
   // Validate UUID to avoid PostgreSQL "invalid input syntax for type uuid" error
   const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   if (!UUID_REGEX.test(roomId)) {
-    throw Object.assign(new Error('Room not found'), { code: 'ROOM_NOT_FOUND' });
+    throw Object.assign(new Error('You are not a member of this room'), { code: 'NOT_A_MEMBER', status: 403 });
   }
 
   // 1. Check membership
