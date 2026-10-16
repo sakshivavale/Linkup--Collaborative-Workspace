@@ -11,6 +11,13 @@ import {
   setUserLiveStatus,
   setUserHandStatus,
 } from './realtime/presence';
+import {
+  getActiveScreenShare,
+  startScreenShare,
+  stopScreenShare,
+  forceStopScreenShare,
+  handleUserDisconnectScreenShare,
+} from './realtime/screenShare';
 
 const server = http.createServer(app);
 
@@ -90,9 +97,11 @@ io.on('connection', (socket) => {
         presence,
       });
 
-      socket.emit('room:joined', { roomId, presence });
+      const activeScreen = getActiveScreenShare(roomId);
+
+      socket.emit('room:joined', { roomId, presence, screenShare: activeScreen });
       if (typeof ack === 'function') {
-        ack({ ok: true, data: { roomId, presence } });
+        ack({ ok: true, data: { roomId, presence, screenShare: activeScreen } });
       }
     } catch (err: any) {
       if (err instanceof NotAMemberError) {
@@ -156,6 +165,115 @@ io.on('connection', (socket) => {
           presence,
         });
       }
+
+      // If user was sharing screen, stop sharing
+      const stopped = stopScreenShare(roomId, user.id);
+      if (stopped) {
+        io.to(`room:${roomId}`).to(roomId).emit('screen:stopped', {
+          roomId,
+          userId: user.id,
+          reason: 'USER_STOPPED',
+        });
+      }
+
+      if (typeof ack === 'function') ack({ ok: true });
+    }
+  });
+
+  /**
+   * screen:start — user requests to share their screen (US-LIVE-04, FR-3.5)
+   * Acceptance Criteria:
+   * 1. Enabled only if can_screen = true (or user is the host).
+   * 2. Screen share appears as focused tile for all participants; other tiles move to a strip below.
+   * 3. Only one screen share is active at a time.
+   */
+  socket.on('screen:start', async (payload: any, ack?: (res: any) => void) => {
+    const roomId = extractRoomId(payload);
+    if (!roomId || !user?.id) {
+      const err = { code: 'VALIDATION', message: 'Room ID required' };
+      socket.emit('screen:error', err);
+      if (typeof ack === 'function') ack({ ok: false, error: err });
+      return;
+    }
+
+    try {
+      const room = await getRoomForUser(user.id, roomId);
+      const isHost = room.myRole === 'host';
+      const member = room.members?.find((m) => m.userId === user.id);
+      const canScreen = isHost || Boolean(member?.permissions?.canScreen);
+
+      // Criterion 1: Enabled only if can_screen = true (or user is host)
+      if (!canScreen) {
+        const forbiddenErr = {
+          code: 'FORBIDDEN',
+          message: 'Screen sharing permission required. Ask the room host for access.',
+        };
+        socket.emit('screen:error', forbiddenErr);
+        if (typeof ack === 'function') ack({ ok: false, error: forbiddenErr });
+        return;
+      }
+
+      // Criterion 3: Only one screen share is active at a time
+      const result = startScreenShare(roomId, user.id, user.fullName || 'Participant');
+      if (!result.success) {
+        const activeErr = {
+          code: 'SCREEN_SHARE_ACTIVE',
+          message: 'Only one screen share is active at a time. Another participant is currently sharing.',
+        };
+        socket.emit('screen:error', activeErr);
+        if (typeof ack === 'function') ack({ ok: false, error: activeErr });
+        return;
+      }
+
+      console.log(`[Socket] Screen share started by ${user.fullName} in room ${roomId}`);
+
+      // Criterion 2: Screen share appears as the focused tile for all participants
+      io.to(`room:${roomId}`).to(roomId).emit('screen:started', {
+        roomId,
+        userId: user.id,
+        userName: user.fullName,
+      });
+
+      if (typeof ack === 'function') {
+        ack({ ok: true, data: result.screenShare });
+      }
+    } catch (err: any) {
+      console.error(`[Socket] Error starting screen share in room ${roomId}:`, err);
+      const serverErr = { code: 'INTERNAL_SERVER_ERROR', message: err.message || 'Failed to start screen share' };
+      socket.emit('screen:error', serverErr);
+      if (typeof ack === 'function') ack({ ok: false, error: serverErr });
+    }
+  });
+
+  /**
+   * screen:stop — user or host stops active screen share (US-LIVE-04, FR-3.5)
+   */
+  socket.on('screen:stop', async (payload: any, ack?: (res: any) => void) => {
+    const roomId = extractRoomId(payload);
+    if (!roomId || !user?.id) {
+      if (typeof ack === 'function') ack({ ok: false, error: { code: 'VALIDATION' } });
+      return;
+    }
+
+    try {
+      const room = await getRoomForUser(user.id, roomId);
+      const isHost = room.myRole === 'host';
+      const stopped = isHost ? forceStopScreenShare(roomId) : stopScreenShare(roomId, user.id);
+
+      if (stopped) {
+        console.log(`[Socket] Screen share stopped in room ${roomId}`);
+        io.to(`room:${roomId}`).to(roomId).emit('screen:stopped', {
+          roomId,
+          userId: stopped.userId,
+          reason: 'USER_STOPPED',
+        });
+      }
+
+      if (typeof ack === 'function') {
+        ack({ ok: true });
+      }
+    } catch (err: any) {
+      console.warn(`[Socket] Error stopping screen share in room ${roomId}:`, err);
       if (typeof ack === 'function') ack({ ok: true });
     }
   });
@@ -190,6 +308,17 @@ io.on('connection', (socket) => {
         roomId,
         presence,
       });
+    }
+
+    if (user?.id) {
+      const stoppedShares = handleUserDisconnectScreenShare(user.id);
+      for (const { roomId } of stoppedShares) {
+        io.to(`room:${roomId}`).to(roomId).emit('screen:stopped', {
+          roomId,
+          userId: user.id,
+          reason: 'DISCONNECTED',
+        });
+      }
     }
   });
 });
