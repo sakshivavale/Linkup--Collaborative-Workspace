@@ -603,11 +603,14 @@ app.post('/api/rooms/:roomId/messages', async (req: Request, res: Response) => {
     try {
       const io = req.app.get('io');
       if (io) {
-        io.to(`room:${roomId}`).to(roomId).emit('chat:new', {
+        const chatPayload = {
+          ...message,
           roomId,
           message,
           clientId,
-        });
+        };
+        io.to(`room:${roomId}`).to(roomId).emit('chat:new', chatPayload);
+        io.to(`room:${roomId}`).to(roomId).emit('chat:new message', chatPayload);
       }
     } catch (socketErr) {
       console.warn('[Chat API] Socket emit error on chat:new:', socketErr);
@@ -615,7 +618,12 @@ app.post('/api/rooms/:roomId/messages', async (req: Request, res: Response) => {
 
     return res.status(201).json({ message });
   } catch (err: any) {
-    if (err instanceof NotAMemberError || err?.code === 'NOT_A_MEMBER' || err?.status === 403) {
+    if (
+      err instanceof NotAMemberError ||
+      err?.code === 'NOT_A_MEMBER' ||
+      err?.status === 403 ||
+      err?.message?.toLowerCase().includes('not a member')
+    ) {
       return res.status(403).json({
         error: {
           code: 'NOT_A_MEMBER',

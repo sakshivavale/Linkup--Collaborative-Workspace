@@ -23,6 +23,7 @@
     "test:reconnect": "tsx scripts/test-auto-reconnect.ts",
     "test:devices": "tsx scripts/test-switch-media-devices.ts",
     "test:chat-history": "tsx scripts/test-chat-history.ts",
+    "test:chat-send": "tsx scripts/test-send-message.ts",
     "test:chat-sender": "tsx scripts/test-chat-sender-info.ts",
     "test:permissions": "tsx scripts/test-participant-permissions.ts"
   },
