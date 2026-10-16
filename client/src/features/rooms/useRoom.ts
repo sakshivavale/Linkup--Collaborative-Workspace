@@ -5,6 +5,7 @@ import { socket } from '../../lib/socket';
 
 interface UseRoomResult {
   room: RoomSummary | null;
+  setRoom: React.Dispatch<React.SetStateAction<RoomSummary | null>>;
   loading: boolean;
   /** null = no error; 'NOT_A_MEMBER' = 403; 'NOT_FOUND' = 404; 'UNKNOWN' = other */
   error: 'NOT_A_MEMBER' | 'NOT_FOUND' | 'UNKNOWN' | null;
@@ -217,5 +218,5 @@ export function useRoom(roomId: string | undefined): UseRoomResult {
     };
   }, [roomId]);
 
-  return { room, loading, error };
+  return { room, setRoom, loading, error };
 }

@@ -50,11 +50,14 @@ export const RoomPage: React.FC = () => {
   const { id: roomId } = useParams<{ id: string }>();
   const navigate = useNavigate();
 
-  const { room, loading, error } = useRoom(roomId);
+  const { room, setRoom, loading, error } = useRoom(roomId);
 
   const [mainTab, setMainTab] = useState<MainTab>('live');
   const [sideTab, setSideTab] = useState<SideTab>('chat');
   const [sidebarOpen, setSidebarOpen] = useState(true);
+
+  // US-LIVE-07: Auto-reconnect state on Socket.IO or network drop
+  const [isReconnecting, setIsReconnecting] = useState(false);
 
   const [currentJoinCode, setCurrentJoinCode] = useState<string | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
@@ -203,28 +206,90 @@ export const RoomPage: React.FC = () => {
     }
   }, [room?.joinCode]);
 
-  // Join Room Socket.IO channel for real-time presence, chat, and room updates (US-ROOM-02, FR-2.4)
+  // US-LIVE-07: Auto-reconnect on network drop & sync from room:join snapshot (FR-3.8)
   useEffect(() => {
     if (!roomId) return;
+
+    const syncRoomSnapshot = (snapshot: any) => {
+      if (!snapshot) return;
+      if (snapshot.room) {
+        setRoom(snapshot.room);
+      }
+      if (snapshot.session !== undefined) {
+        setActiveSession(snapshot.session);
+        if (snapshot.session) {
+          setSessionEnded(false);
+        }
+      }
+      if (snapshot.screenShare !== undefined && room) {
+        room.activeScreenShare = snapshot.screenShare;
+      }
+      if (snapshot.joinCode) {
+        setCurrentJoinCode(snapshot.joinCode);
+      }
+    };
+
+    const handleDisconnect = (reason: string) => {
+      console.warn('[RoomPage] Socket disconnected / network dropped:', reason);
+      setIsReconnecting(true);
+    };
+
+    const handleConnectError = (err: any) => {
+      console.warn('[RoomPage] Socket connect_error:', err?.message || err);
+      setIsReconnecting(true);
+    };
+
+    const handleConnect = () => {
+      console.log('[RoomPage] Socket connected / reconnected. Syncing state from room:join snapshot...');
+      socket.emit('room:join', { roomId }, (res: any) => {
+        const snapshot = res?.snapshot || res?.data;
+        syncRoomSnapshot(snapshot);
+
+        // US-LIVE-07 AC-4: If in live call, re-emit live:joined to cancel grace timer & reuse open attendance record
+        if (isInCall) {
+          socket.emit('live:joined', { roomId });
+        }
+
+        // US-LIVE-07 AC-3: Within 15 seconds of reconnection, banner disappears and full state is synced
+        setIsReconnecting(false);
+      });
+    };
+
+    const handleOffline = () => {
+      console.warn('[RoomPage] Browser offline event detected');
+      setIsReconnecting(true);
+    };
+
+    const handleOnline = () => {
+      console.log('[RoomPage] Browser online restored. Reconnecting socket...');
+      if (!socket.connected) {
+        socket.connect();
+      }
+    };
 
     if (!socket.connected) {
       socket.connect();
     }
 
-    const joinRoomChannel = () => {
-      socket.emit('room:join', roomId);
-    };
-
     if (socket.connected) {
-      joinRoomChannel();
+      handleConnect();
     }
-    socket.on('connect', joinRoomChannel);
+
+    socket.on('disconnect', handleDisconnect);
+    socket.on('connect_error', handleConnectError);
+    socket.on('connect', handleConnect);
+    window.addEventListener('offline', handleOffline);
+    window.addEventListener('online', handleOnline);
 
     return () => {
-      socket.off('connect', joinRoomChannel);
+      socket.off('disconnect', handleDisconnect);
+      socket.off('connect_error', handleConnectError);
+      socket.off('connect', handleConnect);
+      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('online', handleOnline);
       socket.emit('room:leave', roomId);
     };
-  }, [roomId]);
+  }, [roomId, isInCall, room, setRoom]);
 
   useEffect(() => {
     const handleJoinCodeUpdated = (data: { roomId: string; joinCode: string }) => {
@@ -370,6 +435,20 @@ export const RoomPage: React.FC = () => {
   // ── Main room workspace ────────────────────────────────────────────────────
   return (
     <div className="flex flex-col flex-1 h-full overflow-hidden">
+      {/* US-LIVE-07 Acceptance Criteria 1: A top-of-screen "Reconnecting..." banner appears when the connection drops */}
+      {isReconnecting && (
+        <aside
+          id="reconnecting-banner"
+          data-testid="reconnecting-banner"
+          role="alert"
+          aria-live="assertive"
+          className="shrink-0 bg-amber-500 text-slate-950 font-bold px-4 py-2 text-xs sm:text-sm flex items-center justify-center gap-2 shadow-md animate-pulse z-50 border-b border-amber-600/30"
+        >
+          <RefreshCw className="w-4 h-4 animate-spin text-slate-950 shrink-0" />
+          <span>Reconnecting... Network connection dropped. Re-syncing room state.</span>
+        </aside>
+      )}
+
       {/* ── Room Header ─────────────────────────────────────────────────────── */}
       <header className="shrink-0 border-b border-slate-200/80 dark:border-slate-800/70 bg-white/70 dark:bg-slate-950/70 backdrop-blur-sm px-4 sm:px-6 py-3 flex items-center gap-3 z-10">
         <Link
@@ -448,9 +527,9 @@ export const RoomPage: React.FC = () => {
               data-testid="room-header-start-session-btn"
               type="button"
               onClick={handleStartSession}
-              disabled={isStartingSession}
+              disabled={isStartingSession || isReconnecting}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 shadow-sm shadow-red-500/20 active:scale-95 disabled:opacity-50 transition-all shrink-0 cursor-pointer"
-              title="Start live session"
+              title={isReconnecting ? 'Reconnecting...' : 'Start live session'}
               aria-label="Start live session"
             >
               {isStartingSession ? (
@@ -474,9 +553,9 @@ export const RoomPage: React.FC = () => {
               data-testid="room-header-end-session-btn"
               type="button"
               onClick={handleEndSession}
-              disabled={isEndingSession}
+              disabled={isEndingSession || isReconnecting}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-rose-700 to-red-700 hover:from-rose-600 hover:to-red-600 shadow-sm shadow-red-500/20 active:scale-95 disabled:opacity-50 transition-all shrink-0 cursor-pointer"
-              title="End live session"
+              title={isReconnecting ? 'Reconnecting...' : 'End live session'}
               aria-label="End live session"
             >
               {isEndingSession ? (
@@ -499,12 +578,13 @@ export const RoomPage: React.FC = () => {
               id="room-header-join-live-btn"
               data-testid="room-header-join-live-btn"
               type="button"
+              disabled={isReconnecting}
               onClick={() => {
                 setIsInCall(true);
                 setMainTab('live');
               }}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 shadow-sm shadow-emerald-500/20 active:scale-95 transition-all shrink-0 cursor-pointer"
-              title="Join live call"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 shadow-sm shadow-emerald-500/20 active:scale-95 disabled:opacity-50 transition-all shrink-0 cursor-pointer"
+              title={isReconnecting ? 'Reconnecting...' : 'Join live call'}
               aria-label="Join Live"
             >
               <Radio className="w-3.5 h-3.5 animate-pulse" />
@@ -550,8 +630,9 @@ export const RoomPage: React.FC = () => {
                 id="room-header-copy-code-btn"
                 data-testid="room-header-copy-code-btn"
                 type="button"
+                disabled={isReconnecting}
                 onClick={handleCopyJoinCode}
-                className="text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 p-0.5 rounded transition-colors active:scale-90"
+                className="text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 p-0.5 rounded transition-colors active:scale-90 disabled:opacity-50"
                 title={copiedCode ? 'Copied!' : 'Copy join code'}
                 aria-label="Copy join code"
               >
@@ -571,7 +652,7 @@ export const RoomPage: React.FC = () => {
                 data-testid="room-header-regenerate-code-btn"
                 type="button"
                 onClick={handleRegenerateCode}
-                disabled={isRegenerating}
+                disabled={isRegenerating || isReconnecting}
                 className="text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 p-0.5 rounded transition-colors active:scale-90 disabled:opacity-50 ml-0.5"
                 title={isRegenerating ? 'Regenerating code...' : 'Regenerate Code'}
                 aria-label="Regenerate Code"
@@ -667,6 +748,8 @@ export const RoomPage: React.FC = () => {
               onJoinCall={() => setIsInCall(true)}
               onLeaveCall={() => setIsInCall(false)}
               isHost={room.myRole === 'host'}
+              disabled={isReconnecting}
+              isReconnecting={isReconnecting}
             />
           </div>
           {mainTab === 'whiteboard' && <WhiteboardTab roomId={roomId!} />}
@@ -706,7 +789,7 @@ export const RoomPage: React.FC = () => {
 
             {/* Sidebar panel content */}
             <div className="flex-1 overflow-hidden">
-              {sideTab === 'chat'   && <ChatPanel   roomId={roomId!} />}
+              {sideTab === 'chat' && <ChatPanel roomId={roomId!} disabled={isReconnecting} />}
               {sideTab === 'people' && (
                 <PeoplePanel 
                   room={room} 

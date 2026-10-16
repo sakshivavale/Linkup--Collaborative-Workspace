@@ -23,13 +23,16 @@ interface LiveTabProps {
   onJoinCall?: () => void;
   onLeaveCall?: () => void;
   isHost?: boolean;
+  disabled?: boolean;
+  isReconnecting?: boolean;
 }
 
 /**
- * LiveTab — the live audio/video and screen share call panel (US-ROOM-01, US-LIVE-04, US-LIVE-06).
+ * LiveTab — the live audio/video and screen share call panel (US-ROOM-01, US-LIVE-04, US-LIVE-06, US-LIVE-07).
  * Enforces Acceptance Criteria:
  * - US-LIVE-04: Screen sharing with stage layout, permission controls, and single-share exclusivity.
  * - US-LIVE-06: Host leaves without ending, remaining participants stay connected, host re-joins via Join Live.
+ * - US-LIVE-07: Chat input, media controls, and other interactive elements are disabled while reconnecting.
  */
 export const LiveTab: React.FC<LiveTabProps> = ({
   roomId,
@@ -38,7 +41,10 @@ export const LiveTab: React.FC<LiveTabProps> = ({
   onJoinCall,
   onLeaveCall,
   isHost: propIsHost,
+  disabled = false,
+  isReconnecting = false,
 }) => {
+  const isControlsDisabled = Boolean(disabled || isReconnecting);
   const { user } = useAuth();
   const { room } = useRoom(roomId);
 
@@ -109,7 +115,10 @@ export const LiveTab: React.FC<LiveTabProps> = ({
   let screenShareDisabled = false;
   let screenShareTooltip = '';
 
-  if (!inCall) {
+  if (isControlsDisabled) {
+    screenShareDisabled = true;
+    screenShareTooltip = 'Controls disabled while reconnecting...';
+  } else if (!inCall) {
     screenShareDisabled = true;
     screenShareTooltip = 'Join the live call to share your screen';
   } else if (isAnotherSharing) {
@@ -309,9 +318,12 @@ export const LiveTab: React.FC<LiveTabProps> = ({
             id="room-join-live-btn"
             data-testid="room-join-live-btn"
             type="button"
+            disabled={isControlsDisabled}
             onClick={handleToggleCall}
-            className="inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl font-bold text-sm text-white bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 shadow-md shadow-emerald-600/30 active:scale-95 transition-all cursor-pointer w-full sm:w-auto"
-            title="Join Live"
+            className={`inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl font-bold text-sm text-white bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 shadow-md shadow-emerald-600/30 active:scale-95 transition-all w-full sm:w-auto ${
+              isControlsDisabled ? 'opacity-50 cursor-not-allowed pointer-events-none' : 'cursor-pointer'
+            }`}
+            title={isControlsDisabled ? 'Reconnecting...' : 'Join Live'}
             aria-label="Join Live"
           >
             <PhoneCall className="w-4 h-4" />
@@ -364,10 +376,14 @@ export const LiveTab: React.FC<LiveTabProps> = ({
         {/* Microphone Toggle */}
         <button
           id="room-mic-toggle"
+          data-testid="room-mic-toggle"
+          disabled={isControlsDisabled}
           onClick={() => setMicOn((v) => !v)}
-          title={micOn ? 'Mute microphone' : 'Unmute microphone'}
+          title={isControlsDisabled ? 'Reconnecting...' : micOn ? 'Mute microphone' : 'Unmute microphone'}
           className={`w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-            micOn
+            isControlsDisabled
+              ? 'opacity-50 cursor-not-allowed bg-slate-200 dark:bg-slate-800 text-slate-400'
+              : micOn
               ? 'bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 focus:ring-slate-400'
               : 'bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/40 focus:ring-red-500'
           }`}
@@ -378,10 +394,14 @@ export const LiveTab: React.FC<LiveTabProps> = ({
         {/* Camera Toggle */}
         <button
           id="room-cam-toggle"
+          data-testid="room-cam-toggle"
+          disabled={isControlsDisabled}
           onClick={() => setCamOn((v) => !v)}
-          title={camOn ? 'Turn off camera' : 'Turn on camera'}
+          title={isControlsDisabled ? 'Reconnecting...' : camOn ? 'Turn off camera' : 'Turn on camera'}
           className={`w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-            camOn
+            isControlsDisabled
+              ? 'opacity-50 cursor-not-allowed bg-slate-200 dark:bg-slate-800 text-slate-400'
+              : camOn
               ? 'bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 focus:ring-slate-400'
               : 'bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/40 focus:ring-red-500'
           }`}
@@ -389,18 +409,20 @@ export const LiveTab: React.FC<LiveTabProps> = ({
           {camOn ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
         </button>
 
-        {/* ── Screen Share Button with Tooltip (US-LIVE-04 Acceptance Criteria 1, 3, 5) ── */}
+        {/* ── Screen Share Button with Tooltip (US-LIVE-04 Acceptance Criteria 1, 3, 5, US-LIVE-07 AC-2) ── */}
         <div className="relative group inline-flex items-center justify-center">
           <button
             id="room-screen-share-toggle"
             data-testid="room-screen-share-toggle"
             type="button"
             onClick={handleStartScreenShare}
-            disabled={screenShareDisabled}
-            aria-disabled={screenShareDisabled}
+            disabled={screenShareDisabled || isControlsDisabled}
+            aria-disabled={screenShareDisabled || isControlsDisabled}
             title={screenShareTooltip}
             className={`w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-              isSelfSharing
+              isControlsDisabled
+                ? 'bg-slate-100 dark:bg-slate-900/80 text-slate-400 dark:text-slate-600 border border-slate-200 dark:border-slate-800 cursor-not-allowed opacity-50'
+                : isSelfSharing
                 ? 'bg-red-600 hover:bg-red-700 text-white focus:ring-red-500 animate-pulse'
                 : screenShareDisabled
                 ? 'bg-slate-100 dark:bg-slate-900/80 text-slate-400 dark:text-slate-600 border border-slate-200 dark:border-slate-800 cursor-not-allowed opacity-60'
@@ -428,15 +450,18 @@ export const LiveTab: React.FC<LiveTabProps> = ({
           )}
         </div>
 
-        {/* Call Join/Leave Toggle (US-LIVE-06 AC-3) */}
+        {/* Call Join/Leave Toggle (US-LIVE-06 AC-3, US-LIVE-07 AC-2) */}
         {inCall ? (
           <button
             id="room-leave-call"
             data-testid="room-leave-call"
+            disabled={isControlsDisabled}
             onClick={handleToggleCall}
-            title="Leave call"
+            title={isControlsDisabled ? 'Reconnecting...' : 'Leave call'}
             aria-label="Leave call"
-            className="w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 bg-red-600 hover:bg-red-700 text-white focus:ring-red-500 cursor-pointer"
+            className={`w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 bg-red-600 hover:bg-red-700 text-white focus:ring-red-500 ${
+              isControlsDisabled ? 'opacity-50 cursor-not-allowed pointer-events-none' : 'cursor-pointer'
+            }`}
           >
             <PhoneOff className="w-5 h-5" />
           </button>
@@ -444,10 +469,13 @@ export const LiveTab: React.FC<LiveTabProps> = ({
           <button
             id="room-join-live-btn-control"
             data-testid="join-live-btn"
+            disabled={isControlsDisabled}
             onClick={handleToggleCall}
-            title="Join Live"
+            title={isControlsDisabled ? 'Reconnecting...' : 'Join Live'}
             aria-label="Join Live"
-            className="w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 bg-emerald-600 hover:bg-emerald-700 text-white focus:ring-emerald-500 cursor-pointer"
+            className={`w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 bg-emerald-600 hover:bg-emerald-700 text-white focus:ring-emerald-500 ${
+              isControlsDisabled ? 'opacity-50 cursor-not-allowed pointer-events-none' : 'cursor-pointer'
+            }`}
           >
             <PhoneCall className="w-5 h-5" />
           </button>

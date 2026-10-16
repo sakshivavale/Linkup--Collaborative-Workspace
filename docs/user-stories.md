@@ -352,10 +352,10 @@
 > As a **session participant**, if I temporarily lose my network connection, I want the app to automatically reconnect so that I do not have to manually rejoin.
 
 **Acceptance Criteria:**
-- [ ] A top-of-screen **"Reconnecting..."** banner appears when the Socket.IO or LiveKit connection drops.
-- [ ] Chat input, media controls, and other interactive elements are disabled while reconnecting.
-- [ ] Within 15 seconds of reconnection, the banner disappears and the full state is synced from the `room:join` snapshot.
-- [ ] A reconnect within 15 seconds reuses the open attendance record.
+- [x] A top-of-screen **"Reconnecting..."** banner appears when the Socket.IO or LiveKit connection drops.
+- [x] Chat input, media controls, and other interactive elements are disabled while reconnecting.
+- [x] Within 15 seconds of reconnection, the banner disappears and the full state is synced from the `room:join` snapshot.
+- [x] A reconnect within 15 seconds reuses the open attendance record.
 
 ---
 

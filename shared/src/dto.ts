@@ -192,3 +192,16 @@ export interface ApiError {
 export interface ApiErrorResponse {
   error: ApiError;
 }
+
+/** US-LIVE-07 & FR-3.8: Full room state snapshot returned on room:join */
+export interface RoomSnapshot {
+  roomId: string;
+  room?: RoomSummary | null;
+  me?: Member | null;
+  members?: Member[];
+  presence?: PresenceEntry[];
+  session?: Session | null;
+  screenShare?: ActiveScreenShare | null;
+  code?: CodeState;
+  board?: { elements: unknown[] };
+}
