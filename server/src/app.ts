@@ -9,6 +9,7 @@ import { supabase, updateTokenCacheUserName } from './lib/supabase';
 import { getRoomsForUser, createRoom, joinRoomByCode, getRoomForUser, NotAMemberError, removeRoomMember, regenerateRoomJoinCode, updateRoom, startSession, endSession, getActiveSession, getSessionsForRoom, updateMemberPermissions } from './lib/rooms';
 import { getRoomPresence, removeSocketFromRoom } from './realtime/presence';
 import { getActiveScreenShare, stopScreenShare } from './realtime/screenShare';
+import { getChatMessages, createChatMessage } from './lib/chat';
 
 // Dynamic CORS origin: accepts localhost AND any 192.168.x.x LAN IP on port 5173.
 // This permanently prevents CORS failures when the dev machine's IP changes.
@@ -532,6 +533,108 @@ app.get('/api/rooms/:roomId/screen-share', (req: Request, res: Response) => {
   const { roomId } = req.params;
   const screenShare = getActiveScreenShare(roomId);
   return res.status(200).json({ screenShare });
+});
+
+// ─── Chat History & Messaging (US-CHAT-02, US-CHAT-01, FR-3.12, api-contract §3.5) ───
+
+// Get chat history with cursor pagination (US-CHAT-02)
+app.get('/api/rooms/:roomId/messages', async (req: Request, res: Response) => {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({
+      error: { code: 'UNAUTHENTICATED', message: 'Authentication required' },
+    });
+  }
+
+  const { roomId } = req.params;
+  const before = typeof req.query.before === 'string' ? req.query.before : undefined;
+  const limitParam = req.query.limit !== undefined ? Number(req.query.limit) : 50;
+
+  try {
+    const result = await getChatMessages(user.id, roomId, {
+      before,
+      limit: limitParam,
+    });
+    return res.status(200).json(result);
+  } catch (err: any) {
+    if (err instanceof NotAMemberError || err?.code === 'NOT_A_MEMBER' || err?.status === 403) {
+      return res.status(403).json({
+        error: {
+          code: 'NOT_A_MEMBER',
+          message: err.message || 'You are not a member of this room',
+        },
+      });
+    }
+
+    if (err?.code === 'ROOM_NOT_FOUND' || err?.status === 404 || err?.code === 'NOT_FOUND') {
+      return res.status(404).json({
+        error: { code: 'ROOM_NOT_FOUND', message: err.message || 'Room not found' },
+      });
+    }
+
+    if (err?.code === 'VALIDATION' || err?.status === 400) {
+      return res.status(400).json({
+        error: { code: 'VALIDATION', message: err.message || 'Validation error' },
+      });
+    }
+
+    console.error('[Chat API] Error fetching room messages:', err);
+    return res.status(500).json({
+      error: { code: 'INTERNAL_SERVER_ERROR', message: 'Failed to retrieve messages' },
+    });
+  }
+});
+
+// Send a chat message via REST API (US-CHAT-01, FR-3.10)
+app.post('/api/rooms/:roomId/messages', async (req: Request, res: Response) => {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({
+      error: { code: 'UNAUTHENTICATED', message: 'Authentication required' },
+    });
+  }
+
+  const { roomId } = req.params;
+  const { body, clientId } = req.body || {};
+
+  try {
+    const message = await createChatMessage(user.id, roomId, body);
+
+    try {
+      const io = req.app.get('io');
+      if (io) {
+        io.to(`room:${roomId}`).to(roomId).emit('chat:new', {
+          roomId,
+          message,
+          clientId,
+        });
+      }
+    } catch (socketErr) {
+      console.warn('[Chat API] Socket emit error on chat:new:', socketErr);
+    }
+
+    return res.status(201).json({ message });
+  } catch (err: any) {
+    if (err instanceof NotAMemberError || err?.code === 'NOT_A_MEMBER' || err?.status === 403) {
+      return res.status(403).json({
+        error: {
+          code: 'NOT_A_MEMBER',
+          message: err.message || 'You are not a member of this room',
+        },
+      });
+    }
+
+    if (err?.code === 'VALIDATION' || err?.status === 400) {
+      return res.status(400).json({
+        error: { code: 'VALIDATION', message: err.message || 'Validation error' },
+      });
+    }
+
+    console.error('[Chat API] Error creating message:', err);
+    return res.status(500).json({
+      error: { code: 'INTERNAL_SERVER_ERROR', message: 'Failed to send message' },
+    });
+  }
 });
 
 // Regenerate room join code (host only) — US-ROOM-04, FR-2.6
