@@ -68,6 +68,7 @@ export interface RoomSummary {
   createdAt: string;
   members?: Member[];
   presence?: PresenceEntry[];
+  activeScreenShare?: ActiveScreenShare | null;
 }
 
 export interface Room extends RoomSummary {
@@ -125,6 +126,40 @@ export interface ChatMessage {
   createdAt: string;
 }
 
+export interface ActiveScreenShare {
+  roomId: string;
+  userId: string;
+  userName: string;
+  startedAt: string;
+}
+
+export interface ScreenStartedPayload {
+  roomId: string;
+  userId: string;
+  userName: string;
+}
+
+export interface ScreenStoppedPayload {
+  roomId: string;
+  userId?: string;
+  reason?: 'USER_STOPPED' | 'PERMISSION_REVOKED' | 'DISCONNECTED';
+}
+
+export interface UpdatePermissionsDto {
+  canMic?: boolean;
+  canCamera?: boolean;
+  canScreen?: boolean;
+  canWhiteboard?: boolean;
+  canCode?: boolean;
+}
+
+export interface PermChangedPayload {
+  roomId: string;
+  userId: string;
+  permissions: Permissions;
+  by: string;
+}
+
 export interface CodeState {
   content: string;
   language: Language;
@@ -145,6 +180,7 @@ export interface ApiError {
     | 'ROOM_NOT_FOUND'
     | 'SESSION_ACTIVE'
     | 'NO_ACTIVE_SESSION'
+    | 'SCREEN_SHARE_ACTIVE'
     | 'PAYLOAD_TOO_LARGE'
     | 'RATE_LIMITED'
     | 'EXECUTION_UNAVAILABLE'
