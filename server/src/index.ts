@@ -3,7 +3,8 @@ import { Server as SocketIOServer } from 'socket.io';
 import { app } from './app';
 import { env } from './config/env';
 import { socketAuthMiddleware } from './realtime/socketAuth';
-import { getRoomForUser, NotAMemberError, closeDanglingAttendanceRecords } from './lib/rooms';
+import { getRoomForUser, NotAMemberError, closeDanglingAttendanceRecords, getActiveSession } from './lib/rooms';
+import { recordLiveJoin, recordLiveLeave, recordSocketDisconnect } from './lib/attendance';
 import {
   addSocketToRoom,
   removeSocketFromRoom,
@@ -81,7 +82,7 @@ io.on('connection', (socket) => {
     }
 
     try {
-      await getRoomForUser(user.id, roomId);
+      const room = await getRoomForUser(user.id, roomId);
       // Membership confirmed — subscribe socket to room channels (both roomId and room:roomId)
       await socket.join(roomId);
       await socket.join(`room:${roomId}`);
@@ -98,10 +99,41 @@ io.on('connection', (socket) => {
       });
 
       const activeScreen = getActiveScreenShare(roomId);
+      const activeSession = await getActiveSession(roomId);
 
-      socket.emit('room:joined', { roomId, presence, screenShare: activeScreen });
+      // US-LIVE-07 AC-3: Full state snapshot returned on room:join (FR-3.8, api-contract §4.2)
+      const snapshot = {
+        roomId,
+        room,
+        me: room.members?.find((m) => m.userId === user.id) || null,
+        members: room.members || [],
+        presence,
+        session: activeSession,
+        screenShare: activeScreen,
+        code: { content: '', language: 'python' as const, rev: 0, holderId: null },
+        board: { elements: [] },
+      };
+
+      socket.emit('room:joined', {
+        roomId,
+        presence,
+        screenShare: activeScreen,
+        session: activeSession,
+        snapshot,
+      });
+
       if (typeof ack === 'function') {
-        ack({ ok: true, data: { roomId, presence, screenShare: activeScreen } });
+        ack({
+          ok: true,
+          snapshot,
+          data: {
+            ...snapshot,
+            roomId,
+            presence,
+            screenShare: activeScreen,
+            session: activeSession,
+          },
+        });
       }
     } catch (err: any) {
       if (err instanceof NotAMemberError) {
@@ -136,12 +168,14 @@ io.on('connection', (socket) => {
   });
 
   /**
-   * live:joined — user enters the live call (US-ROOM-02 AC-3)
+   * live:joined — user enters the live call (US-ROOM-02 AC-3, US-LIVE-07 AC-4)
    */
-  socket.on('live:joined', (payload: any, ack?: (res: any) => void) => {
+  socket.on('live:joined', async (payload: any, ack?: (res: any) => void) => {
     const roomId = extractRoomId(payload);
     if (roomId && user?.id) {
       const presence = setUserLiveStatus(roomId, user.id, true);
+      await recordLiveJoin(roomId, user.id, socket.id);
+
       if (presence) {
         io.to(`room:${roomId}`).to(roomId).emit('presence:update', {
           roomId,
@@ -153,12 +187,14 @@ io.on('connection', (socket) => {
   });
 
   /**
-   * live:left — user leaves the live call (US-ROOM-02 AC-3)
+   * live:left — user leaves the live call (US-ROOM-02 AC-3, US-LIVE-07 AC-4)
    */
-  socket.on('live:left', (payload: any, ack?: (res: any) => void) => {
+  socket.on('live:left', async (payload: any, ack?: (res: any) => void) => {
     const roomId = extractRoomId(payload);
     if (roomId && user?.id) {
       const presence = setUserLiveStatus(roomId, user.id, false);
+      await recordLiveLeave(roomId, user.id, socket.id);
+
       if (presence) {
         io.to(`room:${roomId}`).to(roomId).emit('presence:update', {
           roomId,
@@ -300,8 +336,10 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('disconnect', (reason) => {
+  socket.on('disconnect', async (reason) => {
     console.log(`[Socket] User disconnected: ${user?.fullName} (${user?.id}) - Reason: ${reason}`);
+    await recordSocketDisconnect(socket.id);
+
     const affectedRooms = handleSocketDisconnect(socket.id);
     for (const { roomId, presence } of affectedRooms) {
       io.to(`room:${roomId}`).to(roomId).emit('presence:update', {

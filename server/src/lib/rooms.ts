@@ -55,15 +55,18 @@ const mockRoomsStore = new Map<string, RoomSummary[]>();
 const mockCatalogStore = new Map<string, { id: string; name: string; description: string | null; joinCode: string; hostName: string }>();
 const mockSessionsStore = new Map<string, Session>();
 
-export interface MockAttendanceRecord {
-  id: number;
-  sessionId: string;
-  roomId: string;
-  userId: string;
-  joinedAt: string;
-  leftAt: string | null;
-}
-const mockAttendanceStore: MockAttendanceRecord[] = [];
+export {
+  MockAttendanceRecord,
+  getMockAttendance,
+  clearMockAttendance,
+  addMockAttendance,
+  closeAllSessionAttendance,
+} from './attendance';
+
+import {
+  clearMockAttendance,
+  closeAllSessionAttendance,
+} from './attendance';
 
 export function setMockRooms(userId: string, rooms: RoomSummary[]) {
   mockRoomsStore.set(userId, rooms);
@@ -77,25 +80,13 @@ export function getMockSessions(): Map<string, Session> {
   return mockSessionsStore;
 }
 
-export function getMockAttendance(): MockAttendanceRecord[] {
-  return mockAttendanceStore;
-}
-
-export function clearMockAttendance() {
-  mockAttendanceStore.length = 0;
-}
-
-export function addMockAttendance(rec: MockAttendanceRecord) {
-  mockAttendanceStore.push(rec);
-}
-
 export function clearMockRooms(userId?: string) {
   if (userId) {
     mockRoomsStore.delete(userId);
   } else {
     mockRoomsStore.clear();
     mockSessionsStore.clear();
-    mockAttendanceStore.length = 0;
+    clearMockAttendance();
   }
 }
 
@@ -1658,12 +1649,8 @@ export async function endSession(
     }
     mockSessionsStore.set(currentSessionId, session);
 
-    // Close all open mock attendance records
-    for (const att of mockAttendanceStore) {
-      if (att.sessionId === currentSessionId && att.leftAt === null) {
-        att.leftAt = endedAt;
-      }
-    }
+    // Close all open attendance records
+    await closeAllSessionAttendance(currentSessionId, endedAt);
 
     await deleteLivekitRoom(`linkup-${currentSessionId}`);
     return session;
@@ -1721,12 +1708,8 @@ export async function endSession(
     }
     mockSessionsStore.set(currentSessionId, session);
 
-    // Close all open mock attendance records
-    for (const att of mockAttendanceStore) {
-      if (att.sessionId === currentSessionId && att.leftAt === null) {
-        att.leftAt = endedAt;
-      }
-    }
+    // Close all open attendance records
+    await closeAllSessionAttendance(currentSessionId, endedAt);
 
     await deleteLivekitRoom(`linkup-${currentSessionId}`);
     return session;
@@ -1817,24 +1800,7 @@ export async function endSession(
   }
 
   // 2. Close all open attendance records (US-ATT-05, FR-6.5)
-  try {
-    await supabase.rpc('close_session_attendance', {
-      p_session: activeSession.id,
-      p_at: endedAt,
-    });
-  } catch (rpcErr) {
-    console.warn('[Session Service] close_session_attendance RPC failed, using fallback update:', rpcErr);
-  }
-
-  try {
-    await supabase
-      .from('attendance')
-      .update({ left_at: endedAt })
-      .eq('session_id', activeSession.id)
-      .is('left_at', null);
-  } catch (attErr) {
-    console.warn('[Session Service] Error updating open attendance records:', attErr);
-  }
+  await closeAllSessionAttendance(activeSession.id, endedAt);
 
   // 3. Delete LiveKit room
   const livekitRoomName = activeSession.livekit_room || `linkup-${activeSession.id}`;

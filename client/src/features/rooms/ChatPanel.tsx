@@ -12,13 +12,14 @@ interface Message {
 
 interface ChatPanelProps {
   roomId: string;
+  disabled?: boolean;
 }
 
 /**
  * ChatPanel — sidebar chat for the room.
  * Real-time sync via Socket.IO events will be wired in a future story.
  */
-export const ChatPanel: React.FC<ChatPanelProps> = ({ roomId }) => {
+export const ChatPanel: React.FC<ChatPanelProps> = ({ roomId, disabled = false }) => {
   const { fullName } = useAuth();
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -98,18 +99,23 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ roomId }) => {
         <div className="flex items-end gap-2">
           <textarea
             id={`room-chat-input-${roomId}`}
+            data-testid="room-chat-input"
             value={draft}
+            disabled={disabled}
             onChange={e => setDraft(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Type a message…"
+            placeholder={disabled ? 'Reconnecting... chat is temporarily disabled' : 'Type a message…'}
             rows={1}
-            className="flex-1 resize-none rounded-xl px-3 py-2 text-xs glass-input focus:outline-none focus:ring-2 focus:ring-indigo-500 max-h-24 leading-relaxed"
+            className={`flex-1 resize-none rounded-xl px-3 py-2 text-xs glass-input focus:outline-none focus:ring-2 focus:ring-indigo-500 max-h-24 leading-relaxed ${
+              disabled ? 'opacity-50 cursor-not-allowed bg-slate-100 dark:bg-slate-800/40 select-none' : ''
+            }`}
           />
           <button
             id={`room-chat-send-${roomId}`}
+            data-testid="room-chat-send"
             onClick={sendMessage}
-            disabled={!draft.trim()}
-            title="Send message"
+            disabled={disabled || !draft.trim()}
+            title={disabled ? 'Reconnecting...' : 'Send message'}
             className="w-8 h-8 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white flex items-center justify-center transition-all shrink-0 focus:outline-none focus:ring-2 focus:ring-indigo-500"
           >
             <Send className="w-3.5 h-3.5" />
