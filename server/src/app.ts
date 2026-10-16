@@ -487,6 +487,8 @@ app.patch('/api/rooms/:roomId/members/:userId/permissions', async (req: Request,
     patch.canCode = Boolean(body.canCode ?? body.permissions?.canCode ?? body.can_code);
   }
 
+  // Only the room host may change a member's permissions; the service layer enforces this
+  // before the socket broadcast so clients stay aligned with the canonical room state.
   try {
     const result = await updateMemberPermissions(user.id, roomId, targetUserId, patch);
 
