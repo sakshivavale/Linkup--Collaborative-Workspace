@@ -404,8 +404,8 @@
 > As a **room member**, I want to see the sender's name, a Teacher badge (if applicable), and the message timestamp so that I know who said what and when.
 
 **Acceptance Criteria:**
-- [ ] Each message shows: sender full name, timestamp, and a **"Teacher"** role badge if the sender has the `teacher` role.
-- [ ] Timestamps are displayed in the user's local time.
+- [x] Each message shows: sender full name, timestamp, and a **"Teacher"** role badge if the sender has the `teacher` role.
+- [x] Timestamps are displayed in the user's local time.
 
 ---
 
