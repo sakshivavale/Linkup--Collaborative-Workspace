@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
-import { RoomSummary, Room, Permissions, MemberRole, CreateRoomDto, CreateRoomResponseDto, UpdateRoomDto, Session } from '@linkup/shared';
+import { RoomSummary, Room, Permissions, MemberRole, CreateRoomDto, CreateRoomResponseDto, UpdateRoomDto, Session, Member } from '@linkup/shared';
+import { getActiveScreenShare } from '../realtime/screenShare';
 import { deleteLivekitRoom } from './livekit';
 
 /**
@@ -481,6 +482,7 @@ export async function getRoomForUser(
     createdAt: room.created_at,
     members,
     presence: getRoomPresence(room.id),
+    activeScreenShare: getActiveScreenShare(room.id),
   };
 }
 
@@ -749,6 +751,178 @@ export async function removeRoomMember(
       .eq('user_id', normalizedTargetUserId)
       .is('left_at', null);
   }
+}
+
+/**
+ * Update a member's permissions in a room (host only).
+ * Traces to FR-3.5, US-LIVE-04, architecture doc 5.3.
+ */
+export async function updateMemberPermissions(
+  requesterUserId: string,
+  roomId: string,
+  targetUserId: string,
+  patch: Partial<Permissions>
+): Promise<{ member: Member; permissions: Permissions }> {
+  const normalizedRoomId = roomId?.trim();
+  const normalizedRequester = requesterUserId?.trim();
+  const normalizedTarget = targetUserId?.trim();
+
+  if (!normalizedRoomId || !normalizedRequester || !normalizedTarget) {
+    const error: any = new Error('Room ID, requester ID, and target member ID are required');
+    error.code = 'VALIDATION';
+    error.status = 400;
+    throw error;
+  }
+
+  // Check mock store
+  const mockRoomLists = Array.from(mockRoomsStore.values());
+  const isMockRoomKnown = mockRoomLists.some((rooms) => rooms.some((room) => room.id === normalizedRoomId));
+
+  if (isMockRoomKnown) {
+    const hostRoom = (mockRoomsStore.get(normalizedRequester) || []).find((room) => room.id === normalizedRoomId);
+    if (!hostRoom || hostRoom.myRole !== 'host') {
+      const error: any = new Error('Only the room host can update member permissions');
+      error.code = 'HOST_ONLY';
+      error.status = 403;
+      throw error;
+    }
+
+    if (normalizedRequester === normalizedTarget) {
+      const error: any = new Error('The host always retains full permissions');
+      error.code = 'FORBIDDEN';
+      error.status = 403;
+      throw error;
+    }
+
+    let targetMember: Member | null = null;
+    let updatedPermissions: Permissions | null = null;
+
+    for (const [userId, rooms] of mockRoomsStore.entries()) {
+      for (const room of rooms) {
+        if (room.id === normalizedRoomId && room.members) {
+          const m = room.members.find((item) => item.userId === normalizedTarget);
+          if (m) {
+            m.permissions = {
+              ...m.permissions,
+              ...(patch.canMic !== undefined && { canMic: Boolean(patch.canMic) }),
+              ...(patch.canCamera !== undefined && { canCamera: Boolean(patch.canCamera) }),
+              ...(patch.canScreen !== undefined && { canScreen: Boolean(patch.canScreen) }),
+              ...(patch.canWhiteboard !== undefined && { canWhiteboard: Boolean(patch.canWhiteboard) }),
+              ...(patch.canCode !== undefined && { canCode: Boolean(patch.canCode) }),
+            };
+            targetMember = m;
+            updatedPermissions = m.permissions;
+          }
+        }
+      }
+    }
+
+    if (!targetMember || !updatedPermissions) {
+      const error: any = new Error('Member not found in room');
+      error.code = 'NOT_FOUND';
+      error.status = 404;
+      throw error;
+    }
+
+    return { member: targetMember, permissions: updatedPermissions };
+  }
+
+  // Database path
+  const { data: room, error: roomError } = await supabase
+    .from('rooms')
+    .select('id, owner_id')
+    .eq('id', normalizedRoomId)
+    .maybeSingle();
+
+  if (roomError) {
+    console.warn('[Rooms Service] Error verifying room for permissions update:', roomError.message);
+    throw new Error(roomError.message);
+  }
+
+  if (!room) {
+    const error: any = new Error('Room not found');
+    error.code = 'ROOM_NOT_FOUND';
+    error.status = 404;
+    throw error;
+  }
+
+  if (normalizedRequester !== room.owner_id) {
+    const error: any = new Error('Only the room host can update member permissions');
+    error.code = 'HOST_ONLY';
+    error.status = 403;
+    throw error;
+  }
+
+  if (normalizedTarget === room.owner_id) {
+    const error: any = new Error('The host always retains full permissions');
+    error.code = 'FORBIDDEN';
+    error.status = 403;
+    throw error;
+  }
+
+  const { data: memberRow, error: memberError } = await supabase
+    .from('room_members')
+    .select('user_id, member_role, created_at, can_mic, can_camera, can_screen, can_whiteboard, can_code')
+    .eq('room_id', normalizedRoomId)
+    .eq('user_id', normalizedTarget)
+    .maybeSingle();
+
+  if (memberError) {
+    console.warn('[Rooms Service] Error fetching room member for permission update:', memberError.message);
+    throw new Error(memberError.message);
+  }
+
+  if (!memberRow) {
+    const error: any = new Error('Member not found in room');
+    error.code = 'NOT_FOUND';
+    error.status = 404;
+    throw error;
+  }
+
+  const dbUpdates: any = {};
+  if (patch.canMic !== undefined) dbUpdates.can_mic = Boolean(patch.canMic);
+  if (patch.canCamera !== undefined) dbUpdates.can_camera = Boolean(patch.canCamera);
+  if (patch.canScreen !== undefined) dbUpdates.can_screen = Boolean(patch.canScreen);
+  if (patch.canWhiteboard !== undefined) dbUpdates.can_whiteboard = Boolean(patch.canWhiteboard);
+  if (patch.canCode !== undefined) dbUpdates.can_code = Boolean(patch.canCode);
+
+  const { data: updatedRow, error: updateError } = await supabase
+    .from('room_members')
+    .update(dbUpdates)
+    .eq('room_id', normalizedRoomId)
+    .eq('user_id', normalizedTarget)
+    .select('user_id, member_role, created_at, can_mic, can_camera, can_screen, can_whiteboard, can_code')
+    .single();
+
+  if (updateError) {
+    console.warn('[Rooms Service] Error updating member permissions:', updateError.message);
+    throw new Error(updateError.message);
+  }
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('id, full_name, role')
+    .eq('id', normalizedTarget)
+    .maybeSingle();
+
+  const permissions: Permissions = {
+    canMic: Boolean(updatedRow.can_mic),
+    canCamera: Boolean(updatedRow.can_camera),
+    canScreen: Boolean(updatedRow.can_screen),
+    canWhiteboard: Boolean(updatedRow.can_whiteboard),
+    canCode: Boolean(updatedRow.can_code),
+  };
+
+  const member: Member = {
+    userId: updatedRow.user_id,
+    fullName: profile?.full_name || 'Participant',
+    userRole: profile?.role || 'student',
+    memberRole: updatedRow.member_role,
+    permissions,
+    joinedAt: updatedRow.created_at,
+  };
+
+  return { member, permissions };
 }
 
 /**

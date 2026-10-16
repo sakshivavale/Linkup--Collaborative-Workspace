@@ -313,11 +313,11 @@
 > As a **user with screen-share permission**, I want to share my screen/window/tab so that others can follow along.
 
 **Acceptance Criteria:**
-- [ ] The screen-share button is enabled only if `can_screen = true` (or the user is the host).
-- [ ] A screen share appears as the focused tile for all participants; other tiles move to a strip below.
-- [ ] Only one screen share is active at a time.
-- [ ] If `can_screen` is revoked while sharing, the share stops immediately for all viewers.
-- [ ] Hovering over a disabled screen-share button shows a tooltip explaining why.
+- [x] The screen-share button is enabled only if `can_screen = true` (or the user is the host).
+- [x] A screen share appears as the focused tile for all participants; other tiles move to a strip below.
+- [x] Only one screen share is active at a time.
+- [x] If `can_screen` is revoked while sharing, the share stops immediately for all viewers.
+- [x] Hovering over a disabled screen-share button shows a tooltip explaining why.
 
 ---
 
