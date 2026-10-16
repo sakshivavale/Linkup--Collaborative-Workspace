@@ -15,6 +15,9 @@ import {
   RefreshCw,
   Edit3,
   Clock,
+  PhoneOff,
+  Info,
+  X,
 } from 'lucide-react';
 import { Session } from '@linkup/shared';
 import { useRoom } from './useRoom';
@@ -26,6 +29,8 @@ import { PeoplePanel } from './PeoplePanel';
 import { EditRoomModal } from '../dashboard/EditRoomModal';
 import { api, HttpError } from '../../lib/api';
 import { socket } from '../../lib/socket';
+import { useAuth } from '../../context/AuthContext';
+import { PermissionToastContainer } from './PermissionToast';
 
 // ─── Tab & sidebar definitions ───────────────────────────────────────────────
 type MainTab = 'live' | 'whiteboard' | 'code';
@@ -37,21 +42,26 @@ const MAIN_TABS: { key: MainTab; label: string; Icon: React.FC<{ className?: str
   { key: 'code',       label: 'Code',        Icon: Code2    },
 ];
 
-const SIDE_TABS: { key: SideTab; label: string; Icon: React.FC<{ className?: string }> }[] = [
+const getSideTabs = (isHost: boolean): { key: SideTab; label: string; Icon: React.FC<{ className?: string }> }[] => [
   { key: 'chat',   label: 'Chat',   Icon: MessageSquare },
-  { key: 'people', label: 'People', Icon: Users         },
+  { key: 'people', label: isHost ? 'Participants' : 'People', Icon: Users },
 ];
 
 // ─── RoomPage ─────────────────────────────────────────────────────────────────
 export const RoomPage: React.FC = () => {
   const { id: roomId } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
 
-  const { room, loading, error } = useRoom(roomId);
+  const { room, setRoom, loading, error } = useRoom(roomId);
+  const currentMember = room?.members?.find((m) => m.userId === user?.id);
 
   const [mainTab, setMainTab] = useState<MainTab>('live');
   const [sideTab, setSideTab] = useState<SideTab>('chat');
   const [sidebarOpen, setSidebarOpen] = useState(true);
+
+  // US-LIVE-07: Auto-reconnect state on Socket.IO or network drop
+  const [isReconnecting, setIsReconnecting] = useState(false);
 
   const [currentJoinCode, setCurrentJoinCode] = useState<string | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
@@ -59,9 +69,12 @@ export const RoomPage: React.FC = () => {
   const [regenerated, setRegenerated] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
-  // US-LIVE-01: Session state & timer
+  // US-LIVE-01 & US-LIVE-05 & US-LIVE-06: Session state, inCall state & timer
   const [activeSession, setActiveSession] = useState<Session | null>(null);
+  const [isInCall, setIsInCall] = useState(false);
   const [isStartingSession, setIsStartingSession] = useState(false);
+  const [isEndingSession, setIsEndingSession] = useState(false);
+  const [sessionEnded, setSessionEnded] = useState(false);
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
@@ -145,6 +158,8 @@ export const RoomPage: React.FC = () => {
     try {
       const session = await api.post<Session>(`/api/rooms/${roomId}/sessions`);
       setActiveSession(session);
+      setSessionEnded(false);
+      setIsInCall(true);
       if (room) {
         room.activeSessionId = session.id;
       }
@@ -161,34 +176,124 @@ export const RoomPage: React.FC = () => {
     }
   };
 
+  // US-LIVE-05 Acceptance Criteria 1 & 2: End session handler (Host only)
+  const handleEndSession = async () => {
+    if (!roomId || isEndingSession) return;
+    setIsEndingSession(true);
+    setSessionError(null);
+    try {
+      const sessId = activeSession?.id;
+      const url = sessId
+        ? `/api/rooms/${roomId}/sessions/${sessId}/end`
+        : `/api/rooms/${roomId}/sessions/end`;
+      await api.post<Session>(url);
+      setActiveSession(null);
+      setSessionEnded(true);
+      setIsInCall(false);
+      if (room) {
+        room.activeSessionId = null;
+      }
+      // Return to non-live view if currently on live tab (US-LIVE-05 AC-3)
+      setMainTab((prev) => (prev === 'live' ? 'whiteboard' : prev));
+    } catch (err: any) {
+      console.error('[RoomPage] Error ending session:', err);
+      setSessionError(err?.message || 'Failed to end session');
+      setTimeout(() => setSessionError(null), 4000);
+    } finally {
+      setIsEndingSession(false);
+    }
+  };
+
   useEffect(() => {
     if (room?.joinCode) {
       setCurrentJoinCode(room.joinCode);
     }
   }, [room?.joinCode]);
 
-  // Join Room Socket.IO channel for real-time presence, chat, and room updates (US-ROOM-02, FR-2.4)
+  // US-LIVE-07: Auto-reconnect on network drop & sync from room:join snapshot (FR-3.8)
   useEffect(() => {
     if (!roomId) return;
+
+    const syncRoomSnapshot = (snapshot: any) => {
+      if (!snapshot) return;
+      if (snapshot.room) {
+        setRoom(snapshot.room);
+      }
+      if (snapshot.session !== undefined) {
+        setActiveSession(snapshot.session);
+        if (snapshot.session) {
+          setSessionEnded(false);
+        }
+      }
+      if (snapshot.screenShare !== undefined && room) {
+        room.activeScreenShare = snapshot.screenShare;
+      }
+      if (snapshot.joinCode) {
+        setCurrentJoinCode(snapshot.joinCode);
+      }
+    };
+
+    const handleDisconnect = (reason: string) => {
+      console.warn('[RoomPage] Socket disconnected / network dropped:', reason);
+      setIsReconnecting(true);
+    };
+
+    const handleConnectError = (err: any) => {
+      console.warn('[RoomPage] Socket connect_error:', err?.message || err);
+      setIsReconnecting(true);
+    };
+
+    const handleConnect = () => {
+      console.log('[RoomPage] Socket connected / reconnected. Syncing state from room:join snapshot...');
+      socket.emit('room:join', { roomId }, (res: any) => {
+        const snapshot = res?.snapshot || res?.data;
+        syncRoomSnapshot(snapshot);
+
+        // US-LIVE-07 AC-4: If in live call, re-emit live:joined to cancel grace timer & reuse open attendance record
+        if (isInCall) {
+          socket.emit('live:joined', { roomId });
+        }
+
+        // US-LIVE-07 AC-3: Within 15 seconds of reconnection, banner disappears and full state is synced
+        setIsReconnecting(false);
+      });
+    };
+
+    const handleOffline = () => {
+      console.warn('[RoomPage] Browser offline event detected');
+      setIsReconnecting(true);
+    };
+
+    const handleOnline = () => {
+      console.log('[RoomPage] Browser online restored. Reconnecting socket...');
+      if (!socket.connected) {
+        socket.connect();
+      }
+    };
 
     if (!socket.connected) {
       socket.connect();
     }
 
-    const joinRoomChannel = () => {
-      socket.emit('room:join', roomId);
-    };
-
     if (socket.connected) {
-      joinRoomChannel();
+      handleConnect();
     }
-    socket.on('connect', joinRoomChannel);
+
+    socket.on('disconnect', handleDisconnect);
+    socket.on('connect_error', handleConnectError);
+    socket.on('connect', handleConnect);
+    window.addEventListener('offline', handleOffline);
+    window.addEventListener('online', handleOnline);
 
     return () => {
-      socket.off('connect', joinRoomChannel);
+      socket.off('disconnect', handleDisconnect);
+      socket.off('connect_error', handleConnectError);
+      socket.off('connect', handleConnect);
+      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('online', handleOnline);
       socket.emit('room:leave', roomId);
     };
-  }, [roomId]);
+  }, [roomId, isInCall, room, setRoom]);
 
   useEffect(() => {
     const handleJoinCodeUpdated = (data: { roomId: string; joinCode: string }) => {
@@ -215,18 +320,24 @@ export const RoomPage: React.FC = () => {
     const handleSessionStarted = (data: { roomId: string; session: Session }) => {
       if (data.roomId === roomId) {
         setActiveSession(data.session);
+        setSessionEnded(false);
         if (room) {
           room.activeSessionId = data.session.id;
         }
       }
     };
 
+    // US-LIVE-05 Acceptance Criteria 2 & 3: session:ended broadcast handler
     const handleSessionEnded = (data: { roomId: string; sessionId: string }) => {
       if (data.roomId === roomId) {
         setActiveSession(null);
+        setSessionEnded(true);
+        setIsInCall(false);
         if (room) {
           room.activeSessionId = null;
         }
+        // US-LIVE-05 AC-3: All participants return to the room's non-live view
+        setMainTab((prev) => (prev === 'live' ? 'whiteboard' : prev));
       }
     };
 
@@ -328,6 +439,20 @@ export const RoomPage: React.FC = () => {
   // ── Main room workspace ────────────────────────────────────────────────────
   return (
     <div className="flex flex-col flex-1 h-full overflow-hidden">
+      {/* US-LIVE-07 Acceptance Criteria 1: A top-of-screen "Reconnecting..." banner appears when the connection drops */}
+      {isReconnecting && (
+        <aside
+          id="reconnecting-banner"
+          data-testid="reconnecting-banner"
+          role="alert"
+          aria-live="assertive"
+          className="shrink-0 bg-amber-500 text-slate-950 font-bold px-4 py-2 text-xs sm:text-sm flex items-center justify-center gap-2 shadow-md animate-pulse z-50 border-b border-amber-600/30"
+        >
+          <RefreshCw className="w-4 h-4 animate-spin text-slate-950 shrink-0" />
+          <span>Reconnecting... Network connection dropped. Re-syncing room state.</span>
+        </aside>
+      )}
+
       {/* ── Room Header ─────────────────────────────────────────────────────── */}
       <header className="shrink-0 border-b border-slate-200/80 dark:border-slate-800/70 bg-white/70 dark:bg-slate-950/70 backdrop-blur-sm px-4 sm:px-6 py-3 flex items-center gap-3 z-10">
         <Link
@@ -376,8 +501,8 @@ export const RoomPage: React.FC = () => {
             {activeSession ? 'Live' : 'Idle'}
           </div>
 
-          {/* US-LIVE-01 Acceptance Criteria 4: Session timer in header counting from 00:00 */}
-          {activeSession && (
+          {/* US-LIVE-01 & US-LIVE-05: Session timer in header stops and is replaced with "Session ended" */}
+          {activeSession ? (
             <div
               id="room-header-session-timer"
               data-testid="room-header-session-timer"
@@ -387,7 +512,17 @@ export const RoomPage: React.FC = () => {
               <Clock className="w-3.5 h-3.5 animate-pulse text-red-500" />
               <span>{formatTimer(elapsedSeconds)}</span>
             </div>
-          )}
+          ) : sessionEnded ? (
+            <div
+              id="room-header-session-timer"
+              data-testid="room-header-session-timer"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 font-mono text-xs font-semibold shrink-0 animate-fade-in"
+              title="Session ended"
+            >
+              <Clock className="w-3.5 h-3.5 text-slate-400" />
+              <span>Session ended</span>
+            </div>
+          ) : null}
 
           {/* US-LIVE-01 Acceptance Criteria 1: Start Session button for host when no session is active */}
           {room.myRole === 'host' && !activeSession && (
@@ -396,9 +531,9 @@ export const RoomPage: React.FC = () => {
               data-testid="room-header-start-session-btn"
               type="button"
               onClick={handleStartSession}
-              disabled={isStartingSession}
+              disabled={isStartingSession || isReconnecting}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 shadow-sm shadow-red-500/20 active:scale-95 disabled:opacity-50 transition-all shrink-0 cursor-pointer"
-              title="Start live session"
+              title={isReconnecting ? 'Reconnecting...' : 'Start live session'}
               aria-label="Start live session"
             >
               {isStartingSession ? (
@@ -412,6 +547,52 @@ export const RoomPage: React.FC = () => {
                   <span>Start Session</span>
                 </>
               )}
+            </button>
+          )}
+
+          {/* US-LIVE-05 Acceptance Criteria 1: End Session button visible for host during active session */}
+          {room.myRole === 'host' && activeSession && (
+            <button
+              id="room-header-end-session-btn"
+              data-testid="room-header-end-session-btn"
+              type="button"
+              onClick={handleEndSession}
+              disabled={isEndingSession || isReconnecting}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-rose-700 to-red-700 hover:from-rose-600 hover:to-red-600 shadow-sm shadow-red-500/20 active:scale-95 disabled:opacity-50 transition-all shrink-0 cursor-pointer"
+              title={isReconnecting ? 'Reconnecting...' : 'End live session'}
+              aria-label="End live session"
+            >
+              {isEndingSession ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Ending…</span>
+                </>
+              ) : (
+                <>
+                  <PhoneOff className="w-3.5 h-3.5 text-rose-200" />
+                  <span>End Session</span>
+                </>
+              )}
+            </button>
+          )}
+
+          {/* US-LIVE-06 Acceptance Criteria 3: Host can re-join the call using the Join Live button */}
+          {activeSession && !isInCall && (
+            <button
+              id="room-header-join-live-btn"
+              data-testid="room-header-join-live-btn"
+              type="button"
+              disabled={isReconnecting}
+              onClick={() => {
+                setIsInCall(true);
+                setMainTab('live');
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 shadow-sm shadow-emerald-500/20 active:scale-95 disabled:opacity-50 transition-all shrink-0 cursor-pointer"
+              title={isReconnecting ? 'Reconnecting...' : 'Join live call'}
+              aria-label="Join Live"
+            >
+              <Radio className="w-3.5 h-3.5 animate-pulse" />
+              <span>Join Live</span>
             </button>
           )}
 
@@ -453,8 +634,9 @@ export const RoomPage: React.FC = () => {
                 id="room-header-copy-code-btn"
                 data-testid="room-header-copy-code-btn"
                 type="button"
+                disabled={isReconnecting}
                 onClick={handleCopyJoinCode}
-                className="text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 p-0.5 rounded transition-colors active:scale-90"
+                className="text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 p-0.5 rounded transition-colors active:scale-90 disabled:opacity-50"
                 title={copiedCode ? 'Copied!' : 'Copy join code'}
                 aria-label="Copy join code"
               >
@@ -474,7 +656,7 @@ export const RoomPage: React.FC = () => {
                 data-testid="room-header-regenerate-code-btn"
                 type="button"
                 onClick={handleRegenerateCode}
-                disabled={isRegenerating}
+                disabled={isRegenerating || isReconnecting}
                 className="text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 p-0.5 rounded transition-colors active:scale-90 disabled:opacity-50 ml-0.5"
                 title={isRegenerating ? 'Regenerating code...' : 'Regenerate Code'}
                 aria-label="Regenerate Code"
@@ -500,6 +682,34 @@ export const RoomPage: React.FC = () => {
           <MessageSquare className="w-4 h-4" />
         </button>
       </header>
+
+      {/* US-LIVE-05 Acceptance Criteria 3: All participants see a "Session has ended" message */}
+      {sessionEnded && (
+        <div
+          id="room-session-ended-notice"
+          data-testid="room-session-ended-notice"
+          className="shrink-0 bg-amber-500/10 dark:bg-amber-500/15 border-b border-amber-500/30 text-amber-800 dark:text-amber-200 px-4 sm:px-6 py-2.5 text-xs font-medium flex items-center justify-between z-10 transition-all animate-fade-in"
+        >
+          <div className="flex items-center gap-2">
+            <Info className="w-4 h-4 text-amber-500 shrink-0" />
+            <span className="font-semibold">Session has ended</span>
+            <span className="text-amber-600/80 dark:text-amber-400/80 hidden sm:inline">
+              — The host has ended the live call. You have been returned to the workspace.
+            </span>
+          </div>
+          <button
+            id="room-dismiss-ended-notice-btn"
+            data-testid="room-dismiss-ended-notice-btn"
+            type="button"
+            onClick={() => setSessionEnded(false)}
+            className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-300 hover:text-amber-900 dark:hover:text-amber-100 text-xs font-semibold px-2 py-0.5 rounded hover:bg-amber-500/20 transition-colors cursor-pointer"
+            aria-label="Dismiss message"
+          >
+            <X className="w-3.5 h-3.5" />
+            <span>Dismiss</span>
+          </button>
+        </div>
+      )}
 
       {/* ── Main tab bar ────────────────────────────────────────────────────── */}
       <nav
@@ -534,9 +744,30 @@ export const RoomPage: React.FC = () => {
           id={`room-tab-panel-${mainTab}`}
           role="tabpanel"
         >
-          {mainTab === 'live'       && <LiveTab       roomId={roomId!} sessionId={activeSession?.id ?? null} />}
-          {mainTab === 'whiteboard' && <WhiteboardTab roomId={roomId!} />}
-          {mainTab === 'code'       && <CodeTab       roomId={roomId!} />}
+          <div className={mainTab === 'live' ? 'h-full' : 'hidden'}>
+            <LiveTab
+              roomId={roomId!}
+              sessionId={activeSession?.id ?? null}
+              inCall={isInCall}
+              onJoinCall={() => setIsInCall(true)}
+              onLeaveCall={() => setIsInCall(false)}
+              isHost={room.myRole === 'host'}
+              disabled={isReconnecting}
+              isReconnecting={isReconnecting}
+            />
+          </div>
+          {mainTab === 'whiteboard' && (
+            <WhiteboardTab
+              roomId={roomId!}
+              canWhiteboard={room.myRole === 'host' || Boolean(currentMember?.permissions?.canWhiteboard ?? true)}
+            />
+          )}
+          {mainTab === 'code' && (
+            <CodeTab
+              roomId={roomId!}
+              canCode={room.myRole === 'host' || Boolean(currentMember?.permissions?.canCode ?? true)}
+            />
+          )}
         </main>
 
         {/* Sidebar */}
@@ -551,10 +782,11 @@ export const RoomPage: React.FC = () => {
               className="shrink-0 flex border-b border-slate-200/70 dark:border-slate-800/70"
               aria-label="Room sidebar tabs"
             >
-              {SIDE_TABS.map(({ key, label, Icon }) => (
+              {getSideTabs(room?.myRole === 'host').map(({ key, label, Icon }) => (
                 <button
                   key={key}
                   id={`room-sidebar-tab-${key}`}
+                  data-testid={`room-sidebar-tab-${key}`}
                   onClick={() => setSideTab(key)}
                   className={`flex-1 inline-flex items-center justify-center gap-1.5 py-3 text-xs font-semibold border-b-2 transition-all focus:outline-none ${
                     sideTab === key
@@ -572,7 +804,7 @@ export const RoomPage: React.FC = () => {
 
             {/* Sidebar panel content */}
             <div className="flex-1 overflow-hidden">
-              {sideTab === 'chat'   && <ChatPanel   roomId={roomId!} />}
+              {sideTab === 'chat' && <ChatPanel roomId={roomId!} disabled={isReconnecting} />}
               {sideTab === 'people' && (
                 <PeoplePanel 
                   room={room} 
@@ -603,6 +835,13 @@ export const RoomPage: React.FC = () => {
           }}
         />
       )}
+
+      {/* US-PERM-03: Real-time non-blocking permission change toast notification (FR-4.4) */}
+      <PermissionToastContainer
+        roomId={roomId}
+        currentUserId={user?.id}
+        initialPermissions={currentMember?.permissions || null}
+      />
     </div>
   );
 };

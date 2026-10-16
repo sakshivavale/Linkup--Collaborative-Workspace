@@ -68,6 +68,7 @@ export interface RoomSummary {
   createdAt: string;
   members?: Member[];
   presence?: PresenceEntry[];
+  activeScreenShare?: ActiveScreenShare | null;
 }
 
 export interface Room extends RoomSummary {
@@ -148,6 +149,47 @@ export interface ChatMessage {
   senderRole: UserRole;
   body: string;
   createdAt: string;
+  clientId?: string;
+  status?: 'sending' | 'confirmed' | 'failed';
+}
+
+export interface ChatHistoryResponse {
+  messages: ChatMessage[];
+  hasMore: boolean;
+}
+
+export interface ActiveScreenShare {
+  roomId: string;
+  userId: string;
+  userName: string;
+  startedAt: string;
+}
+
+export interface ScreenStartedPayload {
+  roomId: string;
+  userId: string;
+  userName: string;
+}
+
+export interface ScreenStoppedPayload {
+  roomId: string;
+  userId?: string;
+  reason?: 'USER_STOPPED' | 'PERMISSION_REVOKED' | 'DISCONNECTED';
+}
+
+export interface UpdatePermissionsDto {
+  canMic?: boolean;
+  canCamera?: boolean;
+  canScreen?: boolean;
+  canWhiteboard?: boolean;
+  canCode?: boolean;
+}
+
+export interface PermChangedPayload {
+  roomId: string;
+  userId: string;
+  permissions: Permissions;
+  by: string;
 }
 
 export interface CodeState {
@@ -170,6 +212,7 @@ export interface ApiError {
     | 'ROOM_NOT_FOUND'
     | 'SESSION_ACTIVE'
     | 'NO_ACTIVE_SESSION'
+    | 'SCREEN_SHARE_ACTIVE'
     | 'PAYLOAD_TOO_LARGE'
     | 'RATE_LIMITED'
     | 'EXECUTION_UNAVAILABLE'
@@ -181,3 +224,79 @@ export interface ApiError {
 export interface ApiErrorResponse {
   error: ApiError;
 }
+
+/** US-LIVE-07 & FR-3.8: Full room state snapshot returned on room:join */
+export interface RoomSnapshot {
+  roomId: string;
+  room?: RoomSummary | null;
+  me?: Member | null;
+  members?: Member[];
+  presence?: PresenceEntry[];
+  session?: Session | null;
+  screenShare?: ActiveScreenShare | null;
+  code?: CodeState;
+  board?: { elements: unknown[] };
+}
+
+/**
+ * US-PERM-03: Descriptive user notification toast message for permission change (FR-4.4)
+ */
+export function getPermissionChangeMessage(key: PermissionKey, granted: boolean): string {
+  if (granted) {
+    switch (key) {
+      case 'canMic':
+        return 'You can now use your microphone.';
+      case 'canCamera':
+        return 'You can now use your camera.';
+      case 'canScreen':
+        return 'You can now share your screen.';
+      case 'canWhiteboard':
+        return 'You can now edit the whiteboard.';
+      case 'canCode':
+        return 'You can now edit code.';
+    }
+  } else {
+    switch (key) {
+      case 'canMic':
+        return 'Teacher turned off your microphone.';
+      case 'canCamera':
+        return 'Teacher turned off your camera.';
+      case 'canScreen':
+        return 'Teacher turned off your screen sharing.';
+      case 'canWhiteboard':
+        return 'Teacher turned off your whiteboard access.';
+      case 'canCode':
+        return 'Teacher turned off your code editor access.';
+    }
+  }
+}
+
+export interface PermissionDiff {
+  key: PermissionKey;
+  granted: boolean;
+  message: string;
+}
+
+/**
+ * US-PERM-03: Computes diff between previous permissions and new permissions
+ */
+export function diffPermissions(
+  prev: Partial<Permissions> | null | undefined,
+  next: Permissions
+): PermissionDiff[] {
+  if (!prev) return [];
+  const diffs: PermissionDiff[] = [];
+  for (const key of PERMISSION_KEYS) {
+    const prevVal = Boolean(prev[key]);
+    const nextVal = Boolean(next[key]);
+    if (prevVal !== nextVal) {
+      diffs.push({
+        key,
+        granted: nextVal,
+        message: getPermissionChangeMessage(key, nextVal),
+      });
+    }
+  }
+  return diffs;
+}
+

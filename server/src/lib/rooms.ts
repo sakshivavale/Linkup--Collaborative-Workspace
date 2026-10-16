@@ -1,10 +1,22 @@
 import { supabase } from './supabase';
-import { RoomSummary, Room, Permissions, MemberRole, CreateRoomDto, CreateRoomResponseDto, UpdateRoomDto, Session, PermissionKey, PERMISSION_KEYS, Member } from '@linkup/shared';
+import {
+  RoomSummary,
+  Room,
+  Permissions,
+  MemberRole,
+  CreateRoomDto,
+  CreateRoomResponseDto,
+  UpdateRoomDto,
+  Session,
+  PermissionKey,
+  PERMISSION_KEYS,
+  Member,
+} from '@linkup/shared';
+import { getActiveScreenShare } from '../realtime/screenShare';
+import { deleteLivekitRoom } from './livekit';
 
-/**
- * Typed error thrown when a user attempts to access a room they are not a member of.
- * Maps to HTTP 403 NOT_A_MEMBER (US-ROOM-01, FR-2.4 AC-2).
- */
+export const mockAttendanceStore = new Map<string, any>();
+
 export class NotAMemberError extends Error {
   public readonly code = 'NOT_A_MEMBER';
   constructor() {
@@ -13,13 +25,11 @@ export class NotAMemberError extends Error {
   }
 }
 
-// Characters: A-Z, 2-9; no O, 0, I, 1 (US-DASH-03, FR-2.2)
+
 export const JOIN_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 
-/**
- * Generate a 6-character uppercase alphanumeric join code without ambiguous characters (O, 0, I, 1)
- */
+
 export function generateJoinCode(): string {
   let code = '';
   for (let i = 0; i < 6; i++) {
@@ -53,6 +63,19 @@ const mockRoomsStore = new Map<string, RoomSummary[]>();
 const mockCatalogStore = new Map<string, { id: string; name: string; description: string | null; joinCode: string; hostName: string }>();
 const mockSessionsStore = new Map<string, Session>();
 
+export {
+  MockAttendanceRecord,
+  getMockAttendance,
+  clearMockAttendance,
+  addMockAttendance,
+  closeAllSessionAttendance,
+} from './attendance';
+
+import {
+  clearMockAttendance,
+  closeAllSessionAttendance,
+} from './attendance';
+
 export function setMockRooms(userId: string, rooms: RoomSummary[]) {
   mockRoomsStore.set(userId, rooms);
 }
@@ -63,6 +86,16 @@ export function clearMockSessions() {
 
 export function getMockSessions(): Map<string, Session> {
   return mockSessionsStore;
+}
+
+export function setMockSession(arg1: string | Session, arg2?: Session) {
+  if (typeof arg1 === 'string' && arg2) {
+    mockSessionsStore.set(arg1, arg2);
+    if (arg2.id) mockSessionsStore.set(arg2.id, arg2);
+  } else if (typeof arg1 === 'object' && arg1) {
+    mockSessionsStore.set(arg1.id, arg1);
+    if (arg1.roomId) mockSessionsStore.set(arg1.roomId, arg1);
+  }
 }
 
 export function clearMockRooms(userId?: string) {
@@ -336,10 +369,18 @@ export async function getRoomForUser(
     }
   }
 
+  // If mock store is being used and the room exists in the mock store for other users,
+  // but the requesting user is not a member, throw NotAMemberError
+  for (const rooms of mockRoomsStore.values()) {
+    if (Array.isArray(rooms) && rooms.some((r) => r.id === roomId)) {
+      throw new NotAMemberError();
+    }
+  }
+
   // Validate UUID to avoid PostgreSQL "invalid input syntax for type uuid" error
   const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   if (!UUID_REGEX.test(roomId)) {
-    throw Object.assign(new Error('Room not found'), { code: 'ROOM_NOT_FOUND' });
+    throw Object.assign(new Error('You are not a member of this room'), { code: 'NOT_A_MEMBER', status: 403 });
   }
 
   // 1. Check membership
@@ -457,6 +498,7 @@ export async function getRoomForUser(
     createdAt: room.created_at,
     members,
     presence: getRoomPresence(room.id),
+    activeScreenShare: getActiveScreenShare(room.id),
   };
 }
 
@@ -636,191 +678,6 @@ export function normalizePermissionPatch(patch: Partial<Permissions>): Partial<P
   return normalized;
 }
 
-export async function updateMemberPermissions(
-  requesterUserId: string,
-  roomId: string,
-  targetUserId: string,
-  patch: Partial<Permissions>
-): Promise<Member> {
-  const normalizedRoomId = roomId?.trim();
-  const normalizedTargetUserId = targetUserId?.trim();
-  const normalizedPatch = normalizePermissionPatch(patch);
-
-  if (!normalizedRoomId || !normalizedTargetUserId) {
-    const error: any = new Error('Room and member IDs are required');
-    error.code = 'VALIDATION';
-    error.status = 400;
-    throw error;
-  }
-
-  if (mockRoomsStore.size > 0) {
-    const hasRoom = Array.from(mockRoomsStore.values()).some((rooms) => rooms.some((room) => room.id === normalizedRoomId));
-    if (!hasRoom) {
-      const error: any = new Error('Room not found');
-      error.code = 'ROOM_NOT_FOUND';
-      error.status = 404;
-      throw error;
-    }
-
-    const requesterRooms = mockRoomsStore.get(requesterUserId) || [];
-    const hostRoom = requesterRooms.find((room) => room.id === normalizedRoomId);
-    if (!hostRoom || hostRoom.myRole !== 'host') {
-      const error: any = new Error('Only the host can manage permissions');
-      error.code = 'FORBIDDEN';
-      error.status = 403;
-      throw error;
-    }
-
-    for (const [userId, rooms] of mockRoomsStore.entries()) {
-      const nextRooms = rooms.map((room) => {
-        if (room.id !== normalizedRoomId) return room;
-        const memberIndex = (room.members ?? []).findIndex((member) => member.userId === normalizedTargetUserId);
-        if (memberIndex === -1) return room;
-        const currentMember = room.members![memberIndex];
-        const nextPermissions = { ...currentMember.permissions, ...normalizedPatch };
-        if (normalizedPatch.canCode === false && currentMember.permissions.canCode) {
-          const currentPenHolder = room.members?.find((member) => member.userId === currentMember.userId);
-          if (currentPenHolder) {
-            // keep the room state coherent for the mock environment
-          }
-        }
-        const nextMember = { ...currentMember, permissions: nextPermissions };
-        const nextMembers = [...(room.members ?? [])];
-        nextMembers[memberIndex] = nextMember;
-        return { ...room, members: nextMembers };
-      });
-      mockRoomsStore.set(userId, nextRooms);
-    }
-
-    const targetRoom = Array.from(mockRoomsStore.values())
-      .flat()
-      .find((room) => room.id === normalizedRoomId && (room.members ?? []).some((member) => member.userId === normalizedTargetUserId));
-    const targetMember = targetRoom?.members?.find((member) => member.userId === normalizedTargetUserId);
-
-    if (!targetMember) {
-      const error: any = new Error('Member not found in room');
-      error.code = 'NOT_FOUND';
-      error.status = 404;
-      throw error;
-    }
-
-    if (normalizedTargetUserId === requesterUserId) {
-      const error: any = new Error('The host permissions are fixed');
-      error.code = 'FORBIDDEN';
-      error.status = 403;
-      throw error;
-    }
-
-    return targetMember;
-  }
-
-  const { data: room, error: roomError } = await supabase
-    .from('rooms')
-    .select('id, owner_id')
-    .eq('id', normalizedRoomId)
-    .maybeSingle();
-
-  if (roomError) {
-    console.warn('[Rooms Service] Error loading room for permissions:', roomError.message);
-    throw new Error(roomError.message);
-  }
-
-  if (!room) {
-    const error: any = new Error('Room not found');
-    error.code = 'ROOM_NOT_FOUND';
-    error.status = 404;
-    throw error;
-  }
-
-  const { data: requesterMembership } = await supabase
-    .from('room_members')
-    .select('member_role')
-    .eq('room_id', normalizedRoomId)
-    .eq('user_id', requesterUserId)
-    .maybeSingle();
-
-  if (!requesterMembership || requesterMembership.member_role !== 'host') {
-    const error: any = new Error('Only the host can manage permissions');
-    error.code = 'FORBIDDEN';
-    error.status = 403;
-    throw error;
-  }
-
-  if (normalizedTargetUserId === room.owner_id) {
-    const error: any = new Error('The host permissions are fixed');
-    error.code = 'FORBIDDEN';
-    error.status = 403;
-    throw error;
-  }
-
-  const { data: targetMembership, error: membershipError } = await supabase
-    .from('room_members')
-    .select('user_id, member_role, can_mic, can_camera, can_screen, can_whiteboard, can_code, created_at')
-    .eq('room_id', normalizedRoomId)
-    .eq('user_id', normalizedTargetUserId)
-    .maybeSingle();
-
-  if (membershipError) {
-    console.warn('[Rooms Service] Error loading target membership for permissions:', membershipError.message);
-    throw new Error(membershipError.message);
-  }
-
-  if (!targetMembership) {
-    const error: any = new Error('Member not found in room');
-    error.code = 'NOT_FOUND';
-    error.status = 404;
-    throw error;
-  }
-
-  if (targetMembership.member_role === 'host') {
-    const error: any = new Error('The host permissions are fixed');
-    error.code = 'FORBIDDEN';
-    error.status = 403;
-    throw error;
-  }
-
-  const updatePayload: Record<string, boolean> = {};
-  for (const [key, column] of Object.entries(ROOM_MEMBER_PERMISSION_COLUMNS) as [PermissionKey, string][]) {
-    if (normalizedPatch[key] !== undefined) {
-      updatePayload[column] = Boolean(normalizedPatch[key]);
-    }
-  }
-
-  const { data: updatedRow, error: updateError } = await supabase
-    .from('room_members')
-    .update(updatePayload)
-    .eq('room_id', normalizedRoomId)
-    .eq('user_id', normalizedTargetUserId)
-    .select('user_id, member_role, created_at, can_mic, can_camera, can_screen, can_whiteboard, can_code')
-    .single();
-
-  if (updateError || !updatedRow) {
-    console.warn('[Rooms Service] Error updating permissions:', updateError?.message || 'No row returned');
-    throw new Error(updateError?.message || 'Failed to update permissions');
-  }
-
-  const { data: targetProfile } = await supabase
-    .from('profiles')
-    .select('full_name, role')
-    .eq('id', normalizedTargetUserId)
-    .maybeSingle();
-
-  return {
-    userId: updatedRow.user_id,
-    fullName: targetProfile?.full_name || 'Unknown User',
-    userRole: (targetProfile?.role as any) || 'student',
-    memberRole: updatedRow.member_role as MemberRole,
-    permissions: {
-      canMic: Boolean(updatedRow.can_mic),
-      canCamera: Boolean(updatedRow.can_camera),
-      canScreen: Boolean(updatedRow.can_screen),
-      canWhiteboard: Boolean(updatedRow.can_whiteboard),
-      canCode: Boolean(updatedRow.can_code),
-    },
-    joinedAt: updatedRow.created_at,
-  };
-}
-
 export async function removeRoomMember(
   requesterUserId: string,
   roomId: string,
@@ -948,6 +805,178 @@ export async function removeRoomMember(
       .eq('user_id', normalizedTargetUserId)
       .is('left_at', null);
   }
+}
+
+/**
+ * Update a member's permissions in a room (host only).
+ * Traces to FR-3.5, US-LIVE-04, architecture doc 5.3.
+ */
+export async function updateMemberPermissions(
+  requesterUserId: string,
+  roomId: string,
+  targetUserId: string,
+  patch: Partial<Permissions>
+): Promise<{ member: Member; permissions: Permissions }> {
+  const normalizedRoomId = roomId?.trim();
+  const normalizedRequester = requesterUserId?.trim();
+  const normalizedTarget = targetUserId?.trim();
+
+  if (!normalizedRoomId || !normalizedRequester || !normalizedTarget) {
+    const error: any = new Error('Room ID, requester ID, and target member ID are required');
+    error.code = 'VALIDATION';
+    error.status = 400;
+    throw error;
+  }
+
+  // Check mock store
+  const mockRoomLists = Array.from(mockRoomsStore.values());
+  const isMockRoomKnown = mockRoomLists.some((rooms) => rooms.some((room) => room.id === normalizedRoomId));
+
+  if (isMockRoomKnown) {
+    const hostRoom = (mockRoomsStore.get(normalizedRequester) || []).find((room) => room.id === normalizedRoomId);
+    if (!hostRoom || hostRoom.myRole !== 'host') {
+      const error: any = new Error('Only the room host can update member permissions');
+      error.code = 'HOST_ONLY';
+      error.status = 403;
+      throw error;
+    }
+
+    if (normalizedRequester === normalizedTarget) {
+      const error: any = new Error('The host always retains full permissions');
+      error.code = 'FORBIDDEN';
+      error.status = 403;
+      throw error;
+    }
+
+    let targetMember: Member | null = null;
+    let updatedPermissions: Permissions | null = null;
+
+    for (const [userId, rooms] of mockRoomsStore.entries()) {
+      for (const room of rooms) {
+        if (room.id === normalizedRoomId && room.members) {
+          const m = room.members.find((item) => item.userId === normalizedTarget);
+          if (m) {
+            m.permissions = {
+              ...m.permissions,
+              ...(patch.canMic !== undefined && { canMic: Boolean(patch.canMic) }),
+              ...(patch.canCamera !== undefined && { canCamera: Boolean(patch.canCamera) }),
+              ...(patch.canScreen !== undefined && { canScreen: Boolean(patch.canScreen) }),
+              ...(patch.canWhiteboard !== undefined && { canWhiteboard: Boolean(patch.canWhiteboard) }),
+              ...(patch.canCode !== undefined && { canCode: Boolean(patch.canCode) }),
+            };
+            targetMember = m;
+            updatedPermissions = m.permissions;
+          }
+        }
+      }
+    }
+
+    if (!targetMember || !updatedPermissions) {
+      const error: any = new Error('Member not found in room');
+      error.code = 'NOT_FOUND';
+      error.status = 404;
+      throw error;
+    }
+
+    return { member: targetMember, permissions: updatedPermissions };
+  }
+
+  // Database path
+  const { data: room, error: roomError } = await supabase
+    .from('rooms')
+    .select('id, owner_id')
+    .eq('id', normalizedRoomId)
+    .maybeSingle();
+
+  if (roomError) {
+    console.warn('[Rooms Service] Error verifying room for permissions update:', roomError.message);
+    throw new Error(roomError.message);
+  }
+
+  if (!room) {
+    const error: any = new Error('Room not found');
+    error.code = 'ROOM_NOT_FOUND';
+    error.status = 404;
+    throw error;
+  }
+
+  if (normalizedRequester !== room.owner_id) {
+    const error: any = new Error('Only the room host can update member permissions');
+    error.code = 'HOST_ONLY';
+    error.status = 403;
+    throw error;
+  }
+
+  if (normalizedTarget === room.owner_id) {
+    const error: any = new Error('The host always retains full permissions');
+    error.code = 'FORBIDDEN';
+    error.status = 403;
+    throw error;
+  }
+
+  const { data: memberRow, error: memberError } = await supabase
+    .from('room_members')
+    .select('user_id, member_role, created_at, can_mic, can_camera, can_screen, can_whiteboard, can_code')
+    .eq('room_id', normalizedRoomId)
+    .eq('user_id', normalizedTarget)
+    .maybeSingle();
+
+  if (memberError) {
+    console.warn('[Rooms Service] Error fetching room member for permission update:', memberError.message);
+    throw new Error(memberError.message);
+  }
+
+  if (!memberRow) {
+    const error: any = new Error('Member not found in room');
+    error.code = 'NOT_FOUND';
+    error.status = 404;
+    throw error;
+  }
+
+  const dbUpdates: any = {};
+  if (patch.canMic !== undefined) dbUpdates.can_mic = Boolean(patch.canMic);
+  if (patch.canCamera !== undefined) dbUpdates.can_camera = Boolean(patch.canCamera);
+  if (patch.canScreen !== undefined) dbUpdates.can_screen = Boolean(patch.canScreen);
+  if (patch.canWhiteboard !== undefined) dbUpdates.can_whiteboard = Boolean(patch.canWhiteboard);
+  if (patch.canCode !== undefined) dbUpdates.can_code = Boolean(patch.canCode);
+
+  const { data: updatedRow, error: updateError } = await supabase
+    .from('room_members')
+    .update(dbUpdates)
+    .eq('room_id', normalizedRoomId)
+    .eq('user_id', normalizedTarget)
+    .select('user_id, member_role, created_at, can_mic, can_camera, can_screen, can_whiteboard, can_code')
+    .single();
+
+  if (updateError) {
+    console.warn('[Rooms Service] Error updating member permissions:', updateError.message);
+    throw new Error(updateError.message);
+  }
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('id, full_name, role')
+    .eq('id', normalizedTarget)
+    .maybeSingle();
+
+  const permissions: Permissions = {
+    canMic: Boolean(updatedRow.can_mic),
+    canCamera: Boolean(updatedRow.can_camera),
+    canScreen: Boolean(updatedRow.can_screen),
+    canWhiteboard: Boolean(updatedRow.can_whiteboard),
+    canCode: Boolean(updatedRow.can_code),
+  };
+
+  const member: Member = {
+    userId: updatedRow.user_id,
+    fullName: profile?.full_name || 'Participant',
+    userRole: profile?.role || 'student',
+    memberRole: updatedRow.member_role,
+    permissions,
+    joinedAt: updatedRow.created_at,
+  };
+
+  return { member, permissions };
 }
 
 /**
@@ -1613,6 +1642,266 @@ export async function startSession(
     endedAt: newSession.ended_at,
     startedBy: newSession.started_by,
   };
+}
+
+/**
+ * Ends an active live session in a room (US-LIVE-05, FR-3.6)
+ * - Only the room host can end the session (403 HOST_ONLY).
+ * - Sets ended_at on the session.
+ * - Deletes the LiveKit room.
+ * - Closes all open attendance records.
+ * - Emits session:ended to room members via caller.
+ * - Returns the updated Session.
+ */
+export async function endSession(
+  requesterUserId: string,
+  roomId: string,
+  sessionId?: string
+): Promise<Session> {
+  const normalizedRoomId = roomId?.trim();
+  const normalizedUserId = requesterUserId?.trim();
+  const normalizedSessionId = sessionId?.trim();
+
+  if (!normalizedRoomId || !normalizedUserId) {
+    const error: any = new Error('Room ID and user ID are required');
+    error.code = 'VALIDATION';
+    error.status = 400;
+    throw error;
+  }
+
+  const endedAt = new Date().toISOString();
+
+  // 1. Check demo sample rooms
+  if (DEFAULT_SAMPLE_ROOMS[normalizedRoomId]) {
+    const sampleRoom = DEFAULT_SAMPLE_ROOMS[normalizedRoomId];
+    if (sampleRoom.myRole !== 'host') {
+      const error: any = new Error('Only the room host can end a session');
+      error.code = 'HOST_ONLY';
+      error.status = 403;
+      throw error;
+    }
+
+    const currentSessionId = sampleRoom.activeSessionId;
+    if (!currentSessionId) {
+      const error: any = new Error('No active session found in this room');
+      error.code = 'NO_ACTIVE_SESSION';
+      error.status = 404;
+      throw error;
+    }
+
+    if (normalizedSessionId && normalizedSessionId !== currentSessionId) {
+      const error: any = new Error('Session not found or already ended');
+      error.code = 'SESSION_NOT_FOUND';
+      error.status = 404;
+      throw error;
+    }
+
+    sampleRoom.activeSessionId = null;
+
+    let session = mockSessionsStore.get(currentSessionId);
+    if (!session) {
+      session = {
+        id: currentSessionId,
+        roomId: normalizedRoomId,
+        startedAt: sampleRoom.createdAt || endedAt,
+        endedAt,
+        startedBy: normalizedUserId,
+      };
+    } else {
+      session.endedAt = endedAt;
+    }
+    mockSessionsStore.set(currentSessionId, session);
+
+    // Close all open attendance records
+    await closeAllSessionAttendance(currentSessionId, endedAt);
+
+    await deleteLivekitRoom(`linkup-${currentSessionId}`);
+    return session;
+  }
+
+  // 2. Check in-memory mock store
+  const mockRoomLists = Array.from(mockRoomsStore.values());
+  const isMockRoomKnown = mockRoomLists.some((rooms) => rooms.some((r) => r.id === normalizedRoomId));
+
+  if (isMockRoomKnown) {
+    const userRooms = mockRoomsStore.get(normalizedUserId) || [];
+    const hostRoom = userRooms.find((r) => r.id === normalizedRoomId);
+
+    if (!hostRoom || hostRoom.myRole !== 'host') {
+      const error: any = new Error('Only the room host can end a session');
+      error.code = 'HOST_ONLY';
+      error.status = 403;
+      throw error;
+    }
+
+    const currentSessionId = hostRoom.activeSessionId;
+    if (!currentSessionId) {
+      const error: any = new Error('No active session found in this room');
+      error.code = 'NO_ACTIVE_SESSION';
+      error.status = 404;
+      throw error;
+    }
+
+    if (normalizedSessionId && normalizedSessionId !== currentSessionId) {
+      const error: any = new Error('Session not found or already ended');
+      error.code = 'SESSION_NOT_FOUND';
+      error.status = 404;
+      throw error;
+    }
+
+    // Reset activeSessionId across all mock users for this room
+    for (const [, rList] of mockRoomsStore.entries()) {
+      const targetRoom = rList.find((r) => r.id === normalizedRoomId);
+      if (targetRoom) {
+        targetRoom.activeSessionId = null;
+      }
+    }
+
+    let session = mockSessionsStore.get(currentSessionId);
+    if (!session) {
+      session = {
+        id: currentSessionId,
+        roomId: normalizedRoomId,
+        startedAt: hostRoom.createdAt || endedAt,
+        endedAt,
+        startedBy: normalizedUserId,
+      };
+    } else {
+      session.endedAt = endedAt;
+    }
+    mockSessionsStore.set(currentSessionId, session);
+
+    // Close all open attendance records
+    await closeAllSessionAttendance(currentSessionId, endedAt);
+
+    await deleteLivekitRoom(`linkup-${currentSessionId}`);
+    return session;
+  }
+
+  // 3. PostgreSQL / Supabase
+  const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!UUID_REGEX.test(normalizedRoomId)) {
+    const error: any = new Error('Room not found');
+    error.code = 'ROOM_NOT_FOUND';
+    error.status = 404;
+    throw error;
+  }
+
+  // Check room exists
+  const { data: room, error: roomError } = await supabase
+    .from('rooms')
+    .select('id, owner_id, archived_at')
+    .eq('id', normalizedRoomId)
+    .is('archived_at', null)
+    .maybeSingle();
+
+  if (roomError) {
+    console.warn('[Session Service] Error fetching room:', roomError.message);
+    throw new Error(roomError.message);
+  }
+
+  if (!room) {
+    const error: any = new Error('Room not found');
+    error.code = 'ROOM_NOT_FOUND';
+    error.status = 404;
+    throw error;
+  }
+
+  // Check requester is host
+  if (room.owner_id !== normalizedUserId) {
+    const { data: membership } = await supabase
+      .from('room_members')
+      .select('member_role')
+      .eq('room_id', normalizedRoomId)
+      .eq('user_id', normalizedUserId)
+      .maybeSingle();
+
+    if (!membership || membership.member_role !== 'host') {
+      const error: any = new Error('Only the room host can end a session');
+      error.code = 'HOST_ONLY';
+      error.status = 403;
+      throw error;
+    }
+  }
+
+  // Fetch active session in room
+  let sessionQuery = supabase
+    .from('live_sessions')
+    .select('id, room_id, started_at, ended_at, started_by, livekit_room')
+    .eq('room_id', normalizedRoomId)
+    .is('ended_at', null);
+
+  if (normalizedSessionId) {
+    sessionQuery = sessionQuery.eq('id', normalizedSessionId);
+  }
+
+  const { data: activeSession, error: sessionFetchErr } = await sessionQuery.maybeSingle();
+
+  if (sessionFetchErr) {
+    console.warn('[Session Service] Error fetching active session:', sessionFetchErr.message);
+    throw new Error(sessionFetchErr.message);
+  }
+
+  if (!activeSession) {
+    const error: any = new Error('No active session found in this room');
+    error.code = 'NO_ACTIVE_SESSION';
+    error.status = 404;
+    throw error;
+  }
+
+  // 1. Set ended_at on session
+  const { data: updatedSession, error: updateError } = await supabase
+    .from('live_sessions')
+    .update({ ended_at: endedAt })
+    .eq('id', activeSession.id)
+    .select('id, room_id, started_at, ended_at, started_by, livekit_room')
+    .single();
+
+  if (updateError) {
+    console.error('[Session Service] Error ending live session:', updateError.message);
+    throw new Error('Failed to end session');
+  }
+
+  // 2. Close all open attendance records (US-ATT-05, FR-6.5)
+  await closeAllSessionAttendance(activeSession.id, endedAt);
+
+  // 3. Delete LiveKit room
+  const livekitRoomName = activeSession.livekit_room || `linkup-${activeSession.id}`;
+  await deleteLivekitRoom(livekitRoomName);
+
+  return {
+    id: updatedSession.id,
+    roomId: updatedSession.room_id,
+    startedAt: updatedSession.started_at,
+    endedAt: updatedSession.ended_at,
+    startedBy: updatedSession.started_by,
+  };
+}
+
+/**
+ * On server boot, close open records for already-ended sessions (US-ATT-05 crash recovery)
+ */
+export async function closeDanglingAttendanceRecords(): Promise<void> {
+  try {
+    const { data: dangling, error } = await supabase
+      .from('attendance')
+      .select('id, session_id, live_sessions!inner(ended_at)')
+      .is('left_at', null)
+      .not('live_sessions.ended_at', 'is', null);
+
+    if (!error && dangling && dangling.length > 0) {
+      for (const row of dangling as any[]) {
+        const endedAt = row.live_sessions?.ended_at || new Date().toISOString();
+        await supabase
+          .from('attendance')
+          .update({ left_at: endedAt })
+          .eq('id', row.id);
+      }
+      console.log(`[Attendance] Closed ${dangling.length} dangling attendance records from ended sessions.`);
+    }
+  } catch (err) {
+    // Non-fatal on boot
+  }
 }
 
 /**

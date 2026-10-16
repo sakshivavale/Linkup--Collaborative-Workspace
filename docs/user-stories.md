@@ -313,11 +313,11 @@
 > As a **user with screen-share permission**, I want to share my screen/window/tab so that others can follow along.
 
 **Acceptance Criteria:**
-- [ ] The screen-share button is enabled only if `can_screen = true` (or the user is the host).
-- [ ] A screen share appears as the focused tile for all participants; other tiles move to a strip below.
-- [ ] Only one screen share is active at a time.
-- [ ] If `can_screen` is revoked while sharing, the share stops immediately for all viewers.
-- [ ] Hovering over a disabled screen-share button shows a tooltip explaining why.
+- [x] The screen-share button is enabled only if `can_screen = true` (or the user is the host).
+- [x] A screen share appears as the focused tile for all participants; other tiles move to a strip below.
+- [x] Only one screen share is active at a time.
+- [x] If `can_screen` is revoked while sharing, the share stops immediately for all viewers.
+- [x] Hovering over a disabled screen-share button shows a tooltip explaining why.
 
 ---
 
@@ -352,10 +352,10 @@
 > As a **session participant**, if I temporarily lose my network connection, I want the app to automatically reconnect so that I do not have to manually rejoin.
 
 **Acceptance Criteria:**
-- [ ] A top-of-screen **"Reconnecting..."** banner appears when the Socket.IO or LiveKit connection drops.
-- [ ] Chat input, media controls, and other interactive elements are disabled while reconnecting.
-- [ ] Within 15 seconds of reconnection, the banner disappears and the full state is synced from the `room:join` snapshot.
-- [ ] A reconnect within 15 seconds reuses the open attendance record.
+- [x] A top-of-screen **"Reconnecting..."** banner appears when the Socket.IO or LiveKit connection drops.
+- [x] Chat input, media controls, and other interactive elements are disabled while reconnecting.
+- [x] Within 15 seconds of reconnection, the banner disappears and the full state is synced from the `room:join` snapshot.
+- [x] A reconnect within 15 seconds reuses the open attendance record.
 
 ---
 
@@ -365,8 +365,8 @@
 > As a **session participant**, I want to switch between available microphones and cameras so that I can use the correct device.
 
 **Acceptance Criteria:**
-- [ ] A device-picker control is accessible from the control bar.
-- [ ] Switching does not disconnect the user from the call.
+- [x] A device-picker control is accessible from the control bar.
+- [x] Switching does not disconnect the user from the call.
 
 ---
 
@@ -378,10 +378,10 @@
 > As a **room member**, I want to send a text message in the room chat so that I can communicate with everyone in the room.
 
 **Acceptance Criteria:**
-- [ ] A message input and Send button are always available in the Chat sidebar tab, inside or outside a live session.
-- [ ] Messages are 1-2000 characters; an empty message cannot be sent.
-- [ ] Messages appear for all online members within 500 ms (same region).
-- [ ] The sender sees an optimistic message that is confirmed or replaced once the server acknowledges it.
+- [x] A message input and Send button are always available in the Chat sidebar tab, inside or outside a live session.
+- [x] Messages are 1-2000 characters; an empty message cannot be sent.
+- [x] Messages appear for all online members within 500 ms (same region).
+- [x] The sender sees an optimistic message that is confirmed or replaced once the server acknowledges it.
 
 ---
 
@@ -391,10 +391,10 @@
 > As a **room member**, I want to see the last 50 messages when I open the chat and be able to load older messages by scrolling up so that I can follow the conversation history.
 
 **Acceptance Criteria:**
-- [ ] Opening the room loads the last 50 messages (newest at the bottom).
-- [ ] Scrolling to the top loads the next 50 older messages (cursor pagination via `before` query param).
-- [ ] A "Loading..." indicator is shown during fetch.
-- [ ] A "No more messages" indicator is shown when `hasMore = false`.
+- [x] Opening the room loads the last 50 messages (newest at the bottom).
+- [x] Scrolling to the top loads the next 50 older messages (cursor pagination via `before` query param).
+- [x] A "Loading..." indicator is shown during fetch.
+- [x] A "No more messages" indicator is shown when `hasMore = false`.
 
 ---
 
@@ -404,8 +404,8 @@
 > As a **room member**, I want to see the sender's name, a Teacher badge (if applicable), and the message timestamp so that I know who said what and when.
 
 **Acceptance Criteria:**
-- [ ] Each message shows: sender full name, timestamp, and a **"Teacher"** role badge if the sender has the `teacher` role.
-- [ ] Timestamps are displayed in the user's local time.
+- [x] Each message shows: sender full name, timestamp, and a **"Teacher"** role badge if the sender has the `teacher` role.
+- [x] Timestamps are displayed in the user's local time.
 
 ---
 
@@ -415,8 +415,8 @@
 > As a **room member**, I want URLs in messages to be clickable links, while all other text is rendered as plain text, so that the chat is both useful and secure.
 
 **Acceptance Criteria:**
-- [ ] URLs (http/https) in messages are automatically converted to clickable links with `rel="noopener noreferrer"` and `target="_blank"`.
-- [ ] No HTML tags in message bodies are rendered as markup (React escaping is used; no dangerouslySetInnerHTML).
+- [x] URLs (http/https) in messages are automatically converted to clickable links with `rel="noopener noreferrer"` and `target="_blank"`.
+- [x] No HTML tags in message bodies are rendered as markup (React escaping is used; no dangerouslySetInnerHTML).
 
 ---
 ## 6. Permission Control
@@ -427,9 +427,9 @@
 > As a **host**, I want to see all participants in a panel with 5 permission toggles per person so that I can manage access for each student.
 
 **Acceptance Criteria:**
-- [ ] The Participants tab in the host view shows a row per participant: name, online dot, and 5 toggles (Mic, Camera, Screen, Whiteboard, Code).
-- [ ] The host's own row shows all toggles permanently enabled and locked (cannot be changed).
-- [ ] Students see the People tab but do not see the toggles.
+- [x] The Participants tab in the host view shows a row per participant: name, online dot, and 5 toggles (Mic, Camera, Screen, Whiteboard, Code).
+- [x] The host's own row shows all toggles permanently enabled and locked (cannot be changed).
+- [x] Students see the People tab but do not see the toggles.
 
 ---
 
@@ -452,9 +452,9 @@
 > As a **student**, I want to receive a clear toast notification when the teacher changes one of my permissions so that I know why a control has been enabled or disabled.
 
 **Acceptance Criteria:**
-- [ ] When a permission is revoked, the student sees a toast like: *"Teacher turned off your microphone."*
-- [ ] When a permission is granted, the student sees: *"You can now edit the whiteboard."*
-- [ ] Toasts are non-blocking and auto-dismiss after 4 seconds.
+- [x] When a permission is revoked, the student sees a toast like: *"Teacher turned off your microphone."*
+- [x] When a permission is granted, the student sees: *"You can now edit the whiteboard."*
+- [x] Toasts are non-blocking and auto-dismiss after 4 seconds.
 
 ---
 

@@ -6,8 +6,24 @@ import { RoomSummary } from '@linkup/shared';
 import { env } from './config/env';
 import { requireAuth } from './middleware/auth';
 import { supabase, updateTokenCacheUserName } from './lib/supabase';
-import { getRoomsForUser, createRoom, joinRoomByCode, getRoomForUser, NotAMemberError, removeRoomMember, regenerateRoomJoinCode, updateRoom, startSession, getActiveSession, getSessionsForRoom, updateMemberPermissions } from './lib/rooms';
+import {
+  getRoomsForUser,
+  createRoom,
+  joinRoomByCode,
+  getRoomForUser,
+  NotAMemberError,
+  removeRoomMember,
+  regenerateRoomJoinCode,
+  updateRoom,
+  startSession,
+  endSession,
+  getActiveSession,
+  getSessionsForRoom,
+  updateMemberPermissions,
+} from './lib/rooms';
 import { getRoomPresence, removeSocketFromRoom } from './realtime/presence';
+import { getActiveScreenShare, stopScreenShare } from './realtime/screenShare';
+import { getChatMessages, createChatMessage } from './lib/chat';
 
 // Dynamic CORS origin: accepts localhost AND any 192.168.x.x LAN IP on port 5173.
 // This permanently prevents CORS failures when the dev machine's IP changes.
@@ -392,57 +408,6 @@ export function kickUserFromRoom(io: any, roomId: string, targetUserId: string) 
   };
 }
 
-// Toggle a member's permission (host-only) — US-PERM-02
-app.patch('/api/rooms/:roomId/members/:userId/permissions', async (req: Request, res: Response) => {
-  const user = req.user;
-  if (!user) {
-    return res.status(401).json({
-      error: { code: 'UNAUTHENTICATED', message: 'Authentication required' },
-    });
-  }
-
-  const { roomId, userId: targetUserId } = req.params;
-  const patch = req.body || {};
-
-  try {
-    const member = await updateMemberPermissions(user.id, roomId, targetUserId, patch);
-    const io = req.app.get('io');
-    if (io) {
-      io.to(`room:${roomId.trim()}`).emit('perm:changed', {
-        roomId: roomId.trim(),
-        userId: targetUserId,
-        permissions: member.permissions,
-        by: user.id,
-      });
-    }
-
-    return res.status(200).json(member);
-  } catch (err: any) {
-    if (err?.code === 'FORBIDDEN' || err?.status === 403) {
-      return res.status(403).json({
-        error: { code: 'FORBIDDEN', message: err.message || 'Only the host can manage permissions' },
-      });
-    }
-
-    if (err?.code === 'ROOM_NOT_FOUND' || err?.status === 404 || err?.code === 'NOT_FOUND') {
-      return res.status(404).json({
-        error: { code: 'NOT_FOUND', message: err.message || 'Room or member not found' },
-      });
-    }
-
-    if (err?.code === 'VALIDATION' || err?.status === 400) {
-      return res.status(400).json({
-        error: { code: 'VALIDATION', message: err.message || 'Invalid permission payload' },
-      });
-    }
-
-    console.error('[Room API] Error updating member permissions:', err);
-    return res.status(500).json({
-      error: { code: 'INTERNAL_SERVER_ERROR', message: 'Failed to update permissions' },
-    });
-  }
-});
-
 // Remove a room member (host-only) — US-ROOM-03, FR-2.5
 app.delete('/api/rooms/:roomId/members/:userId', async (req: Request, res: Response) => {
   const user = req.user;
@@ -489,6 +454,207 @@ app.delete('/api/rooms/:roomId/members/:userId', async (req: Request, res: Respo
     console.error('[Room API] Error removing room member:', err);
     return res.status(500).json({
       error: { code: 'INTERNAL_SERVER_ERROR', message: 'Failed to remove member' },
+    });
+  }
+});
+
+// Update member permissions (host-only) — US-LIVE-04, FR-3.5, architecture doc 5.3
+app.patch('/api/rooms/:roomId/members/:userId/permissions', async (req: Request, res: Response) => {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({
+      error: { code: 'UNAUTHENTICATED', message: 'Authentication required' },
+    });
+  }
+
+  const { roomId, userId: targetUserId } = req.params;
+  const body = req.body || {};
+
+  const patch: any = {};
+  if (body.canMic !== undefined || body.permissions?.canMic !== undefined || body.can_mic !== undefined) {
+    patch.canMic = Boolean(body.canMic ?? body.permissions?.canMic ?? body.can_mic);
+  }
+  if (body.canCamera !== undefined || body.permissions?.canCamera !== undefined || body.can_camera !== undefined) {
+    patch.canCamera = Boolean(body.canCamera ?? body.permissions?.canCamera ?? body.can_camera);
+  }
+  if (body.canScreen !== undefined || body.permissions?.canScreen !== undefined || body.can_screen !== undefined) {
+    patch.canScreen = Boolean(body.canScreen ?? body.permissions?.canScreen ?? body.can_screen);
+  }
+  if (body.canWhiteboard !== undefined || body.permissions?.canWhiteboard !== undefined || body.can_whiteboard !== undefined) {
+    patch.canWhiteboard = Boolean(body.canWhiteboard ?? body.permissions?.canWhiteboard ?? body.can_whiteboard);
+  }
+  if (body.canCode !== undefined || body.permissions?.canCode !== undefined || body.can_code !== undefined) {
+    patch.canCode = Boolean(body.canCode ?? body.permissions?.canCode ?? body.can_code);
+  }
+
+  try {
+    const result = await updateMemberPermissions(user.id, roomId, targetUserId, patch);
+
+    const io = req.app.get('io');
+    if (io) {
+      // US-LIVE-04 Acceptance Criteria 4:
+      // "If can_screen is revoked while sharing, the share stops immediately for all viewers."
+      if (patch.canScreen === false) {
+        const currentShare = getActiveScreenShare(roomId);
+        if (currentShare && currentShare.userId === targetUserId) {
+          stopScreenShare(roomId, targetUserId);
+          io.to(`room:${roomId}`).to(roomId).emit('screen:stopped', {
+            roomId,
+            userId: targetUserId,
+            reason: 'PERMISSION_REVOKED',
+          });
+        }
+      }
+
+      // Architecture doc 5.3: emit perm:changed to room:<id>
+      io.to(`room:${roomId}`).to(roomId).emit('perm:changed', {
+        roomId,
+        userId: targetUserId,
+        permissions: result.permissions,
+        by: user.id,
+      });
+    }
+
+    return res.status(200).json({ ok: true, permissions: result.permissions, member: result.member });
+  } catch (err: any) {
+    if (err?.code === 'HOST_ONLY' || err?.code === 'FORBIDDEN' || err?.status === 403) {
+      return res.status(403).json({
+        error: { code: err.code || 'FORBIDDEN', message: err.message || 'Only the room host can update member permissions' },
+      });
+    }
+
+    if (err?.code === 'ROOM_NOT_FOUND' || err?.status === 404 || err?.code === 'NOT_FOUND') {
+      return res.status(404).json({
+        error: { code: 'NOT_FOUND', message: err.message || 'Member or room not found' },
+      });
+    }
+
+    if (err?.code === 'VALIDATION' || err?.status === 400) {
+      return res.status(400).json({
+        error: { code: 'VALIDATION', message: err.message || 'Invalid request' },
+      });
+    }
+
+    console.error('[Room API] Error updating member permissions:', err);
+    return res.status(500).json({
+      error: { code: 'INTERNAL_SERVER_ERROR', message: 'Failed to update member permissions' },
+    });
+  }
+});
+
+// Get active screen share for a room
+app.get('/api/rooms/:roomId/screen-share', (req: Request, res: Response) => {
+  const { roomId } = req.params;
+  const screenShare = getActiveScreenShare(roomId);
+  return res.status(200).json({ screenShare });
+});
+
+// ─── Chat History & Messaging (US-CHAT-02, US-CHAT-01, FR-3.12, api-contract §3.5) ───
+
+// Get chat history with cursor pagination (US-CHAT-02)
+app.get('/api/rooms/:roomId/messages', async (req: Request, res: Response) => {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({
+      error: { code: 'UNAUTHENTICATED', message: 'Authentication required' },
+    });
+  }
+
+  const { roomId } = req.params;
+  const before = typeof req.query.before === 'string' ? req.query.before : undefined;
+  const limitParam = req.query.limit !== undefined ? Number(req.query.limit) : 50;
+
+  try {
+    const result = await getChatMessages(user.id, roomId, {
+      before,
+      limit: limitParam,
+    });
+    return res.status(200).json(result);
+  } catch (err: any) {
+    if (err instanceof NotAMemberError || err?.code === 'NOT_A_MEMBER' || err?.status === 403) {
+      return res.status(403).json({
+        error: {
+          code: 'NOT_A_MEMBER',
+          message: err.message || 'You are not a member of this room',
+        },
+      });
+    }
+
+    if (err?.code === 'ROOM_NOT_FOUND' || err?.status === 404 || err?.code === 'NOT_FOUND') {
+      return res.status(404).json({
+        error: { code: 'ROOM_NOT_FOUND', message: err.message || 'Room not found' },
+      });
+    }
+
+    if (err?.code === 'VALIDATION' || err?.status === 400) {
+      return res.status(400).json({
+        error: { code: 'VALIDATION', message: err.message || 'Validation error' },
+      });
+    }
+
+    console.error('[Chat API] Error fetching room messages:', err);
+    return res.status(500).json({
+      error: { code: 'INTERNAL_SERVER_ERROR', message: 'Failed to retrieve messages' },
+    });
+  }
+});
+
+// Send a chat message via REST API (US-CHAT-01, FR-3.10)
+app.post('/api/rooms/:roomId/messages', async (req: Request, res: Response) => {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({
+      error: { code: 'UNAUTHENTICATED', message: 'Authentication required' },
+    });
+  }
+
+  const { roomId } = req.params;
+  const { body, clientId } = req.body || {};
+
+  try {
+    const message = await createChatMessage(user.id, roomId, body);
+
+    try {
+      const io = req.app.get('io');
+      if (io) {
+        const chatPayload = {
+          ...message,
+          roomId,
+          message,
+          clientId,
+        };
+        io.to(`room:${roomId}`).to(roomId).emit('chat:new', chatPayload);
+        io.to(`room:${roomId}`).to(roomId).emit('chat:new message', chatPayload);
+      }
+    } catch (socketErr) {
+      console.warn('[Chat API] Socket emit error on chat:new:', socketErr);
+    }
+
+    return res.status(201).json({ message });
+  } catch (err: any) {
+    if (
+      err instanceof NotAMemberError ||
+      err?.code === 'NOT_A_MEMBER' ||
+      err?.status === 403 ||
+      err?.message?.toLowerCase().includes('not a member')
+    ) {
+      return res.status(403).json({
+        error: {
+          code: 'NOT_A_MEMBER',
+          message: err.message || 'You are not a member of this room',
+        },
+      });
+    }
+
+    if (err?.code === 'VALIDATION' || err?.status === 400) {
+      return res.status(400).json({
+        error: { code: 'VALIDATION', message: err.message || 'Validation error' },
+      });
+    }
+
+    console.error('[Chat API] Error creating message:', err);
+    return res.status(500).json({
+      error: { code: 'INTERNAL_SERVER_ERROR', message: 'Failed to send message' },
     });
   }
 });
@@ -833,6 +999,84 @@ app.post('/api/rooms/:roomId/sessions', async (req: Request, res: Response) => {
     });
   }
 });
+
+// End live session (host only) — US-LIVE-05, FR-3.6, api-contract §3.4
+const handleEndSessionRoute = async (req: Request, res: Response) => {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({
+      error: { code: 'UNAUTHENTICATED', message: 'Authentication required' },
+    });
+  }
+
+  const { roomId, sessionId } = req.params;
+
+  try {
+    const session = await endSession(user.id, roomId, sessionId);
+
+    // Broadcast session:ended to room members (US-LIVE-05 Acceptance Criteria 2)
+    try {
+      const io = req.app.get('io');
+      if (io) {
+        io.to(`room:${roomId}`).to(roomId).emit('session:ended', {
+          roomId,
+          sessionId: session.id,
+        });
+      }
+    } catch (socketErr) {
+      console.warn('[Session API] Socket emit error on session:ended:', socketErr);
+    }
+
+    return res.status(200).json(session);
+  } catch (err: any) {
+    if (err?.code === 'HOST_ONLY' || err?.code === 'FORBIDDEN' || err?.status === 403) {
+      return res.status(403).json({
+        error: {
+          code: err.code || 'HOST_ONLY',
+          message: err.message || 'Only the host can end a session',
+        },
+      });
+    }
+
+    if (err?.code === 'NO_ACTIVE_SESSION' || err?.code === 'SESSION_NOT_FOUND' || err?.status === 404) {
+      return res.status(404).json({
+        error: {
+          code: err.code || 'NO_ACTIVE_SESSION',
+          message: err.message || 'No active session found',
+        },
+      });
+    }
+
+    if (err?.code === 'ROOM_NOT_FOUND' || err?.status === 404) {
+      return res.status(404).json({
+        error: {
+          code: 'ROOM_NOT_FOUND',
+          message: err.message || 'Room not found',
+        },
+      });
+    }
+
+    if (err?.code === 'VALIDATION' || err?.status === 400) {
+      return res.status(400).json({
+        error: {
+          code: 'VALIDATION',
+          message: err.message || 'Validation error',
+        },
+      });
+    }
+
+    console.error('[Session API] Error ending session:', err);
+    return res.status(500).json({
+      error: {
+        code: 'INTERNAL_SERVER_ERROR',
+        message: 'Failed to end session',
+      },
+    });
+  }
+};
+
+app.post('/api/rooms/:roomId/sessions/:sessionId/end', handleEndSessionRoute);
+app.post('/api/rooms/:roomId/sessions/end', handleEndSessionRoute);
 
 // Get active session for a room
 app.get('/api/rooms/:roomId/sessions/active', async (req: Request, res: Response) => {

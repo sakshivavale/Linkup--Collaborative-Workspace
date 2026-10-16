@@ -16,7 +16,18 @@
     "test:edit-archive": "tsx scripts/test-edit-archive-room.ts",
     "test:presence": "tsx scripts/test-room-presence.ts",
     "test:member-removal": "tsx scripts/test-room-member-removal.ts",
-    "test:session": "tsx scripts/test-start-session-host.ts"
+    "test:session": "tsx scripts/test-start-session-host.ts",
+    "test:screen-share": "tsx scripts/test-screen-sharing.ts",
+    "test:end-session": "tsx scripts/test-end-session-host.ts",
+    "test:host-leave": "tsx scripts/test-host-leave-without-ending.ts",
+    "test:reconnect": "tsx scripts/test-auto-reconnect.ts",
+    "test:devices": "tsx scripts/test-switch-media-devices.ts",
+    "test:chat-history": "tsx scripts/test-chat-history.ts",
+    "test:chat-send": "tsx scripts/test-send-message.ts",
+    "test:chat-sender": "tsx scripts/test-chat-sender-info.ts",
+    "test:chat-links": "tsx scripts/test-plain-text-and-links.ts",
+    "test:permissions": "tsx scripts/test-participant-permissions.ts",
+    "test:perm-toast": "tsx scripts/test-permission-toast.ts"
   },
   "dependencies": {
     "@linkup/shared": "*",

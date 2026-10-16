@@ -3,7 +3,8 @@ import { Server as SocketIOServer } from 'socket.io';
 import { app } from './app';
 import { env } from './config/env';
 import { socketAuthMiddleware } from './realtime/socketAuth';
-import { getRoomForUser, NotAMemberError } from './lib/rooms';
+import { getRoomForUser, NotAMemberError, closeDanglingAttendanceRecords, getActiveSession } from './lib/rooms';
+import { recordLiveJoin, recordLiveLeave, recordSocketDisconnect } from './lib/attendance';
 import {
   addSocketToRoom,
   removeSocketFromRoom,
@@ -11,6 +12,14 @@ import {
   setUserLiveStatus,
   setUserHandStatus,
 } from './realtime/presence';
+import {
+  getActiveScreenShare,
+  startScreenShare,
+  stopScreenShare,
+  forceStopScreenShare,
+  handleUserDisconnectScreenShare,
+} from './realtime/screenShare';
+import { createChatMessage } from './lib/chat';
 
 const server = http.createServer(app);
 
@@ -74,7 +83,7 @@ io.on('connection', (socket) => {
     }
 
     try {
-      await getRoomForUser(user.id, roomId);
+      const room = await getRoomForUser(user.id, roomId);
       // Membership confirmed — subscribe socket to room channels (both roomId and room:roomId)
       await socket.join(roomId);
       await socket.join(`room:${roomId}`);
@@ -90,9 +99,42 @@ io.on('connection', (socket) => {
         presence,
       });
 
-      socket.emit('room:joined', { roomId, presence });
+      const activeScreen = getActiveScreenShare(roomId);
+      const activeSession = await getActiveSession(roomId);
+
+      // US-LIVE-07 AC-3: Full state snapshot returned on room:join (FR-3.8, api-contract §4.2)
+      const snapshot = {
+        roomId,
+        room,
+        me: room.members?.find((m) => m.userId === user.id) || null,
+        members: room.members || [],
+        presence,
+        session: activeSession,
+        screenShare: activeScreen,
+        code: { content: '', language: 'python' as const, rev: 0, holderId: null },
+        board: { elements: [] },
+      };
+
+      socket.emit('room:joined', {
+        roomId,
+        presence,
+        screenShare: activeScreen,
+        session: activeSession,
+        snapshot,
+      });
+
       if (typeof ack === 'function') {
-        ack({ ok: true, data: { roomId, presence } });
+        ack({
+          ok: true,
+          snapshot,
+          data: {
+            ...snapshot,
+            roomId,
+            presence,
+            screenShare: activeScreen,
+            session: activeSession,
+          },
+        });
       }
     } catch (err: any) {
       if (err instanceof NotAMemberError) {
@@ -127,12 +169,14 @@ io.on('connection', (socket) => {
   });
 
   /**
-   * live:joined — user enters the live call (US-ROOM-02 AC-3)
+   * live:joined — user enters the live call (US-ROOM-02 AC-3, US-LIVE-07 AC-4)
    */
-  socket.on('live:joined', (payload: any, ack?: (res: any) => void) => {
+  socket.on('live:joined', async (payload: any, ack?: (res: any) => void) => {
     const roomId = extractRoomId(payload);
     if (roomId && user?.id) {
       const presence = setUserLiveStatus(roomId, user.id, true);
+      await recordLiveJoin(roomId, user.id, socket.id);
+
       if (presence) {
         io.to(`room:${roomId}`).to(roomId).emit('presence:update', {
           roomId,
@@ -144,18 +188,129 @@ io.on('connection', (socket) => {
   });
 
   /**
-   * live:left — user leaves the live call (US-ROOM-02 AC-3)
+   * live:left — user leaves the live call (US-ROOM-02 AC-3, US-LIVE-07 AC-4)
    */
-  socket.on('live:left', (payload: any, ack?: (res: any) => void) => {
+  socket.on('live:left', async (payload: any, ack?: (res: any) => void) => {
     const roomId = extractRoomId(payload);
     if (roomId && user?.id) {
       const presence = setUserLiveStatus(roomId, user.id, false);
+      await recordLiveLeave(roomId, user.id, socket.id);
+
       if (presence) {
         io.to(`room:${roomId}`).to(roomId).emit('presence:update', {
           roomId,
           presence,
         });
       }
+
+      // If user was sharing screen, stop sharing
+      const stopped = stopScreenShare(roomId, user.id);
+      if (stopped) {
+        io.to(`room:${roomId}`).to(roomId).emit('screen:stopped', {
+          roomId,
+          userId: user.id,
+          reason: 'USER_STOPPED',
+        });
+      }
+
+      if (typeof ack === 'function') ack({ ok: true });
+    }
+  });
+
+  /**
+   * screen:start — user requests to share their screen (US-LIVE-04, FR-3.5)
+   * Acceptance Criteria:
+   * 1. Enabled only if can_screen = true (or user is the host).
+   * 2. Screen share appears as focused tile for all participants; other tiles move to a strip below.
+   * 3. Only one screen share is active at a time.
+   */
+  socket.on('screen:start', async (payload: any, ack?: (res: any) => void) => {
+    const roomId = extractRoomId(payload);
+    if (!roomId || !user?.id) {
+      const err = { code: 'VALIDATION', message: 'Room ID required' };
+      socket.emit('screen:error', err);
+      if (typeof ack === 'function') ack({ ok: false, error: err });
+      return;
+    }
+
+    try {
+      const room = await getRoomForUser(user.id, roomId);
+      const isHost = room.myRole === 'host';
+      const member = room.members?.find((m) => m.userId === user.id);
+      const canScreen = isHost || Boolean(member?.permissions?.canScreen);
+
+      // Criterion 1: Enabled only if can_screen = true (or user is host)
+      if (!canScreen) {
+        const forbiddenErr = {
+          code: 'FORBIDDEN',
+          message: 'Screen sharing permission required. Ask the room host for access.',
+        };
+        socket.emit('screen:error', forbiddenErr);
+        if (typeof ack === 'function') ack({ ok: false, error: forbiddenErr });
+        return;
+      }
+
+      // Criterion 3: Only one screen share is active at a time
+      const result = startScreenShare(roomId, user.id, user.fullName || 'Participant');
+      if (!result.success) {
+        const activeErr = {
+          code: 'SCREEN_SHARE_ACTIVE',
+          message: 'Only one screen share is active at a time. Another participant is currently sharing.',
+        };
+        socket.emit('screen:error', activeErr);
+        if (typeof ack === 'function') ack({ ok: false, error: activeErr });
+        return;
+      }
+
+      console.log(`[Socket] Screen share started by ${user.fullName} in room ${roomId}`);
+
+      // Criterion 2: Screen share appears as the focused tile for all participants
+      io.to(`room:${roomId}`).to(roomId).emit('screen:started', {
+        roomId,
+        userId: user.id,
+        userName: user.fullName,
+      });
+
+      if (typeof ack === 'function') {
+        ack({ ok: true, data: result.screenShare });
+      }
+    } catch (err: any) {
+      console.error(`[Socket] Error starting screen share in room ${roomId}:`, err);
+      const serverErr = { code: 'INTERNAL_SERVER_ERROR', message: err.message || 'Failed to start screen share' };
+      socket.emit('screen:error', serverErr);
+      if (typeof ack === 'function') ack({ ok: false, error: serverErr });
+    }
+  });
+
+  /**
+   * screen:stop — user or host stops active screen share (US-LIVE-04, FR-3.5)
+   */
+  socket.on('screen:stop', async (payload: any, ack?: (res: any) => void) => {
+    const roomId = extractRoomId(payload);
+    if (!roomId || !user?.id) {
+      if (typeof ack === 'function') ack({ ok: false, error: { code: 'VALIDATION' } });
+      return;
+    }
+
+    try {
+      const room = await getRoomForUser(user.id, roomId);
+      const isHost = room.myRole === 'host';
+      const stopped = isHost ? forceStopScreenShare(roomId) : stopScreenShare(roomId, user.id);
+
+      if (stopped) {
+        console.log(`[Socket] Screen share stopped in room ${roomId}`);
+        io.to(`room:${roomId}`).to(roomId).emit('screen:stopped', {
+          roomId,
+          userId: stopped.userId,
+          reason: 'USER_STOPPED',
+        });
+      }
+
+      if (typeof ack === 'function') {
+        ack({ ok: true });
+      }
+    } catch (err: any) {
+      console.warn(`[Socket] Error stopping screen share in room ${roomId}:`, err);
       if (typeof ack === 'function') ack({ ok: true });
     }
   });
@@ -182,14 +337,63 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('disconnect', (reason) => {
+  /**
+   * chat:send — send a new chat message in a room (US-CHAT-01, US-CHAT-02, FR-3.11)
+   */
+  socket.on('chat:send', async (payload: any, ack?: (res: any) => void) => {
+    const roomId = extractRoomId(payload);
+    const body = typeof payload?.body === 'string' ? payload.body : '';
+    const clientId = typeof payload?.clientId === 'string' ? payload.clientId : undefined;
+
+    if (!roomId || !user?.id) {
+      const err = { code: 'VALIDATION', message: 'Room ID required' };
+      socket.emit('chat:error', err);
+      if (typeof ack === 'function') ack({ ok: false, error: err });
+      return;
+    }
+
+    try {
+      const message = await createChatMessage(user.id, roomId, body);
+      const broadcastPayload = clientId ? { ...message, clientId } : message;
+      // Broadcast to room channel (both room:roomId and roomId)
+      io.to(`room:${roomId}`).to(roomId).emit('chat:new', broadcastPayload);
+      io.to(`room:${roomId}`).to(roomId).emit('chat:new message', broadcastPayload);
+
+      if (typeof ack === 'function') {
+        ack({ ok: true, data: broadcastPayload });
+      }
+    } catch (err: any) {
+      console.warn(`[Socket] Error sending chat message in room ${roomId}:`, err.message || err);
+      const code = err.code || (err instanceof NotAMemberError ? 'NOT_A_MEMBER' : 'INTERNAL_SERVER_ERROR');
+      const errorPayload = { code, message: err.message || 'Failed to send message' };
+      socket.emit('chat:error', errorPayload);
+      if (typeof ack === 'function') {
+        ack({ ok: false, error: errorPayload });
+      }
+    }
+  });
+
+  socket.on('disconnect', async (reason) => {
     console.log(`[Socket] User disconnected: ${user?.fullName} (${user?.id}) - Reason: ${reason}`);
+    await recordSocketDisconnect(socket.id);
+
     const affectedRooms = handleSocketDisconnect(socket.id);
     for (const { roomId, presence } of affectedRooms) {
       io.to(`room:${roomId}`).to(roomId).emit('presence:update', {
         roomId,
         presence,
       });
+    }
+
+    if (user?.id) {
+      const stoppedShares = handleUserDisconnectScreenShare(user.id);
+      for (const { roomId } of stoppedShares) {
+        io.to(`room:${roomId}`).to(roomId).emit('screen:stopped', {
+          roomId,
+          userId: user.id,
+          reason: 'DISCONNECTED',
+        });
+      }
     }
   });
 });
@@ -211,6 +415,7 @@ if (isDirectExecution && process.env.NODE_ENV !== 'test') {
     console.log(`[Server] LinkUp API server running on port ${env.PORT}`);
     console.log(`[Server] Health check available at http://localhost:${env.PORT}/health`);
     console.log(`[Server] Protected API routes mounted at http://localhost:${env.PORT}/api/*`);
+    closeDanglingAttendanceRecords().catch(() => {});
   });
 }
 

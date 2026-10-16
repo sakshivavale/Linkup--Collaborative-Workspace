@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
 import { RoomSummary } from '@linkup/shared';
 import { api, HttpError } from '../../lib/api';
+import { socket } from '../../lib/socket';
 
 interface UseRoomResult {
   room: RoomSummary | null;
+  setRoom: React.Dispatch<React.SetStateAction<RoomSummary | null>>;
   loading: boolean;
   /** null = no error; 'NOT_A_MEMBER' = 403; 'NOT_FOUND' = 404; 'UNKNOWN' = other */
   error: 'NOT_A_MEMBER' | 'NOT_FOUND' | 'UNKNOWN' | null;
@@ -170,10 +172,51 @@ export function useRoom(roomId: string | undefined): UseRoomResult {
     };
 
     fetchRoom();
+
+    const onPermChanged = (data: { roomId: string; userId: string; permissions: any }) => {
+      if (data.roomId !== roomId) return;
+      setRoom((prev) => {
+        if (!prev) return prev;
+        const members = prev.members?.map((m) =>
+          m.userId === data.userId ? { ...m, permissions: data.permissions } : m
+        );
+        return { ...prev, members };
+      });
+    };
+
+    const onScreenStarted = (data: { roomId: string; userId: string; userName: string }) => {
+      if (data.roomId !== roomId) return;
+      setRoom((prev) =>
+        prev
+          ? {
+              ...prev,
+              activeScreenShare: {
+                roomId: data.roomId,
+                userId: data.userId,
+                userName: data.userName,
+                startedAt: new Date().toISOString(),
+              },
+            }
+          : prev
+      );
+    };
+
+    const onScreenStopped = (data: { roomId: string }) => {
+      if (data.roomId !== roomId) return;
+      setRoom((prev) => (prev ? { ...prev, activeScreenShare: null } : prev));
+    };
+
+    socket.on('perm:changed', onPermChanged);
+    socket.on('screen:started', onScreenStarted);
+    socket.on('screen:stopped', onScreenStopped);
+
     return () => {
       cancelled = true;
+      socket.off('perm:changed', onPermChanged);
+      socket.off('screen:started', onScreenStarted);
+      socket.off('screen:stopped', onScreenStopped);
     };
   }, [roomId]);
 
-  return { room, loading, error };
+  return { room, setRoom, loading, error };
 }
