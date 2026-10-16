@@ -14,7 +14,9 @@ import {
   Check,
   RefreshCw,
   Edit3,
+  Clock,
 } from 'lucide-react';
+import { Session } from '@linkup/shared';
 import { useRoom } from './useRoom';
 import { LiveTab } from './LiveTab';
 import { WhiteboardTab } from './WhiteboardTab';
@@ -22,7 +24,7 @@ import { CodeTab } from './CodeTab';
 import { ChatPanel } from './ChatPanel';
 import { PeoplePanel } from './PeoplePanel';
 import { EditRoomModal } from '../dashboard/EditRoomModal';
-import { api } from '../../lib/api';
+import { api, HttpError } from '../../lib/api';
 import { socket } from '../../lib/socket';
 
 // ─── Tab & sidebar definitions ───────────────────────────────────────────────
@@ -56,6 +58,108 @@ export const RoomPage: React.FC = () => {
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [regenerated, setRegenerated] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+
+  // US-LIVE-01: Session state & timer
+  const [activeSession, setActiveSession] = useState<Session | null>(null);
+  const [isStartingSession, setIsStartingSession] = useState(false);
+  const [sessionError, setSessionError] = useState<string | null>(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+  // Synchronize activeSession with room summary
+  useEffect(() => {
+    if (room?.activeSessionId) {
+      setActiveSession((prev) => {
+        if (prev && prev.id === room.activeSessionId) return prev;
+        return {
+          id: room.activeSessionId!,
+          roomId: room.id,
+          startedAt: room.createdAt || new Date().toISOString(),
+          endedAt: null,
+          startedBy: (room as any).ownerId || room.hostName || '',
+        };
+      });
+    } else if (room && !room.activeSessionId) {
+      setActiveSession(null);
+    }
+  }, [room?.activeSessionId, room?.id, room?.createdAt, room?.hostName]);
+
+  // Fetch active session details from server if room is live
+  useEffect(() => {
+    if (!roomId) return;
+    let cancelled = false;
+    const fetchActiveSession = async () => {
+      try {
+        const res = await api.get<{ session: Session | null }>(`/api/rooms/${roomId}/sessions/active`);
+        if (!cancelled && res?.session) {
+          setActiveSession(res.session);
+          if (room) {
+            room.activeSessionId = res.session.id;
+          }
+        }
+      } catch {
+        // Fallback to room's activeSessionId
+      }
+    };
+    fetchActiveSession();
+    return () => {
+      cancelled = true;
+    };
+  }, [roomId, room]);
+
+  // US-LIVE-01 Acceptance Criteria 4: Session timer starts counting from 00:00
+  useEffect(() => {
+    if (!activeSession) {
+      setElapsedSeconds(0);
+      return;
+    }
+
+    const startTime = new Date(activeSession.startedAt).getTime();
+    const updateTimer = () => {
+      const now = Date.now();
+      const diff = Math.max(0, Math.floor((now - startTime) / 1000));
+      setElapsedSeconds(diff);
+    };
+
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+    return () => clearInterval(interval);
+  }, [activeSession]);
+
+  const formatTimer = (totalSeconds: number): string => {
+    const mins = Math.floor(totalSeconds / 60);
+    const secs = totalSeconds % 60;
+    const hrs = Math.floor(mins / 60);
+    const remainingMins = mins % 60;
+
+    if (hrs > 0) {
+      return `${hrs.toString().padStart(2, '0')}:${remainingMins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  // US-LIVE-01 Acceptance Criteria 1 & 2: Start session handler
+  const handleStartSession = async () => {
+    if (!roomId || isStartingSession) return;
+    setIsStartingSession(true);
+    setSessionError(null);
+    try {
+      const session = await api.post<Session>(`/api/rooms/${roomId}/sessions`);
+      setActiveSession(session);
+      if (room) {
+        room.activeSessionId = session.id;
+      }
+    } catch (err: any) {
+      console.error('[RoomPage] Error starting session:', err);
+      if (err instanceof HttpError && err.code === 'SESSION_ACTIVE') {
+        setSessionError('A session is already active');
+      } else {
+        setSessionError(err?.message || 'Failed to start session');
+      }
+      setTimeout(() => setSessionError(null), 4000);
+    } finally {
+      setIsStartingSession(false);
+    }
+  };
 
   useEffect(() => {
     if (room?.joinCode) {
@@ -107,14 +211,37 @@ export const RoomPage: React.FC = () => {
       }
     };
 
+    // US-LIVE-01 Acceptance Criteria 2: all room members receive a session:started socket event and see room update to "Live" status
+    const handleSessionStarted = (data: { roomId: string; session: Session }) => {
+      if (data.roomId === roomId) {
+        setActiveSession(data.session);
+        if (room) {
+          room.activeSessionId = data.session.id;
+        }
+      }
+    };
+
+    const handleSessionEnded = (data: { roomId: string; sessionId: string }) => {
+      if (data.roomId === roomId) {
+        setActiveSession(null);
+        if (room) {
+          room.activeSessionId = null;
+        }
+      }
+    };
+
     socket.on('room:join-code-updated', handleJoinCodeUpdated);
     socket.on('room:updated', handleRoomUpdated);
     socket.on('room:archived', handleRoomArchived);
+    socket.on('session:started', handleSessionStarted);
+    socket.on('session:ended', handleSessionEnded);
 
     return () => {
       socket.off('room:join-code-updated', handleJoinCodeUpdated);
       socket.off('room:updated', handleRoomUpdated);
       socket.off('room:archived', handleRoomArchived);
+      socket.off('session:started', handleSessionStarted);
+      socket.off('session:ended', handleSessionEnded);
     };
   }, [roomId, room, navigate]);
 
@@ -236,14 +363,67 @@ export const RoomPage: React.FC = () => {
           )}
 
           {/* Session status badge */}
-          <div className={`shrink-0 inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide ${
-            room.activeSessionId
-              ? 'bg-red-500/15 border border-red-500/30 text-red-500 dark:text-red-400'
-              : 'bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400'
-          }`}>
-            <span className={`w-1.5 h-1.5 rounded-full ${room.activeSessionId ? 'bg-red-500 animate-pulse' : 'bg-slate-400'}`} />
-            {room.activeSessionId ? 'Live' : 'Idle'}
+          <div
+            id="room-header-status-badge"
+            data-testid="room-header-status-badge"
+            className={`shrink-0 inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide transition-colors ${
+              activeSession
+                ? 'bg-red-500/15 border border-red-500/30 text-red-500 dark:text-red-400'
+                : 'bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400'
+            }`}
+          >
+            <span className={`w-1.5 h-1.5 rounded-full ${activeSession ? 'bg-red-500 animate-pulse' : 'bg-slate-400'}`} />
+            {activeSession ? 'Live' : 'Idle'}
           </div>
+
+          {/* US-LIVE-01 Acceptance Criteria 4: Session timer in header counting from 00:00 */}
+          {activeSession && (
+            <div
+              id="room-header-session-timer"
+              data-testid="room-header-session-timer"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-200/60 dark:border-red-500/20 text-red-600 dark:text-red-400 font-mono text-xs font-bold tracking-wider shrink-0 animate-fade-in"
+              title="Live session duration"
+            >
+              <Clock className="w-3.5 h-3.5 animate-pulse text-red-500" />
+              <span>{formatTimer(elapsedSeconds)}</span>
+            </div>
+          )}
+
+          {/* US-LIVE-01 Acceptance Criteria 1: Start Session button for host when no session is active */}
+          {room.myRole === 'host' && !activeSession && (
+            <button
+              id="room-header-start-session-btn"
+              data-testid="room-header-start-session-btn"
+              type="button"
+              onClick={handleStartSession}
+              disabled={isStartingSession}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 shadow-sm shadow-red-500/20 active:scale-95 disabled:opacity-50 transition-all shrink-0 cursor-pointer"
+              title="Start live session"
+              aria-label="Start live session"
+            >
+              {isStartingSession ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Starting…</span>
+                </>
+              ) : (
+                <>
+                  <Radio className="w-3.5 h-3.5 animate-pulse" />
+                  <span>Start Session</span>
+                </>
+              )}
+            </button>
+          )}
+
+          {sessionError && (
+            <span
+              id="room-header-session-error"
+              className="text-[11px] font-medium text-rose-500 bg-rose-50 dark:bg-rose-950/40 px-2 py-0.5 rounded-lg border border-rose-200/60 dark:border-rose-800/40 shrink-0"
+            >
+              {sessionError}
+            </span>
+          )}
+
           <span className="hidden sm:inline text-xs text-slate-400 dark:text-slate-500 font-medium truncate">
             Host: {room.hostName}
           </span>
@@ -354,7 +534,7 @@ export const RoomPage: React.FC = () => {
           id={`room-tab-panel-${mainTab}`}
           role="tabpanel"
         >
-          {mainTab === 'live'       && <LiveTab       roomId={roomId!} sessionId={room.activeSessionId} />}
+          {mainTab === 'live'       && <LiveTab       roomId={roomId!} sessionId={activeSession?.id ?? null} />}
           {mainTab === 'whiteboard' && <WhiteboardTab roomId={roomId!} />}
           {mainTab === 'code'       && <CodeTab       roomId={roomId!} />}
         </main>

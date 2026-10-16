@@ -105,6 +105,16 @@ export interface Session {
   startedBy: string;
 }
 
+export interface SessionStartedPayload {
+  roomId: string;
+  session: Session;
+}
+
+export interface SessionEndedPayload {
+  roomId: string;
+  sessionId: string;
+}
+
 export interface ChatMessage {
   id: number;
   roomId: string;
