@@ -42,7 +42,8 @@
     "test:wb-live": "npm run test:wb-live --workspace=server",
     "test:wb-clear": "npm run test:wb-clear --workspace=server",
     "test:attendance": "npm run test:attendance --workspace=server",
-    "test:attendance-grace": "npm run test:attendance-grace --workspace=server"
+    "test:attendance-grace": "npm run test:attendance-grace --workspace=server",
+    "test:attendance-view": "npm run test:attendance-view --workspace=server"
   },
   "devDependencies": {
     "typescript": "^5.4.5"

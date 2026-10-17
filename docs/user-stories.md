@@ -723,10 +723,10 @@
 > As a **host**, I want to view the attendance for each session, including each student's first join time, last leave time, total minutes, and number of joins so that I can assess participation.
 
 **Acceptance Criteria:**
-- [ ] The Attendance page (`/rooms/:roomId/attendance`) shows a session picker dropdown.
-- [ ] Selecting a session shows a table: Name, First Join, Last Leave, Total Minutes, Number of Joins.
-- [ ] Total minutes are rounded to the nearest minute.
-- [ ] The page is accessible only to the host; other users get `403`.
+- [x] The Attendance page (`/rooms/:roomId/attendance`) shows a session picker dropdown.
+- [x] Selecting a session shows a table: Name, First Join, Last Leave, Total Minutes, Number of Joins.
+- [x] Total minutes are rounded to the nearest minute.
+- [x] The page is accessible only to the host; other users get `403`.
 
 ---
 

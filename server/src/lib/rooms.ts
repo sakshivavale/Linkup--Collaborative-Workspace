@@ -2240,10 +2240,19 @@ export async function getSessionsForRoom(
   }
 
   if (room.owner_id !== normalizedUserId) {
-    const error: any = new Error('Only the room host can view sessions');
-    error.code = 'HOST_ONLY';
-    error.status = 403;
-    throw error;
+    const { data: membership } = await supabase
+      .from('room_members')
+      .select('member_role')
+      .eq('room_id', normalizedRoomId)
+      .eq('user_id', normalizedUserId)
+      .maybeSingle();
+
+    if (!membership || membership.member_role !== 'host') {
+      const error: any = new Error('Only the room host can view sessions');
+      error.code = 'HOST_ONLY';
+      error.status = 403;
+      throw error;
+    }
   }
 
   const { data: sessions, error: sessErr } = await supabase

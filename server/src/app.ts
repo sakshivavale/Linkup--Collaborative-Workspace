@@ -1403,7 +1403,7 @@ app.get('/api/rooms/:roomId/sessions/active', async (req: Request, res: Response
 });
 
 // Get all sessions for a room (host only) — P0 api-contract §3.4
-app.get('/api/rooms/:roomId/sessions', async (req: Request, res: Response) => {
+const handleGetRoomSessions = async (req: Request, res: Response) => {
   const user = req.user;
   if (!user) {
     return res.status(401).json({
@@ -1443,7 +1443,10 @@ app.get('/api/rooms/:roomId/sessions', async (req: Request, res: Response) => {
       },
     });
   }
-});
+};
+
+app.get('/api/rooms/:roomId/sessions', handleGetRoomSessions);
+app.get('/rooms/:roomId/sessions', requireAuth, handleGetRoomSessions);
 
 // US-ATT-06: Export attendance CSV endpoint (FR-6.6, api-contract §3.6)
 const handleAttendanceCsv = async (req: Request, res: Response) => {
