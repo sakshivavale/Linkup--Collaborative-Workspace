@@ -26,7 +26,7 @@ import { getRoomPresence, removeSocketFromRoom, setUserHandStatus } from './real
 import { getActiveScreenShare, stopScreenShare } from './realtime/screenShare';
 import { getChatMessages, createChatMessage } from './lib/chat';
 import { mintLivekitToken, updateLivekitParticipantPermissions } from './lib/livekit';
-import { getPenHolder, setPenHolder } from './realtime/codeWorkspace';
+import { getPenHolder, setPenHolder, getOrLoadCodeState, persistCodeState } from './realtime/codeWorkspace';
 import {
   executeCode,
   checkRunRateLimit,
@@ -379,6 +379,37 @@ app.get('/api/rooms/:roomId', async (req: Request, res: Response) => {
     console.error('[Room API] Error fetching room:', err);
     return res.status(500).json({
       error: { code: 'INTERNAL_SERVER_ERROR', message: 'Failed to retrieve room' },
+    });
+  }
+});
+
+/**
+ * GET /api/rooms/:roomId/code — Fetch persisted code state and selected language (US-CODE-06, FR-5.7)
+ */
+app.get('/api/rooms/:roomId/code', async (req: Request, res: Response) => {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({
+      error: { code: 'UNAUTHENTICATED', message: 'Authentication required' },
+    });
+  }
+
+  const { roomId } = req.params;
+  try {
+    const room = await getRoomForUser(user.id, roomId);
+    const hostMember = room.members?.find((m) => m.memberRole === 'host');
+    const defaultHostId = hostMember?.userId || (room as any).owner_id || (room.myRole === 'host' ? user.id : null);
+    const codeState = await getOrLoadCodeState(roomId, defaultHostId);
+    return res.status(200).json(codeState);
+  } catch (err: any) {
+    if (err instanceof NotAMemberError) {
+      return res.status(403).json({
+        error: { code: 'NOT_A_MEMBER', message: err.message },
+      });
+    }
+    console.error('[Code API] Error fetching code state:', err);
+    return res.status(500).json({
+      error: { code: 'INTERNAL_SERVER_ERROR', message: 'Failed to retrieve code state' },
     });
   }
 });

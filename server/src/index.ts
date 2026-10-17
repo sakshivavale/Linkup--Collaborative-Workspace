@@ -21,9 +21,12 @@ import {
 } from './realtime/screenShare';
 import {
   getCodeState,
+  getOrLoadCodeState,
   getPenHolder,
   setPenHolder,
   updateCodeState,
+  persistCodeState,
+  flushAllCodeState,
 } from './realtime/codeWorkspace';
 import {
   getWhiteboardElements,
@@ -124,7 +127,7 @@ io.on('connection', (socket) => {
 
       const hostMember = room.members?.find((m) => m.memberRole === 'host');
       const defaultHostId = hostMember?.userId || (room as any).owner_id || (room.myRole === 'host' ? user.id : null);
-      const codeSnapshot = getCodeState(roomId, defaultHostId);
+      const codeSnapshot = await getOrLoadCodeState(roomId, defaultHostId);
       const boardSnapshot = { elements: getWhiteboardElements(roomId) };
 
       // US-LIVE-07 AC-3: Full state snapshot returned on room:join (FR-3.8, api-contract §4.2)
@@ -189,6 +192,13 @@ io.on('connection', (socket) => {
         roomId,
         presence,
       });
+
+      // US-CODE-06: Persist code state on last member leave
+      if (presence.length === 0) {
+        persistCodeState(roomId).catch((err) => {
+          console.warn(`[Socket] Failed to persist code on room leave:`, err);
+        });
+      }
 
       if (typeof ack === 'function') ack({ ok: true });
     }
@@ -615,6 +625,13 @@ io.on('connection', (socket) => {
         roomId,
         presence,
       });
+
+      // US-CODE-06: Persist code state on last member leave
+      if (presence.length === 0) {
+        persistCodeState(roomId).catch((err) => {
+          console.warn(`[Socket] Failed to persist code on disconnect:`, err);
+        });
+      }
     }
 
     if (user?.id) {
@@ -668,5 +685,11 @@ if (isDirectExecution && process.env.NODE_ENV !== 'test') {
     closeDanglingAttendanceRecords().catch(() => {});
   });
 }
+
+// Graceful shutdown: flush code cache before exit
+process.on('SIGTERM', async () => {
+  await flushAllCodeState();
+  process.exit(0);
+});
 
 export { server };
