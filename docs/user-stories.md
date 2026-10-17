@@ -762,8 +762,8 @@
 > As a **user**, if I enter a wrong join code, I want a clear error message so that I know the code is incorrect.
 
 **Acceptance Criteria:**
-- [ ] The UI shows: *"No room found with that code."*
-- [ ] The input remains editable for a retry.
+- [x] The UI shows: *"No room found with that code."*
+- [x] The input remains editable for a retry.
 
 ---
 
