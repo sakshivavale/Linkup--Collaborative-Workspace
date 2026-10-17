@@ -17,6 +17,7 @@ import {
   PermissionKey,
   Permissions,
   PermChangedPayload,
+  Member,
   diffPermissions,
   getPermissionChangeMessage,
 } from '@linkup/shared';
@@ -104,13 +105,22 @@ export const PermissionToastContainer: React.FC<PermissionToastContainerProps> =
   const addToast = useCallback(
     (item: Omit<PermissionToastItem, 'id' | 'timestamp'>) => {
       const id = `${item.permission}-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-      const newToast: PermissionToastItem = {
-        ...item,
-        id,
-        timestamp: Date.now(),
-      };
-
-      setToasts((prev) => [...prev, newToast]);
+      setToasts((prev) => {
+        // Prevent duplicate toasts within 1500ms
+        const isDuplicate = prev.some(
+          (t) =>
+            t.permission === item.permission &&
+            t.granted === item.granted &&
+            Date.now() - t.timestamp < 1500
+        );
+        if (isDuplicate) return prev;
+        const newToast: PermissionToastItem = {
+          ...item,
+          id,
+          timestamp: Date.now(),
+        };
+        return [...prev, newToast];
+      });
 
       // Auto-dismiss after 4 seconds (4000ms) - US-PERM-03 Acceptance Criteria 3
       const timer = setTimeout(() => {
@@ -129,7 +139,7 @@ export const PermissionToastContainer: React.FC<PermissionToastContainerProps> =
       // Must match current room
       if (data.roomId !== roomId) return;
 
-      // Only notify if this change targets the current user (US-PERM-03 / FR-4.4)
+      // Only notify if this change targets the current user (US-PERM-03 / FR-4.4 / US-PERM-06)
       if (currentUserId && data.userId !== currentUserId) {
         return;
       }
@@ -138,24 +148,61 @@ export const PermissionToastContainer: React.FC<PermissionToastContainerProps> =
       const next = data.permissions;
 
       if (!prev) {
-        // First time seeing permissions, store and don't toast unless changed
+        // First time seeing permissions, store and toast if mute all target
+        if ((data.reason === 'MUTE_ALL' || data.isBulk) && next.canMic === false) {
+          addToast({
+            permission: 'canMic',
+            granted: false,
+            message: 'Teacher muted everyone.',
+          });
+        }
         prevPermissionsRef.current = { ...next };
         return;
       }
 
-      const diffs = diffPermissions(prev, next);
+      const diffs = diffPermissions(prev, next, data.reason);
       prevPermissionsRef.current = { ...next };
 
       diffs.forEach((diff) => {
+        const isMuteAll =
+          (data.reason === 'MUTE_ALL' || data.isBulk) &&
+          diff.key === 'canMic' &&
+          !diff.granted;
         addToast({
           permission: diff.key,
           granted: diff.granted,
-          message: diff.message,
+          message: isMuteAll ? 'Teacher muted everyone.' : diff.message,
         });
       });
     };
 
+    // US-PERM-06: Listen to bulk permission events
+    const onPermBulk = (data: {
+      roomId: string;
+      by: string;
+      patch: Partial<Permissions>;
+      members?: Member[];
+      reason?: string;
+    }) => {
+      if (data.roomId !== roomId) return;
+      if (data.patch.canMic === false && currentUserId && data.by !== currentUserId) {
+        const prev = prevPermissionsRef.current;
+        const hadMic = prev ? Boolean(prev.canMic) : true;
+        if (hadMic) {
+          addToast({
+            permission: 'canMic',
+            granted: false,
+            message: 'Teacher muted everyone.',
+          });
+          if (prev) {
+            prevPermissionsRef.current = { ...prev, canMic: false };
+          }
+        }
+      }
+    };
+
     socket.on('perm:changed', onPermChanged);
+    socket.on('perm:bulk', onPermBulk);
 
     // Also support manual test/debug events dispatched in window
     const onCustomEvent = (event: Event) => {
@@ -163,13 +210,18 @@ export const PermissionToastContainer: React.FC<PermissionToastContainerProps> =
         permission: PermissionKey;
         granted: boolean;
         message?: string;
+        reason?: string;
       }>;
       if (custom.detail) {
-        const { permission, granted, message } = custom.detail;
+        const { permission, granted, message, reason } = custom.detail;
         addToast({
           permission,
           granted,
-          message: message || getPermissionChangeMessage(permission, granted),
+          message:
+            message ||
+            (reason === 'MUTE_ALL' && permission === 'canMic' && !granted
+              ? 'Teacher muted everyone.'
+              : getPermissionChangeMessage(permission, granted, reason)),
         });
       }
     };
@@ -178,6 +230,7 @@ export const PermissionToastContainer: React.FC<PermissionToastContainerProps> =
 
     return () => {
       socket.off('perm:changed', onPermChanged);
+      socket.off('perm:bulk', onPermBulk);
       window.removeEventListener('linkup:perm-toast', onCustomEvent);
     };
   }, [addToast, currentUserId, roomId]);

@@ -16,6 +16,7 @@ import {
   Code2,
   Lock,
   Hand,
+  MicOff,
 } from 'lucide-react';
 import { RoomSummary, PresenceEntry, Member, PermissionKey } from '@linkup/shared';
 import { useAuth } from '../../context/AuthContext';
@@ -82,6 +83,10 @@ export const PeoplePanel: React.FC<PeoplePanelProps> = ({
   const [copiedCode, setCopiedCode] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [regenerated, setRegenerated] = useState(false);
+
+  // US-PERM-06: Mute All state (host only)
+  const [isMutingAll, setIsMutingAll] = useState(false);
+  const [muteAllSuccess, setMuteAllSuccess] = useState(false);
 
   // US-ROOM-02: Real-time presence state
   const [presenceList, setPresenceList] = useState<PresenceEntry[]>(() => room.presence || []);
@@ -279,12 +284,29 @@ export const PeoplePanel: React.FC<PeoplePanelProps> = ({
       });
     };
 
+    // US-PERM-06: Listen to bulk permission updates
+    const onPermBulk = (data: { roomId: string; patch: Partial<Permissions>; members?: Member[] }) => {
+      if (data.roomId !== room.id) return;
+      if (room.members && data.patch) {
+        room.members.forEach((m) => {
+          if (m.memberRole !== 'host') {
+            m.permissions = {
+              ...m.permissions,
+              ...data.patch,
+            };
+          }
+        });
+      }
+      setMembers((prev) => [...prev]);
+    };
+
     socket.on('presence:update', onPresenceUpdate);
     socket.on('hand:changed', onHandChanged);
     socket.on('member:joined', onMemberJoined);
     socket.on('member:removed', onMemberRemoved);
     socket.on('room:kicked', onRoomKicked);
     socket.on('perm:changed', onPermChanged);
+    socket.on('perm:bulk', onPermBulk);
 
     return () => {
       socket.off('presence:update', onPresenceUpdate);
@@ -293,6 +315,7 @@ export const PeoplePanel: React.FC<PeoplePanelProps> = ({
       socket.off('member:removed', onMemberRemoved);
       socket.off('room:kicked', onRoomKicked);
       socket.off('perm:changed', onPermChanged);
+      socket.off('perm:bulk', onPermBulk);
     };
   }, [currentUserId, members, navigate, room.id, room.members]);
 
@@ -416,6 +439,45 @@ export const PeoplePanel: React.FC<PeoplePanelProps> = ({
     }
   };
 
+  // US-PERM-06: Bulk Mute All action (host only, FR-4.7)
+  const handleMuteAll = async () => {
+    if (room.myRole !== 'host' || isMutingAll) return;
+    setIsMutingAll(true);
+
+    // Optimistically update all participants (not host) in local state
+    if (room.members) {
+      room.members.forEach((m) => {
+        if (m.memberRole !== 'host' && m.userId !== currentUserId) {
+          if (m.permissions) {
+            m.permissions.canMic = false;
+          } else {
+            m.permissions = {
+              canMic: false,
+              canCamera: true,
+              canScreen: false,
+              canWhiteboard: true,
+              canCode: true,
+            };
+          }
+        }
+      });
+    }
+    setMembers((prev) => [...prev]);
+
+    try {
+      await api.post(`/api/rooms/${room.id}/permissions/bulk`, {
+        canMic: false,
+      });
+      setMuteAllSuccess(true);
+      setTimeout(() => setMuteAllSuccess(false), 2000);
+    } catch (err: any) {
+      console.error('[PeoplePanel] Failed to mute all participants:', err);
+      window.alert(err?.message || 'Failed to mute all participants');
+    } finally {
+      setIsMutingAll(false);
+    }
+  };
+
   const extraCount = Math.max(0, room.memberCount - members.length);
 
   const getInitials = (name: string) => {
@@ -440,6 +502,25 @@ export const PeoplePanel: React.FC<PeoplePanelProps> = ({
           {members.length > 0 ? members.length : room.memberCount}
         </span>
       </div>
+
+      {/* US-PERM-06: Mute All Button for Host (P1, FR-4.7) */}
+      {room.myRole === 'host' && (
+        <div className="mx-3 mt-3 shrink-0">
+          <button
+            id="mute-all-btn"
+            data-testid="mute-all-btn"
+            type="button"
+            onClick={handleMuteAll}
+            disabled={isMutingAll}
+            className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/50 border border-rose-200/80 dark:border-rose-800/60 text-xs font-bold text-rose-700 dark:text-rose-300 transition-all shadow-xs cursor-pointer active:scale-95 disabled:opacity-50"
+            title="Mute all participants at once"
+            aria-label="Mute All"
+          >
+            <MicOff className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
+            <span>{isMutingAll ? 'Muting everyone...' : muteAllSuccess ? 'Everyone Muted!' : 'Mute All'}</span>
+          </button>
+        </div>
+      )}
 
       {/* US-ROOM-04: Host room join code card with Copy & Regenerate options */}
       {room.myRole === 'host' && (joinCode || room.joinCode) && (

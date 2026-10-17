@@ -20,6 +20,7 @@ import {
   getActiveSession,
   getSessionsForRoom,
   updateMemberPermissions,
+  bulkUpdateMemberPermissions,
 } from './lib/rooms';
 import { getRoomPresence, removeSocketFromRoom, setUserHandStatus } from './realtime/presence';
 import { getActiveScreenShare, stopScreenShare } from './realtime/screenShare';
@@ -559,6 +560,111 @@ app.patch('/api/rooms/:roomId/members/:userId/permissions', async (req: Request,
     });
   }
 });
+
+// Bulk update member permissions (host-only) — US-PERM-06, FR-4.7, api-contract §3.3
+export async function handleBulkPermissions(req: Request, res: Response) {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({
+      error: { code: 'UNAUTHENTICATED', message: 'Authentication required' },
+    });
+  }
+
+  const { roomId } = req.params;
+  const body = req.body || {};
+
+  const patch: any = {};
+  if (body.canMic !== undefined || body.permissions?.canMic !== undefined || body.can_mic !== undefined) {
+    patch.canMic = Boolean(body.canMic ?? body.permissions?.canMic ?? body.can_mic);
+  }
+  if (body.canCamera !== undefined || body.permissions?.canCamera !== undefined || body.can_camera !== undefined) {
+    patch.canCamera = Boolean(body.canCamera ?? body.permissions?.canCamera ?? body.can_camera);
+  }
+  if (body.canScreen !== undefined || body.permissions?.canScreen !== undefined || body.can_screen !== undefined) {
+    patch.canScreen = Boolean(body.canScreen ?? body.permissions?.canScreen ?? body.can_screen);
+  }
+  if (body.canWhiteboard !== undefined || body.permissions?.canWhiteboard !== undefined || body.can_whiteboard !== undefined) {
+    patch.canWhiteboard = Boolean(body.canWhiteboard ?? body.permissions?.canWhiteboard ?? body.can_whiteboard);
+  }
+  if (body.canCode !== undefined || body.permissions?.canCode !== undefined || body.can_code !== undefined) {
+    patch.canCode = Boolean(body.canCode ?? body.permissions?.canCode ?? body.can_code);
+  }
+
+  try {
+    const result = await bulkUpdateMemberPermissions(user.id, roomId, patch);
+
+    const io = req.app.get('io');
+    if (io) {
+      const isMuteAll = patch.canMic === false;
+
+      // Broadcast perm:changed for each affected participant
+      for (const member of result.members) {
+        io.to(`room:${roomId}`).to(roomId).emit('perm:changed', {
+          roomId,
+          userId: member.userId,
+          permissions: member.permissions,
+          by: user.id,
+          reason: isMuteAll ? 'MUTE_ALL' : undefined,
+          isBulk: true,
+        });
+
+        // If screen was revoked, stop their screen share
+        if (patch.canScreen === false) {
+          const currentShare = getActiveScreenShare(roomId);
+          if (currentShare && currentShare.userId === member.userId) {
+            stopScreenShare(roomId, member.userId);
+            io.to(`room:${roomId}`).to(roomId).emit('screen:stopped', {
+              roomId,
+              userId: member.userId,
+              reason: 'PERMISSION_REVOKED',
+            });
+          }
+        }
+      }
+
+      // Also emit perm:bulk to notify clients in bulk
+      io.to(`room:${roomId}`).to(roomId).emit('perm:bulk', {
+        roomId,
+        by: user.id,
+        patch,
+        members: result.members,
+        reason: isMuteAll ? 'MUTE_ALL' : undefined,
+      });
+    }
+
+    // api-contract §3.3 200 response: Member[] (all participants)
+    return res.status(200).json(result.members);
+  } catch (err: any) {
+    if (err?.code === 'HOST_ONLY' || err?.code === 'FORBIDDEN' || err?.status === 403) {
+      return res.status(403).json({
+        error: {
+          code: err.code || 'FORBIDDEN',
+          message: err.message || 'Only the room host can update member permissions',
+        },
+      });
+    }
+
+    if (err?.code === 'ROOM_NOT_FOUND' || err?.status === 404 || err?.code === 'NOT_FOUND') {
+      return res.status(404).json({
+        error: { code: 'NOT_FOUND', message: err.message || 'Room not found' },
+      });
+    }
+
+    if (err?.code === 'VALIDATION' || err?.status === 400) {
+      return res.status(400).json({
+        error: { code: 'VALIDATION', message: err.message || 'Invalid request' },
+      });
+    }
+
+    console.error('[Room API] Error updating bulk member permissions:', err);
+    return res.status(500).json({
+      error: { code: 'INTERNAL_SERVER_ERROR', message: 'Failed to update member permissions' },
+    });
+  }
+}
+
+app.post('/api/rooms/:roomId/permissions/bulk', handleBulkPermissions);
+app.post('/rooms/:roomId/permissions/bulk', handleBulkPermissions);
 
 // Get active screen share for a room
 app.get('/api/rooms/:roomId/screen-share', (req: Request, res: Response) => {

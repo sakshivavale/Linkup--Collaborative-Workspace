@@ -192,6 +192,8 @@ export interface PermChangedPayload {
   userId: string;
   permissions: Permissions;
   by: string;
+  reason?: 'MUTE_ALL' | string;
+  isBulk?: boolean;
 }
 
 export interface CodeState {
@@ -241,9 +243,10 @@ export interface RoomSnapshot {
 }
 
 /**
- * US-PERM-03: Descriptive user notification toast message for permission change (FR-4.4)
+ * US-PERM-03 & US-PERM-06: Descriptive user notification toast message for permission change (FR-4.4, FR-4.7)
+ * When reason is MUTE_ALL and canMic revoked, returns "Teacher muted everyone."
  */
-export function getPermissionChangeMessage(key: PermissionKey, granted: boolean): string {
+export function getPermissionChangeMessage(key: PermissionKey, granted: boolean, reason?: string): string {
   if (granted) {
     switch (key) {
       case 'canMic':
@@ -258,6 +261,9 @@ export function getPermissionChangeMessage(key: PermissionKey, granted: boolean)
         return 'You can now edit code.';
     }
   } else {
+    if ((reason === 'MUTE_ALL' || reason === 'mute_all') && key === 'canMic') {
+      return 'Teacher muted everyone.';
+    }
     switch (key) {
       case 'canMic':
         return 'Teacher turned off your microphone.';
@@ -280,11 +286,12 @@ export interface PermissionDiff {
 }
 
 /**
- * US-PERM-03: Computes diff between previous permissions and new permissions
+ * US-PERM-03 & US-PERM-06: Computes diff between previous permissions and new permissions
  */
 export function diffPermissions(
   prev: Partial<Permissions> | null | undefined,
-  next: Permissions
+  next: Permissions,
+  reason?: string
 ): PermissionDiff[] {
   if (!prev) return [];
   const diffs: PermissionDiff[] = [];
@@ -295,7 +302,7 @@ export function diffPermissions(
       diffs.push({
         key,
         granted: nextVal,
-        message: getPermissionChangeMessage(key, nextVal),
+        message: getPermissionChangeMessage(key, nextVal, reason),
       });
     }
   }

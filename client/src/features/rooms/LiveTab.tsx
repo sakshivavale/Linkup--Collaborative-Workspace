@@ -314,9 +314,9 @@ export const LiveTab: React.FC<LiveTabProps> = ({
       }
     };
 
-    // US-LIVE-04 Acceptance Criteria 4:
-    // If can_screen is revoked while sharing, the share stops immediately for all viewers
-    const onPermChanged = (data: { roomId: string; userId: string; permissions: Permissions }) => {
+    // US-LIVE-04 Acceptance Criteria 4 & US-PERM-06 Acceptance Criteria 4:
+    // If can_screen revoked, stops screen share; if can_mic revoked, stops audio publishing within 1 second
+    const onPermChanged = (data: { roomId: string; userId: string; permissions: Permissions; reason?: string }) => {
       if (data.roomId !== roomId) return;
       if (data.userId === user?.id) {
         setMyPermissions(data.permissions);
@@ -329,10 +329,29 @@ export const LiveTab: React.FC<LiveTabProps> = ({
           }
           if (data.permissions.canMic === false) {
             setMicOn(false);
+            if (mediaDevices.localStream) {
+              mediaDevices.localStream.getAudioTracks().forEach((track) => {
+                track.enabled = false;
+              });
+            }
           }
           if (data.permissions.canCamera === false) {
             setCamOn(false);
           }
+        }
+      }
+    };
+
+    // US-PERM-06: Bulk permission change handler
+    const onPermBulk = (data: { roomId: string; by: string; patch: Partial<Permissions> }) => {
+      if (data.roomId !== roomId) return;
+      if (!isHost && data.patch.canMic === false) {
+        setMicOn(false);
+        setMyPermissions((prev) => (prev ? { ...prev, canMic: false } : null));
+        if (mediaDevices.localStream) {
+          mediaDevices.localStream.getAudioTracks().forEach((track) => {
+            track.enabled = false;
+          });
         }
       }
     };
@@ -343,6 +362,7 @@ export const LiveTab: React.FC<LiveTabProps> = ({
     socket.on('screen:started', onScreenStarted);
     socket.on('screen:stopped', onScreenStopped);
     socket.on('perm:changed', onPermChanged);
+    socket.on('perm:bulk', onPermBulk);
 
     return () => {
       socket.off('presence:update', onPresenceUpdate);
@@ -351,8 +371,18 @@ export const LiveTab: React.FC<LiveTabProps> = ({
       socket.off('screen:started', onScreenStarted);
       socket.off('screen:stopped', onScreenStopped);
       socket.off('perm:changed', onPermChanged);
+      socket.off('perm:bulk', onPermBulk);
     };
-  }, [activeScreenShare?.userId, activeSpeakerId, isHost, roomId, room, screenStream, user?.id]);
+  }, [activeScreenShare?.userId, activeSpeakerId, isHost, mediaDevices.localStream, roomId, room, screenStream, user?.id]);
+
+  // US-PERM-06 AC-4: Ensure actively publishing audio track is instantly muted within 1s
+  useEffect(() => {
+    if (mediaDevices.localStream) {
+      mediaDevices.localStream.getAudioTracks().forEach((track) => {
+        track.enabled = micOn;
+      });
+    }
+  }, [micOn, mediaDevices.localStream]);
 
   // US-PERM-07: Toggle hand raise for current participant (FR-4.8)
   const handleToggleHandRaise = () => {
