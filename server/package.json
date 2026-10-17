@@ -32,6 +32,7 @@
     "test:mute-all": "tsx scripts/test-mute-all.ts",
     "test:code-editor": "tsx scripts/test-code-shared-editor.ts",
     "test:code-give-pen": "tsx scripts/test-code-give-pen.ts",
+    "test:code-sync": "tsx scripts/test-code-sync.ts",
     "test:code-run": "tsx scripts/test-code-run.ts"
   },
   "dependencies": {

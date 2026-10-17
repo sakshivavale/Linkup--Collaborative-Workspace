@@ -1,5 +1,22 @@
-import { CodeState, Language } from '@linkup/shared';
+import { CodeState, Language, MAX_CODE_BYTES } from '@linkup/shared';
 import { supabase } from '../lib/supabase';
+
+export { MAX_CODE_BYTES };
+
+/**
+ * Validate source code size (max 64 KB per US-CODE-03, FR-5.2)
+ */
+export function validateCodeSize(content: string): { valid: boolean; sizeBytes: number; error?: string } {
+  const sizeBytes = Buffer.byteLength(content || '', 'utf8');
+  if (sizeBytes > MAX_CODE_BYTES) {
+    return {
+      valid: false,
+      sizeBytes,
+      error: 'Source code exceeds the 64 KB limit.',
+    };
+  }
+  return { valid: true, sizeBytes };
+}
 
 // UUID regex to validate Postgres UUID keys
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

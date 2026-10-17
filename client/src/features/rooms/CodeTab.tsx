@@ -8,11 +8,12 @@ import {
   Edit3,
   Sparkles,
   RotateCcw,
+  AlertCircle,
   Loader2,
   Terminal,
   AlertTriangle,
 } from 'lucide-react';
-import { Language, CodeState, Member, RunResult } from '@linkup/shared';
+import { Language, CodeState, Member, RunResult, MAX_CODE_BYTES, CODE_DEBOUNCE_MS } from '@linkup/shared';
 import { socket } from '../../lib/socket';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
@@ -88,6 +89,8 @@ export const CodeTab: React.FC<CodeTabProps> = ({
 
   const [stdin, setStdin] = useState<string>('');
   const [running, setRunning] = useState<boolean>(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [sizeError, setSizeError] = useState<string | null>(null);
   const [runResult, setRunResult] = useState<RunResult | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
 
@@ -105,7 +108,7 @@ export const CodeTab: React.FC<CodeTabProps> = ({
   const holderIdRef = useRef<string | null>(holderId);
   holderIdRef.current = holderId;
 
-  const DEBOUNCE_MS = 150;
+  const DEBOUNCE_MS = CODE_DEBOUNCE_MS; // 150 ms debounce per US-CODE-03 & FR-5.2
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const isInitializedRef = useRef<boolean>(false);
 
@@ -324,6 +327,16 @@ export const CodeTab: React.FC<CodeTabProps> = ({
       }
     };
 
+    const handleSocketError = (err: any) => {
+      if (
+        err?.event === 'code:update' ||
+        err?.code === 'PAYLOAD_TOO_LARGE' ||
+        err?.code === 'NOT_PEN_HOLDER'
+      ) {
+        setSyncError(err.message || 'Code sync error');
+      }
+    };
+
     // AC 3 & AC 5: Shared execution listeners
     const handleRunStarted = (data: { roomId: string; by: string; language: Language }) => {
       if (data.roomId === roomId) {
@@ -344,6 +357,7 @@ export const CodeTab: React.FC<CodeTabProps> = ({
     socket.on('code:pen', handleCodePen);
     socket.on('perm:changed', handlePermChanged);
     socket.on('room:joined', handleRoomJoined);
+    socket.on('error', handleSocketError);
     socket.on('code:run-started', handleRunStarted);
     socket.on('code:run-result', handleRunResult);
 
@@ -352,6 +366,7 @@ export const CodeTab: React.FC<CodeTabProps> = ({
       socket.off('code:pen', handleCodePen);
       socket.off('perm:changed', handlePermChanged);
       socket.off('room:joined', handleRoomJoined);
+      socket.off('error', handleSocketError);
       socket.off('code:run-started', handleRunStarted);
       socket.off('code:run-result', handleRunResult);
     };
@@ -372,6 +387,19 @@ export const CodeTab: React.FC<CodeTabProps> = ({
 
     if (!canEdit) return;
 
+    // US-CODE-03 AC-4: Source size must be max 64 KB
+    const encoder = new TextEncoder();
+    const sizeBytes = encoder.encode(value).length;
+    if (sizeBytes > MAX_CODE_BYTES) {
+      setSizeError('Source code exceeds the 64 KB limit.');
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+      return;
+    } else {
+      if (sizeError) setSizeError(null);
+    }
+
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
     }
@@ -387,12 +415,15 @@ export const CodeTab: React.FC<CodeTabProps> = ({
         (ack: any) => {
           if (ack?.ok && ack?.data?.rev) {
             setRev(ack.data.rev);
+            setSyncError(null);
             onCodeStateChange?.({
               content: value,
               language: languageRef.current,
               rev: ack.data.rev,
               holderId: holderIdRef.current,
             });
+          } else if (ack?.error) {
+            setSyncError(ack.error.message || 'Failed to sync code');
           }
         }
       );
@@ -409,18 +440,21 @@ export const CodeTab: React.FC<CodeTabProps> = ({
       'code:update',
       {
         roomId,
-        content,
+        content: contentRef.current,
         language: newLang,
       },
       (ack: any) => {
         if (ack?.ok && ack?.data?.rev) {
           setRev(ack.data.rev);
+          setSyncError(null);
           onCodeStateChange?.({
-            content,
+            content: contentRef.current,
             language: newLang,
             rev: ack.data.rev,
-            holderId,
+            holderId: holderIdRef.current,
           });
+        } else if (ack?.error) {
+          setSyncError(ack.error.message || 'Failed to sync language');
         }
       }
     );
@@ -451,7 +485,7 @@ export const CodeTab: React.FC<CodeTabProps> = ({
     // Emit code:run-started immediately to the room
     socket.emit('code:run-started', {
       roomId,
-      by: fullName || user?.fullName || user?.id,
+      by: fullName || (user as any)?.fullName || user?.id || 'User',
       language,
     });
 
@@ -605,14 +639,32 @@ export const CodeTab: React.FC<CodeTabProps> = ({
           <ChevronDown className="w-3.5 h-3.5 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400" />
         </div>
 
-        {/* Live sync pulse badge */}
-        <div className="inline-flex items-center gap-1.5 px-2 py-1 text-[11px] text-slate-500 dark:text-slate-400 font-medium select-none">
+        {/* Live sync pulse badge and rev indicator (AC-2) */}
+        <div
+          id="room-code-sync-badge"
+          data-testid="room-code-sync-badge"
+          className="inline-flex items-center gap-1.5 px-2 py-1 text-[11px] text-slate-500 dark:text-slate-400 font-medium select-none"
+        >
           <span className="relative flex h-2 w-2">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
             <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
           </span>
-          <span className="hidden sm:inline">Live Sync (rev {rev})</span>
+          <span id="room-code-rev" data-testid="room-code-rev" className="hidden sm:inline">
+            Live Sync (rev {rev})
+          </span>
         </div>
+
+        {/* AC-4: Error notification badge for sync / 64 KB limit */}
+        {(sizeError || syncError) && (
+          <div
+            id="code-sync-error"
+            data-testid="code-sync-error"
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-[11px] font-semibold"
+          >
+            <AlertCircle className="w-3.5 h-3.5 text-rose-500 flex-shrink-0" />
+            <span>{sizeError || syncError}</span>
+          </div>
+        )}
 
         <div className="flex-1" />
 
@@ -641,6 +693,10 @@ export const CodeTab: React.FC<CodeTabProps> = ({
         <div
           id="room-code-editor"
           data-testid="room-code-editor"
+          data-debounce-ms="150"
+          data-max-bytes="65536"
+          data-rev={rev}
+          data-pen-holder={holderId || ''}
           className="flex-1 w-full min-h-[300px] h-full rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-950 shadow-inner relative flex flex-col"
         >
           <Editor
