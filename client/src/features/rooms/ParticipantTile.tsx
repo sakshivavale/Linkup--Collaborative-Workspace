@@ -1,14 +1,7 @@
 import { useEffect, useRef } from 'react';
+import { Participant } from './participantUtils';
 
-export interface Participant {
-  id: string;
-  name: string;
-  isMuted?: boolean;
-  cameraOff?: boolean;
-  isSpeaking?: boolean;
-  handRaised?: boolean;
-  stream?: MediaStream | null;
-}
+export type { Participant };
 
 const MuteIcon = () => (
   <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">

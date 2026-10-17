@@ -1,4 +1,5 @@
-import ParticipantTile, { Participant } from './ParticipantTile';
+import ParticipantTile from './ParticipantTile';
+import { Participant } from './participantUtils';
 import { ScreenShareTile } from './ScreenShareTile';
 import { ActiveScreenShare } from '@linkup/shared';
 

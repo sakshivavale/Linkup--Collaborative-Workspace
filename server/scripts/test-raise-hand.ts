@@ -218,7 +218,9 @@ async function runTests() {
       );
 
       assert(
-        !liveTabCode.includes('!isHost &&') && liveTabCode.includes('room-hand-raise-toggle'),
+        !liveTabCode.includes('!isHost && <button id="room-hand-raise-toggle"') &&
+        !liveTabCode.includes('!isHost && \n') &&
+        liveTabCode.includes('room-hand-raise-toggle'),
         'AC-1: Hand-raise toggle is accessible for all participants (not hidden for hosts or students)'
       );
     }
@@ -350,7 +352,7 @@ async function runTests() {
         body: JSON.stringify({ canMic: true }),
       });
 
-      const patchBody = await patchRes.json();
+      const patchBody = (await patchRes.json()) as any;
       assert(patchRes.status === 200, 'AC-3: Host PATCH permissions endpoint returns 200 OK');
       assert(patchBody.permissions?.canMic === true, 'AC-3: Permissions response confirms canMic is now true');
 

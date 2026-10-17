@@ -93,6 +93,33 @@ export interface PresenceEntry {
   handRaised: boolean;
 }
 
+export interface GridParticipant {
+  id: string;
+  name: string;
+  isMuted: boolean;
+  cameraOff: boolean;
+  isSpeaking: boolean;
+  handRaised?: boolean;
+  stream?: unknown | null;
+}
+
+export function buildParticipantTiles(
+  presence: PresenceEntry[] | undefined,
+  activeSpeakerUserId: string | null = null
+): GridParticipant[] {
+  return (presence ?? [])
+    .filter((entry) => entry.inLive)
+    .map((entry) => ({
+      id: entry.userId,
+      name: entry.fullName,
+      isMuted: true,
+      cameraOff: true,
+      isSpeaking: activeSpeakerUserId !== null && entry.userId === activeSpeakerUserId,
+      handRaised: Boolean(entry.handRaised),
+      stream: null,
+    }));
+}
+
 export interface PresenceUpdatePayload {
   roomId: string;
   presence: PresenceEntry[];

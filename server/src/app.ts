@@ -6,7 +6,21 @@ import { RoomSummary } from '@linkup/shared';
 import { env } from './config/env';
 import { requireAuth } from './middleware/auth';
 import { supabase, updateTokenCacheUserName } from './lib/supabase';
-import { getRoomsForUser, createRoom, joinRoomByCode, getRoomForUser, NotAMemberError, removeRoomMember, regenerateRoomJoinCode, updateRoom, startSession, endSession, getActiveSession, getSessionsForRoom, updateMemberPermissions } from './lib/rooms';
+import {
+  getRoomsForUser,
+  createRoom,
+  joinRoomByCode,
+  getRoomForUser,
+  NotAMemberError,
+  removeRoomMember,
+  regenerateRoomJoinCode,
+  updateRoom,
+  startSession,
+  endSession,
+  getActiveSession,
+  getSessionsForRoom,
+  updateMemberPermissions,
+} from './lib/rooms';
 import { getRoomPresence, removeSocketFromRoom, setUserHandStatus } from './realtime/presence';
 import { getActiveScreenShare, stopScreenShare } from './realtime/screenShare';
 import { getChatMessages, createChatMessage } from './lib/chat';
@@ -473,6 +487,8 @@ app.patch('/api/rooms/:roomId/members/:userId/permissions', async (req: Request,
     patch.canCode = Boolean(body.canCode ?? body.permissions?.canCode ?? body.can_code);
   }
 
+  // Only the room host may change a member's permissions; the service layer enforces this
+  // before the socket broadcast so clients stay aligned with the canonical room state.
   try {
     const result = await updateMemberPermissions(user.id, roomId, targetUserId, patch);
 

@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { socket } from '../../lib/socket';
 import VideoGrid from './VideoGrid';
-import { Participant } from './ParticipantTile';
+import { mapParticipantsFromPresence, Participant } from './participantUtils';
 import { useRoom } from './useRoom';
 import { useAuth } from '../../context/AuthContext';
 import { ActiveScreenShare, Permissions } from '@linkup/shared';
@@ -84,6 +84,11 @@ export const LiveTab: React.FC<LiveTabProps> = ({
   const currentMember = room?.members?.find((m) => m.userId === user?.id);
   const [myPermissions, setMyPermissions] = useState<Permissions | null>(
     () => currentMember?.permissions || null
+  );
+
+  const [activeSpeakerId, setActiveSpeakerId] = useState<string | null>(null);
+  const [participants, setParticipants] = useState<Participant[]>(() =>
+    mapParticipantsFromPresence(room?.presence, activeSpeakerId)
   );
 
   // US-PERM-07: Track whether current user has hand raised (FR-4.8)
@@ -169,22 +174,6 @@ export const LiveTab: React.FC<LiveTabProps> = ({
       active = false;
     };
   }, [camOn, inCall, mediaDevices.selectedVideoInput]);
-
-  // participants shown in grid are derived from room.presence (inLive === true)
-  const [participants, setParticipants] = useState<Participant[]>(() => {
-    const p =
-      room?.presence
-        ?.filter((x) => x.inLive)
-        .map((entry) => ({
-          id: entry.userId,
-          name: entry.fullName,
-          isMuted: false,
-          cameraOff: true,
-          isSpeaking: false,
-          stream: null,
-        })) ?? [];
-    return p;
-  });
 
   // US-LIVE-04 Acceptance Criteria 1:
   // can_screen = true (or user is host)
@@ -278,19 +267,7 @@ export const LiveTab: React.FC<LiveTabProps> = ({
   // Real-time presence, active speaker, and screen share socket listeners
   useEffect(() => {
     const mapPresenceToParticipants = () => {
-      const p =
-        room?.presence
-          ?.filter((x) => x.inLive)
-          .map((entry) => ({
-            id: entry.userId,
-            name: entry.fullName,
-            isMuted: false,
-            cameraOff: true,
-            isSpeaking: false,
-            handRaised: Boolean(entry.handRaised),
-            stream: null,
-          })) ?? [];
-      setParticipants(p);
+      setParticipants(mapParticipantsFromPresence(room?.presence, activeSpeakerId));
     };
 
     mapPresenceToParticipants();
@@ -298,12 +275,12 @@ export const LiveTab: React.FC<LiveTabProps> = ({
     const onPresenceUpdate = (data: { roomId: string; presence: any[] }) => {
       if (data.roomId !== roomId) return;
       if (Array.isArray(data.presence) && user?.id) {
-        const self = data.presence.find((p) => p.userId === user.id);
+        const self = data.presence.find((p: any) => p.userId === user.id);
         if (self) {
           setIsHandRaised(Boolean(self.handRaised));
         }
       }
-      mapPresenceToParticipants();
+      setParticipants(mapParticipantsFromPresence(data.presence, activeSpeakerId));
     };
 
     // US-PERM-07: Real-time hand:changed listener (FR-4.8)
@@ -319,7 +296,8 @@ export const LiveTab: React.FC<LiveTabProps> = ({
 
     const onActiveSpeaker = (data: { roomId: string; userId: string | null }) => {
       if (data.roomId !== roomId) return;
-      setParticipants((prev) => prev.map((p) => ({ ...p, isSpeaking: p.id === data.userId })));
+      setActiveSpeakerId(data.userId ?? null);
+      setParticipants(mapParticipantsFromPresence(room?.presence, data.userId ?? null));
     };
 
     const onScreenStarted = (data: { roomId: string; screenShare: ActiveScreenShare }) => {
@@ -374,7 +352,7 @@ export const LiveTab: React.FC<LiveTabProps> = ({
       socket.off('screen:stopped', onScreenStopped);
       socket.off('perm:changed', onPermChanged);
     };
-  }, [activeScreenShare?.userId, isHost, roomId, room, screenStream, user?.id]);
+  }, [activeScreenShare?.userId, activeSpeakerId, isHost, roomId, room, screenStream, user?.id]);
 
   // US-PERM-07: Toggle hand raise for current participant (FR-4.8)
   const handleToggleHandRaise = () => {
