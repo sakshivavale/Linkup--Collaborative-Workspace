@@ -21,7 +21,7 @@ import {
   getSessionsForRoom,
   updateMemberPermissions,
 } from './lib/rooms';
-import { getRoomPresence, removeSocketFromRoom } from './realtime/presence';
+import { getRoomPresence, removeSocketFromRoom, setUserHandStatus } from './realtime/presence';
 import { getActiveScreenShare, stopScreenShare } from './realtime/screenShare';
 import { getChatMessages, createChatMessage } from './lib/chat';
 
@@ -494,6 +494,22 @@ app.patch('/api/rooms/:roomId/members/:userId/permissions', async (req: Request,
 
     const io = req.app.get('io');
     if (io) {
+      // US-PERM-07 AC-3: Host granting mic automatically lowers the student's raised hand (FR-4.8)
+      if (patch.canMic === true) {
+        const presence = setUserHandStatus(roomId, targetUserId, false);
+        if (presence) {
+          io.to(`room:${roomId}`).to(roomId).emit('presence:update', {
+            roomId,
+            presence,
+          });
+        }
+        io.to(`room:${roomId}`).to(roomId).emit('hand:changed', {
+          roomId,
+          userId: targetUserId,
+          raised: false,
+        });
+      }
+
       // US-LIVE-04 Acceptance Criteria 4:
       // "If can_screen is revoked while sharing, the share stops immediately for all viewers."
       if (patch.canScreen === false) {

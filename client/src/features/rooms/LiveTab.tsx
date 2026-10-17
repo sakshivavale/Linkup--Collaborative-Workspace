@@ -11,6 +11,7 @@ import {
   Sliders,
   ChevronDown,
   Sparkles,
+  Hand,
 } from 'lucide-react';
 import { socket } from '../../lib/socket';
 import VideoGrid from './VideoGrid';
@@ -89,6 +90,22 @@ export const LiveTab: React.FC<LiveTabProps> = ({
   const [participants, setParticipants] = useState<Participant[]>(() =>
     mapParticipantsFromPresence(room?.presence, activeSpeakerId)
   );
+
+  // US-PERM-07: Track whether current user has hand raised (FR-4.8)
+  const [isHandRaised, setIsHandRaised] = useState<boolean>(() => {
+    const selfPresence = room?.presence?.find((p) => p.userId === user?.id);
+    return Boolean(selfPresence?.handRaised);
+  });
+
+  // Sync handRaised status when room loads or presence updates
+  useEffect(() => {
+    if (room?.presence && user?.id) {
+      const selfPresence = room.presence.find((p) => p.userId === user.id);
+      if (selfPresence) {
+        setIsHandRaised(Boolean(selfPresence.handRaised));
+      }
+    }
+  }, [room?.presence, user?.id]);
 
   // Sync internal inCall if controlled prop changes
   useEffect(() => {
@@ -257,7 +274,24 @@ export const LiveTab: React.FC<LiveTabProps> = ({
 
     const onPresenceUpdate = (data: { roomId: string; presence: any[] }) => {
       if (data.roomId !== roomId) return;
+      if (Array.isArray(data.presence) && user?.id) {
+        const self = data.presence.find((p: any) => p.userId === user.id);
+        if (self) {
+          setIsHandRaised(Boolean(self.handRaised));
+        }
+      }
       setParticipants(mapParticipantsFromPresence(data.presence, activeSpeakerId));
+    };
+
+    // US-PERM-07: Real-time hand:changed listener (FR-4.8)
+    const onHandChanged = (data: { roomId: string; userId: string; raised: boolean }) => {
+      if (data.roomId !== roomId) return;
+      if (data.userId === user?.id) {
+        setIsHandRaised(data.raised);
+      }
+      setParticipants((prev) =>
+        prev.map((p) => (p.id === data.userId ? { ...p, handRaised: data.raised } : p))
+      );
     };
 
     const onActiveSpeaker = (data: { roomId: string; userId: string | null }) => {
@@ -304,6 +338,7 @@ export const LiveTab: React.FC<LiveTabProps> = ({
     };
 
     socket.on('presence:update', onPresenceUpdate);
+    socket.on('hand:changed', onHandChanged);
     socket.on('live:active-speaker', onActiveSpeaker);
     socket.on('screen:started', onScreenStarted);
     socket.on('screen:stopped', onScreenStopped);
@@ -311,12 +346,24 @@ export const LiveTab: React.FC<LiveTabProps> = ({
 
     return () => {
       socket.off('presence:update', onPresenceUpdate);
+      socket.off('hand:changed', onHandChanged);
       socket.off('live:active-speaker', onActiveSpeaker);
       socket.off('screen:started', onScreenStarted);
       socket.off('screen:stopped', onScreenStopped);
       socket.off('perm:changed', onPermChanged);
     };
   }, [activeScreenShare?.userId, activeSpeakerId, isHost, roomId, room, screenStream, user?.id]);
+
+  // US-PERM-07: Toggle hand raise for current participant (FR-4.8)
+  const handleToggleHandRaise = () => {
+    if (isControlsDisabled) return;
+    const nextVal = !isHandRaised;
+    setIsHandRaised(nextVal);
+    socket.emit('hand:raise', {
+      roomId,
+      raised: nextVal,
+    });
+  };
 
   const handleToggleCall = () => {
     if (inCall) {
@@ -614,6 +661,33 @@ export const LiveTab: React.FC<LiveTabProps> = ({
           }`}
         >
           <Sliders className="w-5 h-5" />
+        </button>
+
+        {/* ── US-PERM-07: Hand-raise button for all participants in call control bar (FR-4.8) ── */}
+        <button
+          id="room-hand-raise-toggle"
+          data-testid="room-hand-raise-toggle"
+          type="button"
+          disabled={isControlsDisabled}
+          onClick={handleToggleHandRaise}
+          title={
+            isControlsDisabled
+              ? 'Reconnecting...'
+              : isHandRaised
+              ? 'Lower hand'
+              : 'Raise hand'
+          }
+          aria-label={isHandRaised ? 'Lower hand' : 'Raise hand'}
+          aria-pressed={isHandRaised}
+          className={`w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+            isControlsDisabled
+              ? 'opacity-50 cursor-not-allowed bg-slate-200 dark:bg-slate-800 text-slate-400'
+              : isHandRaised
+              ? 'bg-amber-500 hover:bg-amber-600 text-white focus:ring-amber-400 ring-2 ring-amber-300 dark:ring-amber-500 cursor-pointer active:scale-95 shadow-amber-500/25'
+              : 'bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 hover:text-amber-600 dark:hover:text-amber-400 focus:ring-amber-400 cursor-pointer active:scale-95'
+          }`}
+        >
+          <Hand className={`w-5 h-5 ${isHandRaised ? 'text-white' : ''}`} />
         </button>
 
         {/* Call Join/Leave Toggle (US-LIVE-06 AC-3, US-LIVE-07 AC-2) */}

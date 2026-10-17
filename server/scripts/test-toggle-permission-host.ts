@@ -130,7 +130,7 @@ async function runTests() {
       body: JSON.stringify({ canMic: false }),
     });
 
-    const body = await res.json();
+    const body = (await res.json()) as any;
     assert(
       res.status === 200 && body.permissions?.canMic === false,
       'Host can toggle a participant permission',
@@ -147,7 +147,7 @@ async function runTests() {
       body: JSON.stringify({ canCamera: false }),
     });
 
-    const nonHostBody = await nonHostRes.json();
+    const nonHostBody = (await nonHostRes.json()) as any;
     assert(
       nonHostRes.status === 403 && nonHostBody.error?.code === 'HOST_ONLY',
       'Non-host cannot toggle permissions',
@@ -164,7 +164,7 @@ async function runTests() {
       body: JSON.stringify({ canScreen: false }),
     });
 
-    const hostSelfBody = await hostSelfRes.json();
+    const hostSelfBody = (await hostSelfRes.json()) as any;
     assert(
       hostSelfRes.status === 403 && hostSelfBody.error?.code === 'FORBIDDEN',
       'Host cannot toggle their own permissions',

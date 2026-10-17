@@ -99,6 +99,7 @@ export interface GridParticipant {
   isMuted: boolean;
   cameraOff: boolean;
   isSpeaking: boolean;
+  handRaised?: boolean;
   stream?: unknown | null;
 }
 
@@ -114,6 +115,7 @@ export function buildParticipantTiles(
       isMuted: true,
       cameraOff: true,
       isSpeaking: activeSpeakerUserId !== null && entry.userId === activeSpeakerUserId,
+      handRaised: Boolean(entry.handRaised),
       stream: null,
     }));
 }
@@ -300,3 +302,21 @@ export function diffPermissions(
   return diffs;
 }
 
+/**
+ * US-PERM-07: Hand raise payload emitted by participant (FR-4.8)
+ */
+export interface HandRaisePayload {
+  roomId?: string;
+  raised: boolean;
+  userId?: string;
+  asHost?: boolean;
+}
+
+/**
+ * US-PERM-07: Hand changed payload broadcast to all room members (FR-4.8)
+ */
+export interface HandChangedPayload {
+  roomId: string;
+  userId: string;
+  raised: boolean;
+}

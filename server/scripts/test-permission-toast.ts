@@ -297,7 +297,7 @@ async function runTests() {
         body: JSON.stringify({ canMic: false }),
       });
 
-      const patchBody = await patchRes.json();
+      const patchBody = (await patchRes.json()) as any;
       assert(patchRes.status === 200, 'Host successfully calls PATCH permissions endpoint (200 OK)');
       assert(patchBody.permissions?.canMic === false, 'Server response confirms canMic is false');
 
@@ -359,7 +359,7 @@ async function runTests() {
         body: JSON.stringify({ canWhiteboard: true }),
       });
 
-      const patchBody = await patchRes.json();
+      const patchBody = (await patchRes.json()) as any;
       assert(patchRes.status === 200, 'Host successfully grants canWhiteboard (200 OK)');
       assert(patchBody.permissions?.canWhiteboard === true, 'Server response confirms canWhiteboard is true');
 
