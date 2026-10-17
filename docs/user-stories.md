@@ -748,9 +748,9 @@
 > As a **host**, I want to export the attendance table as a CSV file so that I can analyse it in a spreadsheet.
 
 **Acceptance Criteria:**
-- [ ] A **"Download CSV"** button is available on the Attendance page.
-- [ ] `GET /rooms/:roomId/sessions/:sessionId/attendance.csv` returns a `text/csv` response.
-- [ ] The CSV includes columns: Name, First Join, Last Leave, Total Minutes, Number of Joins.
+- [x] A **"Download CSV"** button is available on the Attendance page.
+- [x] `GET /rooms/:roomId/sessions/:sessionId/attendance.csv` returns a `text/csv` response.
+- [x] The CSV includes columns: Name, First Join, Last Leave, Total Minutes, Number of Joins.
 
 ---
 

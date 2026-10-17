@@ -98,3 +98,12 @@ export function setCachedUser(token: string, user: Me, ttlMs: number = CACHE_TTL
     expiresAt: Date.now() + ttlMs,
   });
 }
+
+export function getUserNameFromCache(userId: string): string | undefined {
+  for (const [, cached] of tokenCache.entries()) {
+    if (cached.user.id === userId && cached.user.fullName) {
+      return cached.user.fullName;
+    }
+  }
+  return undefined;
+}

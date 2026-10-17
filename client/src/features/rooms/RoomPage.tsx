@@ -18,6 +18,7 @@ import {
   PhoneOff,
   Info,
   X,
+  ClipboardList,
 } from 'lucide-react';
 import { Session, CodeState } from '@linkup/shared';
 import { useRoom } from './useRoom';
@@ -750,6 +751,18 @@ export const RoomPage: React.FC = () => {
               )}
             </div>
           </div>
+        )}
+
+        {/* US-ATT-04/US-ATT-06: Host attendance and CSV export link */}
+        {room?.myRole === 'host' && (
+          <Link
+            to={`/rooms/${roomId}/attendance`}
+            id="room-attendance-link"
+            title="View Attendance & Export CSV"
+            className="shrink-0 p-1.5 rounded-lg text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          >
+            <ClipboardList className="w-4 h-4" />
+          </Link>
         )}
 
         {/* Sidebar toggle */}

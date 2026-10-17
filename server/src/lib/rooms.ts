@@ -11,6 +11,7 @@ import {
   PermissionKey,
   PERMISSION_KEYS,
   Member,
+  AttendanceRow,
 } from '@linkup/shared';
 import { getActiveScreenShare } from '../realtime/screenShare';
 import { deleteLivekitRoom } from './livekit';
@@ -70,13 +71,21 @@ export {
   addMockAttendance,
   close_session_attendance,
   closeAllSessionAttendance,
+  calculateMockAttendanceSummary,
+  attendanceToCSV,
+  aggregateAttendanceRecords,
+  escapeCsvField,
 } from './attendance';
 
 import {
+  getMockAttendance,
   clearMockAttendance,
   close_session_attendance,
   closeAllSessionAttendance,
   closeDanglingMockAttendance,
+  calculateMockAttendanceSummary,
+  attendanceToCSV,
+  aggregateAttendanceRecords,
 } from './attendance';
 
 export function setMockRooms(userId: string, rooms: RoomSummary[]) {
@@ -2254,5 +2263,217 @@ export async function getSessionsForRoom(
     endedAt: s.ended_at,
     startedBy: s.started_by,
   }));
+}
+
+/**
+ * US-ATT-04 / US-ATT-06: Fetch attendance summary for a specific session (Host only).
+ * Traces to FR-6.4, FR-6.6, api-contract §3.6.
+ */
+export async function getAttendanceSummary(
+  userId: string,
+  roomId: string,
+  sessionId: string
+): Promise<AttendanceRow[]> {
+  const normalizedRoomId = roomId?.trim();
+  const normalizedUserId = userId?.trim();
+  const normalizedSessionId = sessionId?.trim();
+
+  if (!normalizedRoomId || !normalizedUserId || !normalizedSessionId) {
+    const error: any = new Error('Room ID, session ID, and user ID are required');
+    error.code = 'VALIDATION';
+    error.status = 400;
+    throw error;
+  }
+
+  // 1. Check DEFAULT_SAMPLE_ROOMS
+  if (DEFAULT_SAMPLE_ROOMS[normalizedRoomId]) {
+    const r = DEFAULT_SAMPLE_ROOMS[normalizedRoomId];
+    if (r.myRole !== 'host') {
+      const error: any = new Error('Only the room host can view attendance');
+      error.code = 'HOST_ONLY';
+      error.status = 403;
+      throw error;
+    }
+    const sess = mockSessionsStore.get(normalizedSessionId);
+    if (!sess || sess.roomId !== normalizedRoomId) {
+      const error: any = new Error('Session not found');
+      error.code = 'SESSION_NOT_FOUND';
+      error.status = 404;
+      throw error;
+    }
+    return calculateMockAttendanceSummary(normalizedSessionId, sess.endedAt);
+  }
+
+  // 2. Check in-memory mock rooms
+  const mockRoomLists = Array.from(mockRoomsStore.values());
+  const isMockRoomKnown = mockRoomLists.some((rooms) => rooms.some((rm) => rm.id === normalizedRoomId));
+
+  if (isMockRoomKnown) {
+    const userRooms = mockRoomsStore.get(normalizedUserId) || [];
+    const hostRoom = userRooms.find((rm) => rm.id === normalizedRoomId);
+    if (!hostRoom || hostRoom.myRole !== 'host') {
+      const error: any = new Error('Only the room host can view attendance');
+      error.code = 'HOST_ONLY';
+      error.status = 403;
+      throw error;
+    }
+
+    const sess = mockSessionsStore.get(normalizedSessionId);
+    const hasMockRecords = getMockAttendance().some(
+      (a) => a.sessionId === normalizedSessionId && a.roomId === normalizedRoomId
+    );
+
+    if (!sess && !hasMockRecords) {
+      const error: any = new Error('Session not found');
+      error.code = 'SESSION_NOT_FOUND';
+      error.status = 404;
+      throw error;
+    }
+
+    if (sess && sess.roomId !== normalizedRoomId) {
+      const error: any = new Error('Session not found');
+      error.code = 'SESSION_NOT_FOUND';
+      error.status = 404;
+      throw error;
+    }
+
+    return calculateMockAttendanceSummary(normalizedSessionId, sess?.endedAt);
+  }
+
+  // 3. PostgreSQL / Supabase
+  const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!UUID_REGEX.test(normalizedRoomId)) {
+    const error: any = new Error('Room not found');
+    error.code = 'ROOM_NOT_FOUND';
+    error.status = 404;
+    throw error;
+  }
+
+  const { data: room, error: roomError } = await supabase
+    .from('rooms')
+    .select('id, owner_id')
+    .eq('id', normalizedRoomId)
+    .maybeSingle();
+
+  if (roomError) {
+    throw new Error(roomError.message);
+  }
+
+  if (!room) {
+    const error: any = new Error('Room not found');
+    error.code = 'ROOM_NOT_FOUND';
+    error.status = 404;
+    throw error;
+  }
+
+  if (room.owner_id !== normalizedUserId) {
+    const { data: membership } = await supabase
+      .from('room_members')
+      .select('member_role')
+      .eq('room_id', normalizedRoomId)
+      .eq('user_id', normalizedUserId)
+      .maybeSingle();
+
+    if (!membership || membership.member_role !== 'host') {
+      const error: any = new Error('Only the room host can view attendance');
+      error.code = 'HOST_ONLY';
+      error.status = 403;
+      throw error;
+    }
+  }
+
+  if (!UUID_REGEX.test(normalizedSessionId)) {
+    const error: any = new Error('Session not found');
+    error.code = 'SESSION_NOT_FOUND';
+    error.status = 404;
+    throw error;
+  }
+
+  const { data: session, error: sessError } = await supabase
+    .from('live_sessions')
+    .select('id, room_id, started_at, ended_at')
+    .eq('id', normalizedSessionId)
+    .eq('room_id', normalizedRoomId)
+    .maybeSingle();
+
+  if (sessError) {
+    throw new Error(sessError.message);
+  }
+
+  if (!session) {
+    const error: any = new Error('Session not found');
+    error.code = 'SESSION_NOT_FOUND';
+    error.status = 404;
+    throw error;
+  }
+
+  // Try database RPC attendance_summary
+  try {
+    const { data: rpcRows, error: rpcErr } = await supabase.rpc('attendance_summary', {
+      p_session: normalizedSessionId,
+    });
+
+    if (!rpcErr && Array.isArray(rpcRows)) {
+      return rpcRows.map((r: any) => ({
+        userId: r.user_id,
+        fullName: r.full_name || 'Participant',
+        firstJoin: r.first_join,
+        lastLeave: r.last_leave,
+        minutes: Number(r.minutes) || 0,
+        joins: Number(r.joins) || 0,
+      }));
+    }
+  } catch {
+    // Fall back to table query below
+  }
+
+  // Fallback direct query on attendance table
+  const { data: attRows, error: attErr } = await supabase
+    .from('attendance')
+    .select('user_id, joined_at, left_at')
+    .eq('session_id', normalizedSessionId);
+
+  if (attErr) {
+    throw new Error(attErr.message);
+  }
+
+  if (!attRows || attRows.length === 0) {
+    return [];
+  }
+
+  const userIds = Array.from(new Set(attRows.map((r) => r.user_id)));
+  const { data: profiles } = await supabase
+    .from('profiles')
+    .select('id, full_name')
+    .in('id', userIds);
+
+  const profileMap = new Map<string, string>();
+  (profiles || []).forEach((p) => profileMap.set(p.id, p.full_name));
+
+  return aggregateAttendanceRecords(
+    attRows.map((r) => ({
+      id: 0,
+      sessionId: normalizedSessionId,
+      roomId: normalizedRoomId,
+      userId: r.user_id,
+      userName: profileMap.get(r.user_id),
+      joinedAt: r.joined_at,
+      leftAt: r.left_at,
+    })),
+    session.ended_at
+  );
+}
+
+/**
+ * US-ATT-06: Export attendance summary for a session as CSV (Host only).
+ * Traces to FR-6.6, api-contract §3.6.
+ */
+export async function getAttendanceCSV(
+  userId: string,
+  roomId: string,
+  sessionId: string
+): Promise<string> {
+  const rows = await getAttendanceSummary(userId, roomId, sessionId);
+  return attendanceToCSV(rows);
 }
 

@@ -44,7 +44,8 @@
     "test:attendance": "tsx scripts/test-attendance-auto-record.ts",
     "test:attendance-grace": "tsx scripts/test-attendance-grace-period.ts",
     "test:attendance-multi-tab": "tsx scripts/test-attendance-multi-tab.ts",
-    "test:attendance-end": "tsx scripts/test-attendance-end-session.ts"
+    "test:attendance-end": "tsx scripts/test-attendance-end-session.ts",
+    "test:attendance-csv": "tsx scripts/test-attendance-export-csv.ts"
   },
   "dependencies": {
     "@linkup/shared": "*",

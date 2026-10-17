@@ -21,6 +21,8 @@ import {
   getSessionsForRoom,
   updateMemberPermissions,
   bulkUpdateMemberPermissions,
+  getAttendanceSummary,
+  getAttendanceCSV,
 } from './lib/rooms';
 import { getRoomPresence, removeSocketFromRoom, setUserHandStatus } from './realtime/presence';
 import { getActiveScreenShare, stopScreenShare } from './realtime/screenShare';
@@ -1442,6 +1444,118 @@ app.get('/api/rooms/:roomId/sessions', async (req: Request, res: Response) => {
     });
   }
 });
+
+// US-ATT-06: Export attendance CSV endpoint (FR-6.6, api-contract §3.6)
+const handleAttendanceCsv = async (req: Request, res: Response) => {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({
+      error: { code: 'UNAUTHENTICATED', message: 'Authentication required' },
+    });
+  }
+
+  const { roomId, sessionId } = req.params;
+
+  try {
+    const csv = await getAttendanceCSV(user.id, roomId, sessionId);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="attendance-${sessionId}.csv"`);
+    return res.status(200).send(csv);
+  } catch (err: any) {
+    if (err?.code === 'HOST_ONLY' || err?.code === 'FORBIDDEN' || err?.status === 403) {
+      return res.status(403).json({
+        error: {
+          code: err.code || 'HOST_ONLY',
+          message: err.message || 'Only the room host can export attendance',
+        },
+      });
+    }
+
+    if (err?.code === 'ROOM_NOT_FOUND' || (err?.status === 404 && err?.message?.toLowerCase().includes('room'))) {
+      return res.status(404).json({
+        error: {
+          code: 'ROOM_NOT_FOUND',
+          message: err.message || 'Room not found',
+        },
+      });
+    }
+
+    if (err?.code === 'SESSION_NOT_FOUND' || err?.status === 404) {
+      return res.status(404).json({
+        error: {
+          code: 'SESSION_NOT_FOUND',
+          message: err.message || 'Session not found',
+        },
+      });
+    }
+
+    console.error('[Attendance API] Error exporting CSV:', err);
+    return res.status(500).json({
+      error: {
+        code: 'INTERNAL_SERVER_ERROR',
+        message: 'Failed to export attendance CSV',
+      },
+    });
+  }
+};
+
+// US-ATT-04: Session attendance summary endpoint (FR-6.4, api-contract §3.6)
+const handleAttendanceSummary = async (req: Request, res: Response) => {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({
+      error: { code: 'UNAUTHENTICATED', message: 'Authentication required' },
+    });
+  }
+
+  const { roomId, sessionId } = req.params;
+
+  try {
+    const rows = await getAttendanceSummary(user.id, roomId, sessionId);
+    return res.status(200).json(rows);
+  } catch (err: any) {
+    if (err?.code === 'HOST_ONLY' || err?.code === 'FORBIDDEN' || err?.status === 403) {
+      return res.status(403).json({
+        error: {
+          code: err.code || 'HOST_ONLY',
+          message: err.message || 'Only the room host can view attendance',
+        },
+      });
+    }
+
+    if (err?.code === 'ROOM_NOT_FOUND' || (err?.status === 404 && err?.message?.toLowerCase().includes('room'))) {
+      return res.status(404).json({
+        error: {
+          code: 'ROOM_NOT_FOUND',
+          message: err.message || 'Room not found',
+        },
+      });
+    }
+
+    if (err?.code === 'SESSION_NOT_FOUND' || err?.status === 404) {
+      return res.status(404).json({
+        error: {
+          code: 'SESSION_NOT_FOUND',
+          message: err.message || 'Session not found',
+        },
+      });
+    }
+
+    console.error('[Attendance API] Error fetching attendance summary:', err);
+    return res.status(500).json({
+      error: {
+        code: 'INTERNAL_SERVER_ERROR',
+        message: 'Failed to retrieve attendance summary',
+      },
+    });
+  }
+};
+
+app.get('/api/rooms/:roomId/sessions/:sessionId/attendance.csv', handleAttendanceCsv);
+app.get('/rooms/:roomId/sessions/:sessionId/attendance.csv', requireAuth, handleAttendanceCsv);
+
+app.get('/api/rooms/:roomId/sessions/:sessionId/attendance', handleAttendanceSummary);
+app.get('/rooms/:roomId/sessions/:sessionId/attendance', requireAuth, handleAttendanceSummary);
 
 // US-CODE-05: Code execution endpoint (FR-5.5, FR-5.6, api-contract §3.7)
 const handleExecuteCode = async (req: Request, res: Response) => {
