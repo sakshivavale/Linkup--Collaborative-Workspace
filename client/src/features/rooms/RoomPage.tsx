@@ -69,6 +69,7 @@ export const RoomPage: React.FC = () => {
   const [regenerated, setRegenerated] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [codeState, setCodeState] = useState<CodeState | null>(null);
+  const [boardElements, setBoardElements] = useState<any[]>([]);
 
   // US-CODE-08: Pending code editor pen requests count for host badge indicator
   const [pendingCodeRequests, setPendingCodeRequests] = useState(0);
@@ -238,6 +239,9 @@ export const RoomPage: React.FC = () => {
       if (snapshot.code) {
         setCodeState(snapshot.code);
       }
+      if (snapshot.board?.elements) {
+        setBoardElements(snapshot.board.elements);
+      }
     };
 
     const handleDisconnect = (reason: string) => {
@@ -377,6 +381,35 @@ export const RoomPage: React.FC = () => {
       }
     };
 
+    // US-WB-02: Whiteboard remote update broadcast listener
+    const handleWhiteboardUpdate = (data: { roomId: string; elements: any[]; by?: string }) => {
+      if (data.roomId === roomId && Array.isArray(data.elements)) {
+        setBoardElements((prev) => {
+          const map = new Map<string, any>(prev.map((el) => [el.id, el]));
+          for (const el of data.elements) {
+            if (!el || !el.id) continue;
+            const existing = map.get(el.id);
+            if (!existing) {
+              map.set(el.id, el);
+            } else {
+              const elVer = typeof el.version === 'number' ? el.version : 0;
+              const exVer = typeof existing.version === 'number' ? existing.version : 0;
+              if (elVer > exVer) {
+                map.set(el.id, el);
+              } else if (elVer === exVer) {
+                const elNonce = typeof el.versionNonce === 'number' ? el.versionNonce : 0;
+                const exNonce = typeof existing.versionNonce === 'number' ? existing.versionNonce : 0;
+                if (elNonce < exNonce) {
+                  map.set(el.id, el);
+                }
+              }
+            }
+          }
+          return Array.from(map.values());
+        });
+      }
+    };
+
     socket.on('room:join-code-updated', handleJoinCodeUpdated);
     socket.on('room:updated', handleRoomUpdated);
     socket.on('room:archived', handleRoomArchived);
@@ -385,6 +418,7 @@ export const RoomPage: React.FC = () => {
     socket.on('code:state', handleCodeState);
     socket.on('code:pen', handleCodePen);
     socket.on('code:pen-requested', handlePenRequested);
+    socket.on('wb:update', handleWhiteboardUpdate);
 
     return () => {
       socket.off('room:join-code-updated', handleJoinCodeUpdated);
@@ -395,6 +429,7 @@ export const RoomPage: React.FC = () => {
       socket.off('code:state', handleCodeState);
       socket.off('code:pen', handleCodePen);
       socket.off('code:pen-requested', handlePenRequested);
+      socket.off('wb:update', handleWhiteboardUpdate);
     };
   }, [roomId, room, navigate]);
 
@@ -817,6 +852,8 @@ export const RoomPage: React.FC = () => {
             <WhiteboardTab
               roomId={roomId!}
               canWhiteboard={room.myRole === 'host' || Boolean(currentMember?.permissions?.canWhiteboard ?? true)}
+              initialElements={boardElements}
+              onElementsChange={setBoardElements}
             />
           )}
           {mainTab === 'code' && (

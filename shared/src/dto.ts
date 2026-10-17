@@ -207,6 +207,7 @@ export interface CodeState {
 
 export const MAX_CODE_BYTES = 64 * 1024; // 64 KB = 65,536 bytes (US-CODE-03, FR-5.2)
 export const CODE_DEBOUNCE_MS = 150; // 150 ms debounce for keystroke emissions (US-CODE-03, FR-5.2)
+export const WB_THROTTLE_MS = 100; // 100 ms throttle for whiteboard emissions (US-WB-02, FR-5.11)
 
 /** US-CODE-05: Code execution result */
 export interface RunResult {
