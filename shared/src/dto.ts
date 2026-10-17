@@ -203,6 +203,10 @@ export interface CodeState {
   holderId: string | null;
 }
 
+export const MAX_CODE_BYTES = 64 * 1024; // 64 KB = 65,536 bytes (US-CODE-03, FR-5.2)
+export const CODE_DEBOUNCE_MS = 150; // 150 ms debounce for keystroke emissions (US-CODE-03, FR-5.2)
+
+
 export interface ApiError {
   code:
     | 'VALIDATION'

@@ -543,10 +543,10 @@
 > As the **pen holder**, I want my edits to be broadcast to everyone in the room so that all members see the code in near real time.
 
 **Acceptance Criteria:**
-- [ ] Changes are emitted to the server with a 150 ms debounce.
-- [ ] The server increments `rev` and broadcasts `code:state` to all other room members.
-- [ ] Viewers see the update within 300 ms of the debounce firing.
-- [ ] The full code content is sent (no diffing in the MVP); source size must be max 64 KB.
+- [x] Changes are emitted to the server with a 150 ms debounce.
+- [x] The server increments `rev` and broadcasts `code:state` to all other room members.
+- [x] Viewers see the update within 300 ms of the debounce firing.
+- [x] The full code content is sent (no diffing in the MVP); source size must be max 64 KB.
 
 ---
 

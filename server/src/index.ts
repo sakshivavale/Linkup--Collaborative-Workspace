@@ -24,6 +24,7 @@ import {
   getPenHolder,
   setPenHolder,
   updateCodeState,
+  validateCodeSize,
 } from './realtime/codeWorkspace';
 import {
   getWhiteboardElements,
@@ -498,6 +499,21 @@ io.on('connection', (socket) => {
         // Server drops it with error { code: "NOT_PEN_HOLDER" } to sender ONLY
         socket.emit('error', notHolderErr);
         if (typeof ack === 'function') ack({ ok: false, error: notHolderErr });
+        return;
+      }
+
+      // Check max 64 KB source size (US-CODE-03 AC-4, FR-5.2, api-contract §4.2)
+      const sizeValidation = validateCodeSize(content);
+      if (!sizeValidation.valid) {
+        console.warn(`[Socket] code:update rejected: payload size ${sizeValidation.sizeBytes} exceeds 64 KB limit in room ${roomId}`);
+        const sizeErr = {
+          code: 'PAYLOAD_TOO_LARGE',
+          status: 413,
+          message: sizeValidation.error || 'Source code exceeds the 64 KB limit.',
+          event: 'code:update',
+        };
+        socket.emit('error', sizeErr);
+        if (typeof ack === 'function') ack({ ok: false, error: sizeErr });
         return;
       }
 
