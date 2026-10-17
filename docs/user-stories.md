@@ -701,8 +701,8 @@
 > As a **student with a brief network drop**, I want a short reconnect not to be counted as a separate attendance entry so that my total time is reported accurately.
 
 **Acceptance Criteria:**
-- [ ] A disconnect and reconnect within 15 seconds reuses the single open attendance record.
-- [ ] A disconnect longer than 15 seconds closes the record and creates a new one on reconnect.
+- [x] A disconnect and reconnect within 15 seconds reuses the single open attendance record.
+- [x] A disconnect longer than 15 seconds closes the record and creates a new one on reconnect.
 
 ---
 

@@ -38,7 +38,8 @@
     "test:code-request-pen": "tsx scripts/test-code-request-pen.ts",
     "test:wb-draw": "tsx scripts/test-wb-draw.ts",
     "test:wb-persist": "tsx scripts/test-wb-persist.ts",
-    "test:attendance": "tsx scripts/test-attendance-auto-record.ts"
+    "test:attendance": "tsx scripts/test-attendance-auto-record.ts",
+    "test:attendance-grace": "tsx scripts/test-attendance-grace-period.ts"
   },
   "dependencies": {
     "@linkup/shared": "*",

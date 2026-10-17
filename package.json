@@ -38,7 +38,8 @@
     "test:code-run": "npm run test:code-run --workspace=server",
     "test:wb-draw": "npm run test:wb-draw --workspace=server",
     "test:wb-persist": "npm run test:wb-persist --workspace=server",
-    "test:attendance": "npm run test:attendance --workspace=server"
+    "test:attendance": "npm run test:attendance --workspace=server",
+    "test:attendance-grace": "npm run test:attendance-grace --workspace=server"
   },
   "devDependencies": {
     "typescript": "^5.4.5"
