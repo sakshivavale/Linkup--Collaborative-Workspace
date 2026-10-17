@@ -24,6 +24,7 @@ import {
   getOrLoadCodeState,
   getPenHolder,
   setPenHolder,
+  codeService,
   updateCodeState,
   validateCodeSize,
   persistCodeState,
@@ -667,7 +668,7 @@ io.on('connection', (socket) => {
             .then((r) => {
               const hostMember = r.members?.find((m) => m.memberRole === 'host');
               const hostId = hostMember?.userId || (r as any).owner_id || null;
-              setPenHolder(roomId, hostId);
+              codeService.setPen(roomId, hostId);
               io.to(`room:${roomId}`).to(roomId).emit('code:pen', {
                 roomId,
                 holderId: hostId,

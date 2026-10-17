@@ -1627,6 +1627,8 @@ export async function startSession(
       startedAt,
       endedAt: null,
       startedBy: normalizedUserId,
+      livekit_room: `linkup-${newSessionId}`,
+      livekitRoom: `linkup-${newSessionId}`,
     };
     mockSessionsStore.set(newSessionId, session);
     return session;
@@ -1679,6 +1681,8 @@ export async function startSession(
       startedAt,
       endedAt: null,
       startedBy: normalizedUserId,
+      livekit_room: `linkup-${newSessionId}`,
+      livekitRoom: `linkup-${newSessionId}`,
     };
     mockSessionsStore.set(newSessionId, session);
     return session;
@@ -1759,7 +1763,7 @@ export async function startSession(
       started_by: normalizedUserId,
       started_at: startedAt,
     })
-    .select('id, room_id, started_at, ended_at, started_by')
+    .select('id, room_id, started_at, ended_at, started_by, livekit_room')
     .single();
 
   if (insertError) {
@@ -1779,6 +1783,8 @@ export async function startSession(
     startedAt: newSession.started_at,
     endedAt: newSession.ended_at,
     startedBy: newSession.started_by,
+    livekit_room: newSession.livekit_room || `linkup-${newSession.id}`,
+    livekitRoom: newSession.livekit_room || `linkup-${newSession.id}`,
   };
 }
 
@@ -2013,6 +2019,8 @@ export async function endSession(
     startedAt: updatedSession.started_at,
     endedAt: updatedSession.ended_at,
     startedBy: updatedSession.started_by,
+    livekit_room: updatedSession.livekit_room || `linkup-${updatedSession.id}`,
+    livekitRoom: updatedSession.livekit_room || `linkup-${updatedSession.id}`,
   };
 }
 
@@ -2060,6 +2068,8 @@ export async function getActiveSession(roomId: string): Promise<Session | null> 
         startedAt: sRoom.createdAt || new Date().toISOString(),
         endedAt: null,
         startedBy: 'user-turing',
+        livekit_room: `linkup-${sRoom.activeSessionId}`,
+        livekitRoom: `linkup-${sRoom.activeSessionId}`,
       }
     );
   }
@@ -2075,6 +2085,8 @@ export async function getActiveSession(roomId: string): Promise<Session | null> 
           startedAt: r.createdAt || new Date().toISOString(),
           endedAt: null,
           startedBy: 'host',
+          livekit_room: `linkup-${r.activeSessionId}`,
+          livekitRoom: `linkup-${r.activeSessionId}`,
         }
       );
     }
@@ -2086,7 +2098,7 @@ export async function getActiveSession(roomId: string): Promise<Session | null> 
 
   const { data: session } = await supabase
     .from('live_sessions')
-    .select('id, room_id, started_at, ended_at, started_by')
+    .select('id, room_id, started_at, ended_at, started_by, livekit_room')
     .eq('room_id', normalizedRoomId)
     .is('ended_at', null)
     .maybeSingle();
@@ -2099,6 +2111,8 @@ export async function getActiveSession(roomId: string): Promise<Session | null> 
     startedAt: session.started_at,
     endedAt: session.ended_at,
     startedBy: session.started_by,
+    livekit_room: session.livekit_room || `linkup-${session.id}`,
+    livekitRoom: session.livekit_room || `linkup-${session.id}`,
   };
 }
 

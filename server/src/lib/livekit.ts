@@ -11,7 +11,7 @@ export type LivekitSource = 'microphone' | 'camera' | 'screen_share' | 'screen_s
  * Derives allowed LiveKit publish sources from member permissions.
  */
 export function sourcesFrom(
-  m?: Partial<Permissions> | { can_mic?: boolean; can_camera?: boolean; can_screen?: boolean } | null
+  m?: Partial<Permissions> | { can_mic?: boolean; can_camera?: boolean; can_screen?: boolean } | Record<string, unknown> | null
 ): LivekitSource[] {
   const sources: LivekitSource[] = [];
   if (!m) return sources;

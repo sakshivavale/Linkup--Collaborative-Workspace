@@ -311,3 +311,24 @@ export function setMockCodeDb(roomId: string, state: Partial<CodeState>): void {
 export function getMockCodeDb(roomId: string): CodeState | undefined {
   return mockCodeDb.get(roomId?.trim());
 }
+
+/**
+ * Set the pen holder for a room (alias for setPenHolder per US-CODE-04 specification).
+ */
+export const setPen = setPenHolder;
+
+/**
+ * Service abstraction for code workspace operations (US-CODE-04, FR-5.4).
+ */
+export const codeService = {
+  getPen: getPenHolder,
+  setPen: setPenHolder,
+  setPenHolder,
+  getPenHolder,
+  getCodeState,
+  getOrLoadCodeState,
+  updateCodeState,
+  persistCodeState,
+  clearCodeWorkspace,
+  flushAllCodeState,
+};

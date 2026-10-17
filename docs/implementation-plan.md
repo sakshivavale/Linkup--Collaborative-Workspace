@@ -142,7 +142,7 @@ Attendance
   - [ ] Reject a host target
   - [ ] Run the DB update and return the new flags
   - [ ] If the user is live: call LiveKit `updatePermissions` with the new `canPublishSources`, and `muteTrack` for each revoked live track
-  - [ ] If `canCode` was revoked and the user holds the pen: `codeService.setPen(roomId, hostId)` and emit `code:pen`
+  - [x] If `canCode` was revoked and the user holds the pen: `codeService.setPen(roomId, hostId)` and emit `code:pen`
   - [ ] Emit `perm:changed` to the room
 - [ ] `[A]` `PATCH /rooms/:id/members/:uid/permissions`
 - [ ] `[A]` `DELETE /rooms/:id/members/:uid`: kick flow (LiveKit remove, close attendance, `room:kicked`, sockets leave, `member:removed`)

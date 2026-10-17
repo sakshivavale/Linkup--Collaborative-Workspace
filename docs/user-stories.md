@@ -556,10 +556,10 @@
 > As a **host**, if I revoke `can_code` from the student who currently holds the pen, I want the pen to automatically return to me so that the student cannot continue editing.
 
 **Acceptance Criteria:**
-- [ ] When `can_code` is revoked from the current pen holder, the server automatically calls `codeService.setPen(roomId, hostId)`.
-- [ ] A `code:pen { holderId: hostId }` event is emitted to all room members.
-- [ ] The former holder's editor immediately switches to read-only.
-- [ ] The host's editor becomes writable.
+- [x] When `can_code` is revoked from the current pen holder, the server automatically calls `codeService.setPen(roomId, hostId)`.
+- [x] A `code:pen { holderId: hostId }` event is emitted to all room members.
+- [x] The former holder's editor immediately switches to read-only.
+- [x] The host's editor becomes writable.
 
 ---
 
