@@ -15,11 +15,14 @@ export function getCodeState(roomId: string, defaultHostId?: string | null): Cod
 
   const existing = codeStateMap.get(normalized);
   if (existing) {
+    if (!existing.holderId && defaultHostId) {
+      existing.holderId = defaultHostId;
+    }
     return existing;
   }
 
   const initial: CodeState = {
-    content: '',
+    content: '# Shared Python Code Workspace\nprint("Hello, Linkup!")\n',
     language: 'python',
     rev: 0,
     holderId: defaultHostId || null,

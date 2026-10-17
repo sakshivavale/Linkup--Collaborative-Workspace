@@ -517,10 +517,10 @@
 > As a **room member**, I want to see the shared Monaco code editor in the Code tab with a language selector so that I can follow what the teacher or a permitted student is coding.
 
 **Acceptance Criteria:**
-- [ ] The Code tab shows a Monaco editor with a language selector (Python, JavaScript, C++, Java).
-- [ ] All members who do not hold the pen see the editor in read-only mode with live updates (under 300 ms after debounce).
-- [ ] The editor header shows who is currently editing (e.g., "Priya is editing").
-- [ ] Joining the room late shows the current code content from the `room:join` snapshot.
+- [x] The Code tab shows a Monaco editor with a language selector (Python, JavaScript, C++, Java).
+- [x] All members who do not hold the pen see the editor in read-only mode with live updates (under 300 ms after debounce).
+- [x] The editor header shows who is currently editing (e.g., "Priya is editing").
+- [x] Joining the room late shows the current code content from the `room:join` snapshot.
 
 ---
 
