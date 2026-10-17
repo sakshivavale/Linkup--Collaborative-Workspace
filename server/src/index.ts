@@ -590,6 +590,20 @@ io.on('connection', (socket) => {
     }
   });
 
+  /**
+   * code:run-started — broadcast code execution start to room (US-CODE-05 AC-3, FR-5.5)
+   */
+  socket.on('code:run-started', (payload: any) => {
+    const roomId = extractRoomId(payload);
+    if (!roomId) return;
+    const language = payload?.language;
+    io.to(`room:${roomId}`).to(roomId).emit('code:run-started', {
+      roomId,
+      by: user?.fullName || user?.id || 'Unknown',
+      language,
+    });
+  });
+
   socket.on('disconnect', async (reason) => {
 
     console.log(`[Socket] User disconnected: ${user?.fullName} (${user?.id}) - Reason: ${reason}`);

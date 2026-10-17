@@ -203,6 +203,39 @@ export interface CodeState {
   holderId: string | null;
 }
 
+/** US-CODE-05: Code execution result */
+export interface RunResult {
+  by: string;
+  language: Language;
+  stdout: string;
+  stderr: string;
+  exitCode: number | null;
+  timeMs: number;
+  timedOut: boolean;
+  truncated: boolean;
+}
+
+/** US-CODE-05: Payload for POST /execute */
+export interface ExecuteCodeDto {
+  language: Language;
+  code: string;
+  stdin?: string;
+  roomId?: string;
+}
+
+/** US-CODE-05: Payload for code:run-started event */
+export interface CodeRunStartedPayload {
+  roomId: string;
+  by: string;
+  language: Language;
+}
+
+/** US-CODE-05: Payload for code:run-result event */
+export interface CodeRunResultPayload {
+  roomId: string;
+  result: RunResult;
+}
+
 export interface ApiError {
   code:
     | 'VALIDATION'
