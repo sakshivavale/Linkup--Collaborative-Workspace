@@ -245,6 +245,25 @@ export async function recordSocketDisconnect(
         }
       }
     }
+
+    try {
+      const { data: dbRecords } = await supabase
+        .from('attendance')
+        .select('*')
+        .eq('user_id', normUser)
+        .is('left_at', null);
+
+      if (dbRecords && dbRecords.length > 0) {
+        for (const rec of dbRecords) {
+          const activeSession = await getActiveSession(rec.room_id);
+          if (activeSession?.id === rec.session_id) {
+            startGraceTimer(activeSession.id, normUser, rec.room_id, customGracePeriodMs ?? configuredGracePeriodMs);
+          }
+        }
+      }
+    } catch {
+      // Fallback DB error ignored
+    }
   }
 }
 
