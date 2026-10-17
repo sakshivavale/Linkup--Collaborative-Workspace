@@ -6,6 +6,7 @@ export interface PresenceUser {
   inLive: boolean;
   handRaised: boolean;
   socketIds: Set<string>;
+  liveSockets?: Set<string>;
 }
 
 // Maps roomId -> Map<userId, PresenceUser>
@@ -52,8 +53,11 @@ export function addSocketToRoom(
       inLive: false,
       handRaised: false,
       socketIds: new Set<string>(),
+      liveSockets: new Set<string>(),
     };
     roomUsers.set(user.id, presenceUser);
+  } else if (!presenceUser.liveSockets) {
+    presenceUser.liveSockets = new Set<string>();
   }
 
   presenceUser.socketIds.add(socketId);
@@ -88,6 +92,10 @@ export function removeSocketFromRoom(roomId: string, socketId: string): Presence
   for (const [userId, user] of roomUsers.entries()) {
     if (user.socketIds.has(socketId)) {
       user.socketIds.delete(socketId);
+      if (user.liveSockets) {
+        user.liveSockets.delete(socketId);
+        user.inLive = user.liveSockets.size > 0;
+      }
       if (user.socketIds.size === 0) {
         roomUsers.delete(userId);
       }
@@ -123,6 +131,10 @@ export function handleSocketDisconnect(
       const user = roomUsers.get(userId);
       if (user) {
         user.socketIds.delete(socketId);
+        if (user.liveSockets) {
+          user.liveSockets.delete(socketId);
+          user.inLive = user.liveSockets.size > 0;
+        }
         if (user.socketIds.size === 0) {
           roomUsers.delete(userId);
         }
@@ -143,12 +155,14 @@ export function handleSocketDisconnect(
 
 /**
  * Update a user's inLive status for a room (e.g. live:joined / live:left).
+ * Supports multi-tab: tracks liveSockets per user and marks inLive = true as long as at least 1 tab is live.
  * Returns the updated PresenceEntry[] or null if user not present.
  */
 export function setUserLiveStatus(
   roomId: string,
   userId: string,
-  inLive: boolean
+  inLive: boolean,
+  socketId?: string
 ): PresenceEntry[] | null {
   const roomUsers = roomPresenceMap.get(roomId);
   if (!roomUsers) return null;
@@ -156,7 +170,24 @@ export function setUserLiveStatus(
   const user = roomUsers.get(userId);
   if (!user) return null;
 
-  user.inLive = inLive;
+  if (!user.liveSockets) {
+    user.liveSockets = new Set<string>();
+  }
+
+  if (socketId) {
+    if (inLive) {
+      user.liveSockets.add(socketId);
+    } else {
+      user.liveSockets.delete(socketId);
+    }
+    user.inLive = user.liveSockets.size > 0;
+  } else {
+    user.inLive = inLive;
+    if (!inLive) {
+      user.liveSockets.clear();
+    }
+  }
+
   return getRoomPresence(roomId);
 }
 
@@ -190,6 +221,7 @@ export function setMockPresence(roomId: string, presence: PresenceEntry[]): void
       inLive: p.inLive,
       handRaised: p.handRaised,
       socketIds: new Set(['mock-socket-' + p.userId]),
+      liveSockets: p.inLive ? new Set(['mock-socket-' + p.userId]) : new Set(),
     });
   }
   roomPresenceMap.set(roomId, map);

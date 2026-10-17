@@ -28,6 +28,18 @@ export function getGraceTimersCount(): number {
   return graceTimers.size;
 }
 
+export function getLiveSockets(roomId: string, userId: string): Set<string> | undefined {
+  const normRoom = roomId?.trim();
+  const normUser = userId?.trim();
+  return liveSocketsMap.get(`${normRoom}:${normUser}`);
+}
+
+export function getLiveSocketsCount(roomId: string, userId: string): number {
+  const normRoom = roomId?.trim();
+  const normUser = userId?.trim();
+  return liveSocketsMap.get(`${normRoom}:${normUser}`)?.size ?? 0;
+}
+
 export function hasActiveGraceTimer(sessionId: string, userId: string): boolean {
   return graceTimers.has(`${sessionId}:${userId}`);
 }
@@ -239,6 +251,12 @@ export async function recordSocketDisconnect(
     const normUser = userId.trim();
     for (const att of mockAttendanceStore) {
       if (att.userId === normUser && att.leftAt === null) {
+        // Multi-tab check: do not start grace timer if user still has other active live sockets in this room
+        const liveKey = `${att.roomId}:${normUser}`;
+        const activeSockets = liveSocketsMap.get(liveKey);
+        if (activeSockets && activeSockets.size > 0) {
+          continue;
+        }
         const activeSession = await getActiveSession(att.roomId);
         if (activeSession?.id === att.sessionId) {
           startGraceTimer(activeSession.id, normUser, att.roomId, customGracePeriodMs ?? configuredGracePeriodMs);
@@ -255,6 +273,11 @@ export async function recordSocketDisconnect(
 
       if (dbRecords && dbRecords.length > 0) {
         for (const rec of dbRecords) {
+          const liveKey = `${rec.room_id}:${normUser}`;
+          const activeSockets = liveSocketsMap.get(liveKey);
+          if (activeSockets && activeSockets.size > 0) {
+            continue;
+          }
           const activeSession = await getActiveSession(rec.room_id);
           if (activeSession && activeSession.id === rec.session_id) {
             startGraceTimer(activeSession.id, normUser, rec.room_id, customGracePeriodMs ?? configuredGracePeriodMs);
