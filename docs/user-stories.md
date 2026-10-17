@@ -598,10 +598,10 @@
 > As any **logged-in user**, I want a private code editor page where I can run code just for myself so that I can experiment without affecting the shared room editor.
 
 **Acceptance Criteria:**
-- [ ] A `/playground` route shows a Monaco editor, language selector, stdin box, Run button, and output panel.
-- [ ] Code runs via `POST /execute` without a `roomId`; output is shown only to the user.
-- [ ] No code or output is shared to any room.
-- [ ] Same rate limits apply (10 runs/minute).
+- [x] A `/playground` route shows a Monaco editor, language selector, stdin box, Run button, and output panel.
+- [x] Code runs via `POST /execute` without a `roomId`; output is shown only to the user.
+- [x] No code or output is shared to any room.
+- [x] Same rate limits apply (10 runs/minute).
 
 ---
 
