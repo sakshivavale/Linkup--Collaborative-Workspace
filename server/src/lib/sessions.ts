@@ -13,4 +13,7 @@ export {
   close_session_attendance,
   closeAllSessionAttendance,
   closeDanglingAttendanceRecords,
+  getAttendanceSummary,
+  getAttendanceCSV,
+  attendanceToCSV,
 } from './rooms';

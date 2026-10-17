@@ -1,6 +1,6 @@
-import { supabase } from './supabase';
+import { supabase, getUserNameFromCache } from './supabase';
 import { getActiveSession } from './rooms';
-import { AttendanceRecord } from '@linkup/shared';
+import { AttendanceRecord, AttendanceRow } from '@linkup/shared';
 
 export type MockAttendanceRecord = AttendanceRecord;
 
@@ -75,7 +75,8 @@ export function addMockAttendance(rec: MockAttendanceRecord): void {
 export async function recordLiveJoin(
   roomId: string,
   userId: string,
-  socketId: string
+  socketId: string,
+  userName?: string
 ): Promise<MockAttendanceRecord | null> {
   const normRoom = roomId?.trim();
   const normUser = userId?.trim();
@@ -111,7 +112,10 @@ export async function recordLiveJoin(
     const openMock = mockAttendanceStore.find(
       (a) => a.sessionId === activeSession.id && a.userId === normUser && a.leftAt === null
     );
-    if (openMock) return openMock;
+    if (openMock) {
+      if (userName && !openMock.userName) openMock.userName = userName;
+      return openMock;
+    }
   }
 
   // Check if open record already exists in mock store
@@ -119,6 +123,7 @@ export async function recordLiveJoin(
     (a) => a.sessionId === activeSession.id && a.userId === normUser && a.leftAt === null
   );
   if (existingOpen) {
+    if (userName && !existingOpen.userName) existingOpen.userName = userName;
     return existingOpen;
   }
 
@@ -183,6 +188,7 @@ export async function recordLiveJoin(
     sessionId: activeSession.id,
     roomId: normRoom,
     userId: normUser,
+    userName: userName || undefined,
     joinedAt: new Date().toISOString(),
     leftAt: null,
   };
@@ -402,5 +408,113 @@ export function closeDanglingMockAttendance(
     }
   }
   return closedCount;
+}
+
+/**
+ * Escape CSV fields according to RFC 4180.
+ * If field contains comma, quote, or newline, wraps in quotes and doubles internal quotes.
+ */
+export function escapeCsvField(val: string | number | null | undefined): string {
+  if (val === null || val === undefined) return '';
+  const str = String(val);
+  if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+}
+
+/**
+ * Aggregate raw attendance records into per-student summary rows (US-ATT-04, FR-6.4).
+ * Columns: Name, First Join, Last Leave, Total Minutes, Number of Joins.
+ * Total minutes are rounded to the nearest minute.
+ */
+export function aggregateAttendanceRecords(
+  records: AttendanceRecord[],
+  sessionEndedAt?: string | null
+): AttendanceRow[] {
+  const userMap = new Map<string, AttendanceRecord[]>();
+
+  for (const rec of records) {
+    const list = userMap.get(rec.userId) || [];
+    list.push(rec);
+    userMap.set(rec.userId, list);
+  }
+
+  const rows: AttendanceRow[] = [];
+  const nowIso = new Date().toISOString();
+
+  for (const [userId, userRecs] of userMap.entries()) {
+    userRecs.sort((a, b) => new Date(a.joinedAt).getTime() - new Date(b.joinedAt).getTime());
+
+    const firstJoin = userRecs[0].joinedAt;
+    let lastLeave = userRecs[userRecs.length - 1].leftAt;
+    if (!lastLeave) {
+      lastLeave = sessionEndedAt || nowIso;
+    }
+
+    let totalDurationMs = 0;
+    for (const r of userRecs) {
+      const startMs = new Date(r.joinedAt).getTime();
+      const endMs = new Date(r.leftAt || sessionEndedAt || nowIso).getTime();
+      if (!isNaN(startMs) && !isNaN(endMs) && endMs >= startMs) {
+        totalDurationMs += (endMs - startMs);
+      }
+      const rLeave = r.leftAt || sessionEndedAt || nowIso;
+      if (new Date(rLeave).getTime() > new Date(lastLeave).getTime()) {
+        lastLeave = rLeave;
+      }
+    }
+
+    const minutes = Math.round(totalDurationMs / 60000);
+    const joins = userRecs.length;
+
+    const foundName = userRecs.find((r) => r.userName)?.userName;
+    const cachedName = getUserNameFromCache(userId);
+    const fullName = foundName || cachedName || `User ${userId.slice(0, 8)}`;
+
+    rows.push({
+      userId,
+      fullName,
+      firstJoin,
+      lastLeave,
+      minutes,
+      joins,
+    });
+  }
+
+  return rows.sort((a, b) => a.fullName.localeCompare(b.fullName, undefined, { sensitivity: 'base' }));
+}
+
+/**
+ * Convert attendance rows into RFC 4180 CSV string (US-ATT-06, FR-6.6).
+ * Required columns: Name, First Join, Last Leave, Total Minutes, Number of Joins.
+ */
+export function attendanceToCSV(rows: AttendanceRow[]): string {
+  const headers = ['Name', 'First Join', 'Last Leave', 'Total Minutes', 'Number of Joins'];
+  const headerLine = headers.join(',');
+  const lines = [
+    headerLine,
+    ...rows.map((r) =>
+      [
+        escapeCsvField(r.fullName),
+        escapeCsvField(r.firstJoin),
+        escapeCsvField(r.lastLeave),
+        escapeCsvField(r.minutes),
+        escapeCsvField(r.joins),
+      ].join(',')
+    ),
+  ];
+  return lines.join('\r\n') + '\r\n';
+}
+
+/**
+ * Calculate attendance summary from in-memory mock attendance store.
+ */
+export function calculateMockAttendanceSummary(
+  sessionId: string,
+  sessionEndedAt?: string | null
+): AttendanceRow[] {
+  const records = mockAttendanceStore.filter((a) => a.sessionId === sessionId);
+  return aggregateAttendanceRecords(records, sessionEndedAt);
 }
 

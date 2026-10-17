@@ -128,8 +128,8 @@ Attendance
 - [x] `[B]` `live:joined` / `live:left` / disconnect handlers: per-user `liveSockets` set, 15 s grace timer, insert-or-reuse open record (partial unique index)
 - [x] `[B]` Mark `inLive` in presence
 - [x] `[B]` Server boot recovery: close open attendance for sessions that have ended
-- [ ] `[A]` `GET /rooms/:id/sessions/:sid/attendance` (via `attendance_summary` RPC)
-- [ ] `[C]` Attendance page: session picker and table
+- [x] `[A]` `GET /rooms/:id/sessions/:sid/attendance` (via `attendance_summary` RPC)
+- [x] `[C]` Attendance page: session picker and table
 
 **Exit (C1, end of Day 3, for call + chat):** teacher starts a session, 3 browser profiles join the call, the teacher shares a screen, and chat messages persist across reload.
 **Exit (Day 5, for attendance):** a refresh doesn't duplicate attendance, ending the session closes every record, and the host sees correct minutes.

@@ -151,8 +151,19 @@ export interface AttendanceRecord {
   sessionId: string;
   roomId: string;
   userId: string;
+  userName?: string;
   joinedAt: string;
   leftAt: string | null;
+}
+
+/** US-ATT-04 / US-ATT-06: Session attendance row summary (FR-6.4, FR-6.6, api-contract §3.6) */
+export interface AttendanceRow {
+  userId: string;
+  fullName: string;
+  firstJoin: string;
+  lastLeave: string;
+  minutes: number;
+  joins: number;
 }
 
 export interface ChatMessage {

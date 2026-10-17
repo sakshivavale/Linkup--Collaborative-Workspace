@@ -236,7 +236,7 @@ io.on('connection', (socket) => {
     const roomId = extractRoomId(payload);
     if (roomId && user?.id) {
       const presence = setUserLiveStatus(roomId, user.id, true, socket.id);
-      const record = await recordLiveJoin(roomId, user.id, socket.id);
+      const record = await recordLiveJoin(roomId, user.id, socket.id, user.fullName);
 
       if (presence) {
         io.to(`room:${roomId}`).to(roomId).emit('presence:update', {
