@@ -5,6 +5,7 @@ import type { ExcalidrawImperativeAPI } from '@excalidraw/excalidraw/types';
 import '@excalidraw/excalidraw/index.css';
 import { WB_THROTTLE_MS } from '@linkup/shared';
 import { socket } from '../../lib/socket';
+import { api } from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
 
@@ -17,12 +18,16 @@ export interface WhiteboardTabProps {
 
 /**
  * US-WB-02: Draw on the Whiteboard (Permitted User) (Priority: P0 | Traces to: FR-5.11, FR-5.12)
+ * US-WB-03: Whiteboard State Persists (Priority: P0 | Traces to: FR-5.13)
  * Acceptance Criteria:
  * 1. The editor is writable for members with can_whiteboard = true and the host.
  * 2. Changed elements are throttled at 100 ms and broadcast via wb:update.
  * 3. All other members see changes within 500 ms.
  * 4. Deletions (Excalidraw isDeleted: true) sync correctly.
  * 5. The image tool is disabled (images need file storage, which is out of scope).
+ * 6. whiteboard_state is persisted to Postgres (debounced 5 s and on last editor leave).
+ * 7. Joining or rejoining the room loads current board state from room:join snapshot.
+ * 8. Board state survives a server restart.
  */
 export const WhiteboardTab: React.FC<WhiteboardTabProps> = ({
   roomId,
@@ -40,9 +45,11 @@ export const WhiteboardTab: React.FC<WhiteboardTabProps> = ({
   const throttleTimerRef = useRef<NodeJS.Timeout | null>(null);
   const isInitializedRef = useRef<boolean>(false);
 
-  // Initialize scene with initial elements (e.g. from room:join snapshot)
+  // Synchronize scene with initial elements (from room:join snapshot or re-join) (US-WB-03 AC-2)
   useEffect(() => {
-    if (excalidrawAPI && initialElements && initialElements.length > 0 && !isInitializedRef.current) {
+    if (!excalidrawAPI || !initialElements || initialElements.length === 0) return;
+
+    if (!isInitializedRef.current) {
       for (const el of initialElements) {
         if (el?.id && typeof el.version === 'number') {
           sentVersionsRef.current.set(el.id, el.version);
@@ -50,8 +57,44 @@ export const WhiteboardTab: React.FC<WhiteboardTabProps> = ({
       }
       excalidrawAPI.updateScene({ elements: initialElements });
       isInitializedRef.current = true;
+    } else {
+      // Re-joining or reconnected snapshot: reconcile with existing local elements
+      const localElements = excalidrawAPI.getSceneElementsIncludingDeleted();
+      const appState = excalidrawAPI.getAppState();
+      const reconciled = reconcileElements(localElements as any, initialElements as any, appState);
+      for (const el of reconciled) {
+        if (el?.id && typeof el.version === 'number') {
+          const currentSeen = sentVersionsRef.current.get(el.id) ?? -1;
+          if (el.version > currentSeen) {
+            sentVersionsRef.current.set(el.id, el.version);
+          }
+        }
+      }
+      excalidrawAPI.updateScene({ elements: reconciled });
+      onElementsChange?.(reconciled);
     }
-  }, [excalidrawAPI, initialElements]);
+  }, [excalidrawAPI, initialElements, onElementsChange]);
+
+  // Fallback REST fetch if initialElements is empty on mount (US-WB-03)
+  useEffect(() => {
+    if ((!initialElements || initialElements.length === 0) && roomId && !isInitializedRef.current) {
+      api
+        .get<{ elements: any[] }>(`/api/rooms/${roomId}/whiteboard`)
+        .then((saved) => {
+          if (saved?.elements && Array.isArray(saved.elements) && saved.elements.length > 0 && excalidrawAPI) {
+            for (const el of saved.elements) {
+              if (el?.id && typeof el.version === 'number') {
+                sentVersionsRef.current.set(el.id, el.version);
+              }
+            }
+            excalidrawAPI.updateScene({ elements: saved.elements });
+            onElementsChange?.(saved.elements);
+            isInitializedRef.current = true;
+          }
+        })
+        .catch(() => {});
+    }
+  }, [roomId, initialElements, excalidrawAPI, onElementsChange]);
 
   // Broadcast throttled pending changes to room members
   const flushUpdates = useCallback(() => {

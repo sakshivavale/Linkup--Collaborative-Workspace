@@ -181,7 +181,7 @@ Code tab
 - [x] `(P1)` `[D]` "Request edit" → `code:pen-requested` badge on the host's header
 
 Whiteboard
-- [ ] `[D]` `boardService`: in-memory element map, merge by version (tie → lower `versionNonce`), debounced persist (5 s), flush on last leave
+- [x] `[D]` `boardService`: in-memory element map, merge by version (tie → lower `versionNonce`), debounced persist (5 s), flush on last leave
 - [x] `[D]` `wb:update` handler: permission check, merge, broadcast to the others
 - [x] `[D]` Whiteboard tab: `<Excalidraw viewModeEnabled={!canEdit}>`, 100 ms-throttled diff broadcast of changed elements, a reconcile function, and an echo guard
 - [x] `[D]` Disable the image tool, and load the snapshot on join

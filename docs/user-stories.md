@@ -650,9 +650,9 @@
 > As a **room member**, I want the whiteboard to be restored when I reload or rejoin so that drawn content is not lost.
 
 **Acceptance Criteria:**
-- [ ] `whiteboard_state` is persisted to Postgres (debounced 5 s and on last editor leave).
-- [ ] Joining or rejoining the room loads the current board state from the `room:join` snapshot.
-- [ ] Board state survives a server restart.
+- [x] `whiteboard_state` is persisted to Postgres (debounced 5 s and on last editor leave).
+- [x] Joining or rejoining the room loads the current board state from the `room:join` snapshot.
+- [x] Board state survives a server restart.
 
 ---
 
