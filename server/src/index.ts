@@ -200,6 +200,13 @@ io.on('connection', (socket) => {
       const presence = removeSocketFromRoom(roomId, socket.id);
       console.log(`[Socket] User ${user?.fullName} left room channel: ${roomId} (${presence.length} online)`);
 
+      // US-ATT-01: Record live leave if user was in live call
+      if (user?.id) {
+        recordLiveLeave(roomId, user.id, socket.id).catch((err) => {
+          console.warn('[Socket] Failed to record live leave on room:leave:', err);
+        });
+      }
+
       io.to(`room:${roomId}`).to(roomId).emit('presence:update', {
         roomId,
         presence,
@@ -222,13 +229,13 @@ io.on('connection', (socket) => {
   });
 
   /**
-   * live:joined — user enters the live call (US-ROOM-02 AC-3, US-LIVE-07 AC-4)
+   * live:joined — user enters the live call (US-ROOM-02 AC-3, US-LIVE-07 AC-4, US-ATT-01 AC-1, AC-3)
    */
   socket.on('live:joined', async (payload: any, ack?: (res: any) => void) => {
     const roomId = extractRoomId(payload);
     if (roomId && user?.id) {
       const presence = setUserLiveStatus(roomId, user.id, true);
-      await recordLiveJoin(roomId, user.id, socket.id);
+      const record = await recordLiveJoin(roomId, user.id, socket.id);
 
       if (presence) {
         io.to(`room:${roomId}`).to(roomId).emit('presence:update', {
@@ -236,12 +243,14 @@ io.on('connection', (socket) => {
           presence,
         });
       }
-      if (typeof ack === 'function') ack({ ok: true });
+      if (typeof ack === 'function') ack({ ok: true, data: record, record });
+    } else {
+      if (typeof ack === 'function') ack({ ok: false, error: 'roomId and authenticated user required' });
     }
   });
 
   /**
-   * live:left — user leaves the live call (US-ROOM-02 AC-3, US-LIVE-07 AC-4)
+   * live:left — user leaves the live call (US-ROOM-02 AC-3, US-LIVE-07 AC-4, US-ATT-01 AC-2)
    */
   socket.on('live:left', async (payload: any, ack?: (res: any) => void) => {
     const roomId = extractRoomId(payload);
@@ -267,6 +276,8 @@ io.on('connection', (socket) => {
       }
 
       if (typeof ack === 'function') ack({ ok: true });
+    } else {
+      if (typeof ack === 'function') ack({ ok: false, error: 'roomId and authenticated user required' });
     }
   });
 
@@ -765,7 +776,7 @@ io.on('connection', (socket) => {
   socket.on('disconnect', async (reason) => {
 
     console.log(`[Socket] User disconnected: ${user?.fullName} (${user?.id}) - Reason: ${reason}`);
-    await recordSocketDisconnect(socket.id);
+    await recordSocketDisconnect(socket.id, undefined, user?.id);
 
     const affectedRooms = handleSocketDisconnect(socket.id);
     for (const { roomId, presence } of affectedRooms) {

@@ -689,9 +689,9 @@
 > As the **system**, I want to automatically create an attendance record when a member joins the live call and close it when they leave so that the host has an accurate view of participation.
 
 **Acceptance Criteria:**
-- [ ] Emitting `live:joined` creates or reuses an open attendance record with `joined_at = now()`.
-- [ ] Emitting `live:left` or disconnecting starts a 15-second grace timer; if the user does not reconnect, `left_at = now()` is set.
-- [ ] Reconnecting within 15 seconds cancels the timer and reuses the same record.
+- [x] Emitting `live:joined` creates or reuses an open attendance record with `joined_at = now()`.
+- [x] Emitting `live:left` or disconnecting starts a 15-second grace timer; if the user does not reconnect, `left_at = now()` is set.
+- [x] Reconnecting within 15 seconds cancels the timer and reuses the same record.
 
 ---
 
