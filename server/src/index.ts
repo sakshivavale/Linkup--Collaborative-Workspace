@@ -235,6 +235,21 @@ io.on('connection', (socket) => {
   socket.on('live:joined', async (payload: any, ack?: (res: any) => void) => {
     const roomId = extractRoomId(payload);
     if (roomId && user?.id) {
+      // US-ERR-02: User cannot join live if no session is active (FR-3.2, api-contract §4.2)
+      const activeSession = await getActiveSession(roomId);
+      if (!activeSession) {
+        if (typeof ack === 'function') {
+          ack({
+            ok: false,
+            error: {
+              code: 'NO_ACTIVE_SESSION',
+              message: 'Waiting for the teacher to start the session.',
+            },
+          });
+        }
+        return;
+      }
+
       const presence = setUserLiveStatus(roomId, user.id, true, socket.id);
       const record = await recordLiveJoin(roomId, user.id, socket.id, user.fullName);
 

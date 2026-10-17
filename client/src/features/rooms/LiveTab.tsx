@@ -12,6 +12,8 @@ import {
   ChevronDown,
   Sparkles,
   Hand,
+  Radio,
+  Info,
 } from 'lucide-react';
 import { socket } from '../../lib/socket';
 import VideoGrid from './VideoGrid';
@@ -107,6 +109,41 @@ export const LiveTab: React.FC<LiveTabProps> = ({
     }
   }, [room?.presence, user?.id]);
 
+  const [internalSessionId, setInternalSessionId] = useState<string | null>(sessionId);
+  const [joinError, setJoinError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setInternalSessionId(sessionId);
+  }, [sessionId]);
+
+  // US-ERR-02 Acceptance Criteria 2:
+  // When teacher starts, status updates automatically via session:started event without requiring a page reload
+  useEffect(() => {
+    const handleSessionStarted = (data: { roomId: string; session: { id: string } }) => {
+      if (data.roomId === roomId && data.session?.id) {
+        setInternalSessionId(data.session.id);
+        setJoinError(null);
+      }
+    };
+
+    const handleSessionEnded = (data: { roomId: string }) => {
+      if (data.roomId === roomId) {
+        setInternalSessionId(null);
+        setInternalInCall(false);
+      }
+    };
+
+    socket.on('session:started', handleSessionStarted);
+    socket.on('session:ended', handleSessionEnded);
+
+    return () => {
+      socket.off('session:started', handleSessionStarted);
+      socket.off('session:ended', handleSessionEnded);
+    };
+  }, [roomId]);
+
+  const activeSessionId = sessionId || internalSessionId;
+
   // Sync internal inCall if controlled prop changes
   useEffect(() => {
     if (controlledInCall !== undefined) {
@@ -115,11 +152,11 @@ export const LiveTab: React.FC<LiveTabProps> = ({
   }, [controlledInCall]);
 
   useEffect(() => {
-    if (!sessionId && inCall) {
+    if (!activeSessionId && inCall) {
       if (onLeaveCall) onLeaveCall();
       setInternalInCall(false);
     }
-  }, [sessionId, inCall, onLeaveCall]);
+  }, [activeSessionId, inCall, onLeaveCall]);
 
   // Sync permissions when room loads or updates
   useEffect(() => {
@@ -404,7 +441,20 @@ export const LiveTab: React.FC<LiveTabProps> = ({
       if (onLeaveCall) onLeaveCall();
       setInternalInCall(false);
     } else {
-      socket.emit('live:joined', { roomId });
+      if (!activeSessionId) {
+        // US-ERR-02: User cannot join live if no session is active (FR-3.2, FRD Section 7)
+        setJoinError('Waiting for the teacher to start the session.');
+        setTimeout(() => setJoinError(null), 4000);
+        return;
+      }
+      socket.emit('live:joined', { roomId }, (res: any) => {
+        if (res && res.ok === false) {
+          setJoinError(res.error?.message || 'Waiting for the teacher to start the session.');
+          setTimeout(() => setJoinError(null), 4000);
+          setInternalInCall(false);
+          return;
+        }
+      });
       if (onJoinCall) onJoinCall();
       setInternalInCall(true);
     }
@@ -419,18 +469,64 @@ export const LiveTab: React.FC<LiveTabProps> = ({
     <div className="flex flex-col items-center justify-center h-full gap-6 py-6">
       {/* Session indicator */}
       <div
+        id="live-session-indicator"
+        data-testid="live-session-indicator"
         className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-bold tracking-wide ${
-          sessionId
+          activeSessionId
             ? 'bg-red-500/15 border border-red-500/30 text-red-400'
             : 'bg-slate-200/60 dark:bg-slate-800/60 border border-slate-300 dark:border-slate-700 text-slate-500 dark:text-slate-400'
         }`}
       >
-        <span className={`w-2 h-2 rounded-full ${sessionId ? 'bg-red-500 animate-pulse' : 'bg-slate-400'}`} />
-        {sessionId ? 'Live Session Active' : 'No Active Session'}
+        <span className={`w-2 h-2 rounded-full ${activeSessionId ? 'bg-red-500 animate-pulse' : 'bg-slate-400'}`} />
+        {activeSessionId ? 'Live Session Active' : 'No Active Session'}
       </div>
 
+      {/* US-ERR-02: Waiting state when session has not started (FR-3.2, FRD Section 7) */}
+      {!activeSessionId && (
+        <div
+          id="room-session-waiting-card"
+          data-testid="room-session-waiting-card"
+          className="flex flex-col items-center gap-3 p-8 rounded-2xl bg-white/80 dark:bg-slate-900/80 border border-amber-500/30 shadow-xl backdrop-blur-sm max-w-md w-full text-center animate-fade-in"
+        >
+          <div className="w-14 h-14 rounded-full bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-500 dark:text-amber-400">
+            <Radio className="w-7 h-7 animate-pulse" />
+          </div>
+          <div>
+            <h3
+              id="waiting-for-teacher-title"
+              data-testid="waiting-for-teacher-title"
+              className="text-base font-bold text-slate-900 dark:text-white"
+            >
+              Waiting for the teacher to start the session.
+            </h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 max-w-xs leading-relaxed">
+              {isHost
+                ? 'As the host, click "Start Session" in the header to launch the live video call.'
+                : 'The live stream and controls will activate automatically as soon as the session begins.'}
+            </p>
+          </div>
+          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 text-xs font-medium">
+            <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
+            <span>Waiting for session:started event…</span>
+          </div>
+        </div>
+      )}
+
+      {/* Join live error message banner / toast (US-ERR-02) */}
+      {joinError && (
+        <div
+          id="join-live-error-toast"
+          data-testid="join-live-error-toast"
+          role="alert"
+          className="px-4 py-2 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-700 dark:text-amber-300 text-xs font-medium flex items-center gap-2 shadow-lg backdrop-blur-sm animate-fade-in"
+        >
+          <Info className="w-4 h-4 text-amber-500 shrink-0" />
+          <span>{joinError}</span>
+        </div>
+      )}
+
       {/* When session is active but current user is not in the call: US-LIVE-06 AC-3 Join Live action */}
-      {sessionId && !inCall && (
+      {activeSessionId && !inCall && (
         <div
           id="room-join-live-card"
           data-testid="room-join-live-card"
@@ -739,21 +835,33 @@ export const LiveTab: React.FC<LiveTabProps> = ({
           <button
             id="room-join-live-btn-control"
             data-testid="join-live-btn"
-            disabled={isControlsDisabled}
+            disabled={isControlsDisabled || !activeSessionId}
             onClick={handleToggleCall}
-            title={isControlsDisabled ? 'Reconnecting...' : 'Join Live'}
-            aria-label="Join Live"
-            className={`w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 bg-emerald-600 hover:bg-emerald-700 text-white focus:ring-emerald-500 ${
-              isControlsDisabled ? 'opacity-50 cursor-not-allowed pointer-events-none' : 'cursor-pointer'
-            }`}
+            title={
+              isControlsDisabled
+                ? 'Reconnecting...'
+                : !activeSessionId
+                ? 'Waiting for the teacher to start the session.'
+                : 'Join Live'
+            }
+            aria-label={!activeSessionId ? 'Waiting for the teacher to start the session.' : 'Join Live'}
+            className={`w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+              !activeSessionId
+                ? 'bg-slate-300 dark:bg-slate-800 text-slate-400 dark:text-slate-600 cursor-not-allowed opacity-60'
+                : 'bg-emerald-600 hover:bg-emerald-700 text-white focus:ring-emerald-500 cursor-pointer active:scale-95'
+            } ${isControlsDisabled ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
           >
             <PhoneCall className="w-5 h-5" />
           </button>
         )}
       </div>
 
-      <p className="text-xs text-slate-400 dark:text-slate-500 text-center max-w-xs">
-        {sessionId
+      <p
+        id="live-tab-session-status-text"
+        data-testid="live-tab-session-status-text"
+        className="text-xs text-slate-400 dark:text-slate-500 text-center max-w-xs"
+      >
+        {activeSessionId
           ? 'Audio continues when you switch tabs — you will stay connected to the live call.'
           : 'Waiting for the teacher to start the session.'}
       </p>
