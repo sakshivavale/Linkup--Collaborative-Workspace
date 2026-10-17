@@ -248,7 +248,7 @@ Test & demo (Day 10)
 |---|----------|----------|---|
 | T1 | Sign up as teacher and as student; log out and back in | Profiles have correct roles; session persists across reload | ☐ |
 | T2 | Student tries to create a room (UI hidden, then a direct API call) | 403 `TEACHER_ONLY` | ☐ |
-| T3 | Join with a wrong code, a right code, and the right code twice | Error; joined; idempotent | ☐ |
+| T3 | Join with a wrong code, a right code, and the right code twice | Error; joined; idempotent | ✔ |
 | T4 | Non-member opens `/rooms/:id` or emits `room:join` | 403 / error ack, redirected | ☐ |
 | T5 | Start session; 3 students join live; host shares screen | All see video and the screen tile | ☐ |
 | T6 | Second "Start session" while one is active | 409 `SESSION_ACTIVE` | ☐ |

@@ -281,7 +281,7 @@ app.post('/api/rooms', async (req: Request, res: Response) => {
   }
 });
 
-// Join room by 6-character code (FR-8.3, FR-2.3, US-DASH-04)
+// Join room by 6-character code (FR-8.3, FR-2.3, US-DASH-04, US-ERR-01, FRD Section 7)
 app.post('/api/rooms/join', async (req: Request, res: Response) => {
   const user = req.user;
   if (!user) {
