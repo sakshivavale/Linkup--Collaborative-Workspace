@@ -611,9 +611,9 @@
 > As a **student with `can_code`**, I want to request the edit pen so that I can signal to the teacher that I want to type.
 
 **Acceptance Criteria:**
-- [ ] A **"Request Edit"** button is shown in the Code tab for participants with `can_code` who do not hold the pen.
-- [ ] Clicking emits `code:request-pen`; the server sends `code:pen-requested` to the host's sockets.
-- [ ] The host sees a badge indicating the student's request.
+- [x] A **"Request Edit"** button is shown in the Code tab for participants with `can_code` who do not hold the pen.
+- [x] Clicking emits `code:request-pen`; the server sends `code:pen-requested` to the host's sockets.
+- [x] The host sees a badge indicating the student's request.
 
 ---
 ## 8. Whiteboard

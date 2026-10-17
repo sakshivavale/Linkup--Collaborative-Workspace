@@ -24,6 +24,8 @@ import {
   getOrLoadCodeState,
   getPenHolder,
   setPenHolder,
+  addPenRequest,
+  removePenRequest,
   codeService,
   updateCodeState,
   validateCodeSize,
@@ -112,6 +114,9 @@ io.on('connection', (socket) => {
       // Membership confirmed — subscribe socket to room channels (both roomId and room:roomId)
       await socket.join(roomId);
       await socket.join(`room:${roomId}`);
+      if (room.myRole === 'host') {
+        await socket.join(`room:${roomId}:host`);
+      }
 
       // Register presence for US-ROOM-02
       const presence = addSocketToRoom(roomId, socket.id, user);
@@ -612,6 +617,122 @@ io.on('connection', (socket) => {
     } catch (err: any) {
       console.warn(`[Socket] Error in code:pen for room ${roomId}:`, err);
       const errPayload = { code: 'INTERNAL_SERVER_ERROR', message: err.message || 'Failed to assign pen' };
+      socket.emit('error', errPayload);
+      if (typeof ack === 'function') ack({ ok: false, error: errPayload });
+    }
+  });
+
+  /**
+   * code:request-pen — student requests the edit pen (US-CODE-08, FR-5.9, api-contract §4.2)
+   * Acceptance Criteria:
+   * 1. A participant with can_code who does not hold the pen emits code:request-pen.
+   * 2. The server sends code:pen-requested to the host's sockets.
+   * 3. The host sees a badge indicating the student's request.
+   */
+  socket.on('code:request-pen', async (payload: any, ack?: (res: any) => void) => {
+    const rawRoomId = typeof payload === 'string' ? payload : payload?.roomId;
+    const roomId = typeof rawRoomId === 'string' && rawRoomId.trim() ? rawRoomId.trim() : '';
+    if (!roomId || !user?.id) {
+      const err = { code: 'VALIDATION', message: 'Room ID required', event: 'code:request-pen' };
+      socket.emit('error', err);
+      if (typeof ack === 'function') ack({ ok: false, error: err });
+      return;
+    }
+
+    try {
+      const room = await getRoomForUser(user.id, roomId);
+      const myMember = room.members?.find((m) => m.userId === user.id);
+      const isHost = room.myRole === 'host';
+      const canCode = isHost || Boolean(myMember?.permissions?.canCode);
+
+      if (!canCode) {
+        const err = {
+          code: 'FORBIDDEN',
+          message: 'You do not have code permission',
+          event: 'code:request-pen',
+        };
+        socket.emit('error', err);
+        if (typeof ack === 'function') ack({ ok: false, error: err });
+        return;
+      }
+
+      const hostMember = room.members?.find((m) => m.memberRole === 'host');
+      const defaultHostId = hostMember?.userId || (room as any).owner_id || (room.myRole === 'host' ? user.id : '');
+      const currentHolderId = getPenHolder(roomId, defaultHostId);
+
+      if (currentHolderId === user.id) {
+        const err = {
+          code: 'ALREADY_PEN_HOLDER',
+          message: 'You already hold the edit pen',
+          event: 'code:request-pen',
+        };
+        socket.emit('error', err);
+        if (typeof ack === 'function') ack({ ok: false, error: err });
+        return;
+      }
+
+      // Record pending pen request
+      addPenRequest(roomId, user.id);
+
+      const hostUserId = hostMember?.userId || (room as any).owner_id;
+      const penRequestedPayload = {
+        roomId,
+        userId: user.id,
+        userName: user.fullName || user.email || 'Student',
+      };
+
+      // Target all sockets belonging to host in this room
+      const allSockets = Array.from(io.sockets?.sockets?.values?.() ?? []);
+      const targetSockets = new Set<any>();
+
+      for (const s of allSockets) {
+        if (s.data?.user?.id === hostUserId) {
+          if (
+            s.rooms.has(roomId) ||
+            s.rooms.has(`room:${roomId}`) ||
+            s.rooms.has(`room:${roomId}:host`)
+          ) {
+            targetSockets.add(s);
+          }
+        }
+      }
+
+      // Also target any socket in room:roomId:host
+      const hostRoomSockets = io.sockets.adapter.rooms.get(`room:${roomId}:host`);
+      if (hostRoomSockets) {
+        for (const sId of hostRoomSockets) {
+          const s = io.sockets.sockets.get(sId);
+          if (s) targetSockets.add(s);
+        }
+      }
+
+      // Fallback: if no room-specific socket found, deliver to host sockets matching user ID
+      if (targetSockets.size === 0) {
+        for (const s of allSockets) {
+          if (s.data?.user?.id === hostUserId) {
+            targetSockets.add(s);
+          }
+        }
+      }
+
+      for (const hostSocket of targetSockets) {
+        hostSocket.emit('code:pen-requested', penRequestedPayload);
+      }
+
+      console.log(
+        `[Socket] User ${user.fullName} (${user.id}) requested pen in room ${roomId} -> sent to host (${hostUserId}) sockets (${targetSockets.size})`
+      );
+
+      if (typeof ack === 'function') {
+        ack({ ok: true, data: penRequestedPayload });
+      }
+    } catch (err: any) {
+      console.warn(`[Socket] Error in code:request-pen for room ${roomId}:`, err);
+      const errPayload = {
+        code: err.code || 'FORBIDDEN',
+        message: err.message || 'Failed to request edit pen',
+        event: 'code:request-pen',
+      };
       socket.emit('error', errPayload);
       if (typeof ack === 'function') ack({ ok: false, error: errPayload });
     }

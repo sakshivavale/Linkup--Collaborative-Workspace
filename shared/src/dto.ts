@@ -241,6 +241,18 @@ export interface CodeRunResultPayload {
   result: RunResult;
 }
 
+/** US-CODE-08: Payload for code:request-pen event (FR-5.9) */
+export interface CodeRequestPenPayload {
+  roomId: string;
+}
+
+/** US-CODE-08: Payload for code:pen-requested event sent to host sockets (FR-5.9) */
+export interface CodePenRequestedPayload {
+  roomId: string;
+  userId: string;
+  userName?: string;
+}
+
 export interface ApiError {
   code:
     | 'VALIDATION'
@@ -248,6 +260,7 @@ export interface ApiError {
     | 'FORBIDDEN'
     | 'NOT_A_MEMBER'
     | 'HOST_ONLY'
+    | 'ALREADY_PEN_HOLDER'
     | 'TEACHER_ONLY'
     | 'NOT_PEN_HOLDER'
     | 'NOT_FOUND'

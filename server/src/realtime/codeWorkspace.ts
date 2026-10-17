@@ -30,6 +30,9 @@ const mockCodeDb = new Map<string, CodeState>();
 // Debounce timers: roomId -> NodeJS.Timeout (3 seconds)
 const debounceTimers = new Map<string, NodeJS.Timeout>();
 
+// US-CODE-08: In-memory set of pending pen requests per room: roomId -> Set<string> (userIds)
+const penRequestsMap = new Map<string, Set<string>>();
+
 const DEFAULT_INITIAL_CONTENT = '# Shared Python Code Workspace\nprint("Hello, Linkup!")\n';
 
 /**
@@ -161,6 +164,9 @@ export function setPenHolder(roomId: string, holderId: string | null): CodeState
     holderId: holderId ? holderId.trim() : null,
   };
   codeStateMap.set(normalized, updated);
+  if (holderId) {
+    removePenRequest(normalized, holderId);
+  }
   scheduleDebouncedPersist(normalized, 3000);
   return updated;
 }
@@ -276,7 +282,57 @@ export async function flushAllCodeState(): Promise<void> {
 }
 
 /**
- * Clear in-memory workspaces and timers (for testing).
+ * US-CODE-08: Add a pending pen request from a user in a room.
+ */
+export function addPenRequest(roomId: string, userId: string): void {
+  const normalized = roomId?.trim();
+  const userKey = userId?.trim();
+  if (!normalized || !userKey) return;
+  let requests = penRequestsMap.get(normalized);
+  if (!requests) {
+    requests = new Set<string>();
+    penRequestsMap.set(normalized, requests);
+  }
+  requests.add(userKey);
+}
+
+/**
+ * US-CODE-08: Remove a pending pen request for a user in a room.
+ */
+export function removePenRequest(roomId: string, userId: string): void {
+  const normalized = roomId?.trim();
+  const userKey = userId?.trim();
+  if (!normalized || !userKey) return;
+  const requests = penRequestsMap.get(normalized);
+  if (requests) {
+    requests.delete(userKey);
+    if (requests.size === 0) {
+      penRequestsMap.delete(normalized);
+    }
+  }
+}
+
+/**
+ * US-CODE-08: Clear all pending pen requests in a room.
+ */
+export function clearPenRequests(roomId: string): void {
+  const normalized = roomId?.trim();
+  if (!normalized) return;
+  penRequestsMap.delete(normalized);
+}
+
+/**
+ * US-CODE-08: Get all user IDs currently requesting the pen in a room.
+ */
+export function getPenRequests(roomId: string): string[] {
+  const normalized = roomId?.trim();
+  if (!normalized) return [];
+  const requests = penRequestsMap.get(normalized);
+  return requests ? Array.from(requests) : [];
+}
+
+/**
+ * Clear in-memory workspaces, pending requests, and timers (for testing).
  */
 export function clearCodeWorkspace(): void {
   for (const timer of debounceTimers.values()) {
@@ -284,6 +340,7 @@ export function clearCodeWorkspace(): void {
   }
   debounceTimers.clear();
   codeStateMap.clear();
+  penRequestsMap.clear();
 }
 
 /**
@@ -318,7 +375,7 @@ export function getMockCodeDb(roomId: string): CodeState | undefined {
 export const setPen = setPenHolder;
 
 /**
- * Service abstraction for code workspace operations (US-CODE-04, FR-5.4).
+ * Service abstraction for code workspace operations (US-CODE-04, US-CODE-08, FR-5.4, FR-5.9).
  */
 export const codeService = {
   getPen: getPenHolder,
@@ -331,4 +388,8 @@ export const codeService = {
   persistCodeState,
   clearCodeWorkspace,
   flushAllCodeState,
+  addPenRequest,
+  removePenRequest,
+  clearPenRequests,
+  getPenRequests,
 };

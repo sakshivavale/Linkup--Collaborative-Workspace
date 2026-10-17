@@ -12,6 +12,8 @@ import {
   Loader2,
   Terminal,
   AlertTriangle,
+  Hand,
+  Check,
 } from 'lucide-react';
 import { Language, CodeState, Member, RunResult, MAX_CODE_BYTES, CODE_DEBOUNCE_MS } from '@linkup/shared';
 import { socket } from '../../lib/socket';
@@ -65,11 +67,11 @@ export interface CodeTabProps {
  * US-CODE-01: View the Shared Editor
  * US-CODE-02: Give the Pen to a Student (Host)
  * US-CODE-04: Revoke Code Permission from Pen Holder (FR-5.4)
+ * US-CODE-08: Request the Pen (P1, FR-5.9)
  * Acceptance Criteria:
- * 1. When can_code is revoked from the current pen holder, the server automatically calls codeService.setPen(roomId, hostId).
- * 2. A code:pen { holderId: hostId } event is emitted to all room members.
- * 3. The former holder's editor immediately switches to read-only.
- * 4. The host's editor becomes writable.
+ * 1. A "Request Edit" button is shown in the Code tab for participants with can_code who do not hold the pen.
+ * 2. Clicking emits code:request-pen; the server sends code:pen-requested to the host's sockets.
+ * 3. The host sees a badge indicating the student's request.
  */
 export const CodeTab: React.FC<CodeTabProps> = ({
   roomId,
@@ -94,6 +96,11 @@ export const CodeTab: React.FC<CodeTabProps> = ({
   const [sizeError, setSizeError] = useState<string | null>(null);
   const [runResult, setRunResult] = useState<RunResult | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
+
+  // US-CODE-08: Request the edit pen states
+  const [requestingPen, setRequestingPen] = useState<boolean>(false);
+  const [penRequested, setPenRequested] = useState<boolean>(false);
+  const [activePenRequests, setActivePenRequests] = useState<Array<{ userId: string; userName: string }>>([]);
 
   const [localMembers, setLocalMembers] = useState<Member[]>(members);
   useEffect(() => {
@@ -218,6 +225,13 @@ export const CodeTab: React.FC<CodeTabProps> = ({
     }
   }, [canEdit]);
 
+  // US-CODE-08: Reset penRequested if user becomes pen holder or loses canCode
+  useEffect(() => {
+    if (isPenHolder || !userHasCodePermission) {
+      setPenRequested(false);
+    }
+  }, [isPenHolder, userHasCodePermission]);
+
   // AC 1: "A 'Run' button is visible in the Code tab for the pen holder and the host."
   const canRun = useMemo(() => {
     return Boolean(isPenHolder || isUserHost);
@@ -294,6 +308,26 @@ export const CodeTab: React.FC<CodeTabProps> = ({
     );
   };
 
+  // US-CODE-08 AC-2: Participant emits code:request-pen
+  const handleRequestPen = () => {
+    if (isUserHost || !userHasCodePermission || isPenHolder || requestingPen) return;
+    setRequestingPen(true);
+    setPenRequested(true);
+    socket.emit(
+      'code:request-pen',
+      { roomId },
+      (ack: any) => {
+        setRequestingPen(false);
+        if (ack?.ok) {
+          setPenRequested(true);
+        } else if (ack?.error) {
+          setPenRequested(false);
+          setSyncError(ack.error.message || 'Failed to request edit pen');
+        }
+      }
+    );
+  };
+
   // Real-time Socket.IO listeners: code:state, code:pen, perm:changed, room:joined
   useEffect(() => {
     const handleCodeState = (data: { roomId: string } & CodeState) => {
@@ -315,11 +349,28 @@ export const CodeTab: React.FC<CodeTabProps> = ({
     const handleCodePen = (data: { roomId: string; holderId: string; by?: string }) => {
       if (data.roomId === roomId) {
         setHolderId(data.holderId);
+        if (data.holderId === user?.id) {
+          setPenRequested(false);
+        }
+        // Remove the newly assigned holder from pending requests
+        setActivePenRequests((prev) => prev.filter((r) => r.userId !== data.holderId));
         onCodeStateChange?.({
           content: contentRef.current,
           language: languageRef.current,
           rev: revRef.current,
           holderId: data.holderId,
+        });
+      }
+    };
+
+    // US-CODE-08 AC-2 & AC-3: Host receives code:pen-requested from students
+    const handlePenRequested = (data: { roomId: string; userId: string; userName?: string }) => {
+      if (data.roomId === roomId) {
+        const student = localMembers.find((m) => m.userId === data.userId);
+        const resolvedName = data.userName || student?.fullName || 'Student';
+        setActivePenRequests((prev) => {
+          if (prev.some((r) => r.userId === data.userId)) return prev;
+          return [...prev, { userId: data.userId, userName: resolvedName }];
         });
       }
     };
@@ -333,6 +384,12 @@ export const CodeTab: React.FC<CodeTabProps> = ({
               : m
           )
         );
+        if (data.userId === user?.id && !data.permissions?.canCode) {
+          setPenRequested(false);
+        }
+        if (!data.permissions?.canCode) {
+          setActivePenRequests((prev) => prev.filter((r) => r.userId !== data.userId));
+        }
       }
     };
 
@@ -375,6 +432,7 @@ export const CodeTab: React.FC<CodeTabProps> = ({
 
     socket.on('code:state', handleCodeState);
     socket.on('code:pen', handleCodePen);
+    socket.on('code:pen-requested', handlePenRequested);
     socket.on('perm:changed', handlePermChanged);
     socket.on('room:joined', handleRoomJoined);
     socket.on('error', handleSocketError);
@@ -384,6 +442,7 @@ export const CodeTab: React.FC<CodeTabProps> = ({
     return () => {
       socket.off('code:state', handleCodeState);
       socket.off('code:pen', handleCodePen);
+      socket.off('code:pen-requested', handlePenRequested);
       socket.off('perm:changed', handlePermChanged);
       socket.off('room:joined', handleRoomJoined);
       socket.off('error', handleSocketError);
@@ -577,6 +636,68 @@ export const CodeTab: React.FC<CodeTabProps> = ({
           </span>
         )}
 
+        {/* US-CODE-08 AC-1: "Request Edit" button is shown in Code tab for participants with can_code who do not hold the pen */}
+        {!isUserHost && userHasCodePermission && !isPenHolder && (
+          <button
+            id="code-request-edit-btn"
+            data-testid="code-request-edit-btn"
+            type="button"
+            onClick={handleRequestPen}
+            disabled={requestingPen || penRequested}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-purple-500 cursor-pointer active:scale-95 ${
+              penRequested
+                ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 cursor-default'
+                : 'text-white bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500'
+            }`}
+            title={penRequested ? 'Edit request sent to teacher' : 'Request edit pen from teacher'}
+            aria-label="Request Edit"
+          >
+            {penRequested ? (
+              <>
+                <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                <span>Request Sent</span>
+              </>
+            ) : requestingPen ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span>Requesting…</span>
+              </>
+            ) : (
+              <>
+                <Hand className="w-3.5 h-3.5" />
+                <span>Request Edit</span>
+              </>
+            )}
+          </button>
+        )}
+
+        {/* US-CODE-08 AC-3: Host sees a badge indicating the student's request */}
+        {isUserHost && activePenRequests.length > 0 && (
+          <div
+            id="code-pen-request-badge"
+            data-testid="code-pen-request-badge"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-300 dark:border-amber-500/30 text-amber-800 dark:text-amber-200 text-xs font-semibold shadow-sm animate-pulse"
+          >
+            <Hand className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+            <span>
+              {activePenRequests.length === 1
+                ? `${activePenRequests[0].userName} requested to edit`
+                : `${activePenRequests.length} students requested to edit`}
+            </span>
+            <button
+              id="code-grant-request-btn"
+              data-testid="code-grant-request-btn"
+              type="button"
+              onClick={() => handleAssignPen(activePenRequests[0].userId)}
+              className="ml-1.5 px-2 py-0.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-bold shadow-xs transition-all cursor-pointer"
+              title={`Grant edit pen to ${activePenRequests[0].userName}`}
+              aria-label={`Grant pen to ${activePenRequests[0].userName}`}
+            >
+              Grant
+            </button>
+          </div>
+        )}
+
         {/* US-CODE-02: Host Pen Controls */}
         {isUserHost && (
           <div
@@ -623,16 +744,19 @@ export const CodeTab: React.FC<CodeTabProps> = ({
                 <option value="" disabled={studentHoldsPen}>
                   {eligibleStudents.length === 0 ? 'Give Pen (No eligible students)' : 'Give Pen ▾'}
                 </option>
-                {eligibleStudents.map((student) => (
-                  <option
-                    key={student.userId}
-                    value={student.userId}
-                    id={`give-pen-option-${student.userId}`}
-                    data-testid={`give-pen-option-${student.userId}`}
-                  >
-                    {student.fullName} {holderId === student.userId ? '(Pen Holder)' : ''}
-                  </option>
-                ))}
+                {eligibleStudents.map((student) => {
+                  const hasRequested = activePenRequests.some((r) => r.userId === student.userId);
+                  return (
+                    <option
+                      key={student.userId}
+                      value={student.userId}
+                      id={`give-pen-option-${student.userId}`}
+                      data-testid={`give-pen-option-${student.userId}`}
+                    >
+                      {student.fullName} {holderId === student.userId ? '(Pen Holder)' : hasRequested ? '⭐ (Requested Edit)' : ''}
+                    </option>
+                  );
+                })}
               </select>
               <ChevronDown className="w-3.5 h-3.5 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-purple-500 dark:text-purple-400" />
             </div>
