@@ -234,7 +234,7 @@ io.on('connection', (socket) => {
   socket.on('live:joined', async (payload: any, ack?: (res: any) => void) => {
     const roomId = extractRoomId(payload);
     if (roomId && user?.id) {
-      const presence = setUserLiveStatus(roomId, user.id, true);
+      const presence = setUserLiveStatus(roomId, user.id, true, socket.id);
       const record = await recordLiveJoin(roomId, user.id, socket.id);
 
       if (presence) {
@@ -255,7 +255,7 @@ io.on('connection', (socket) => {
   socket.on('live:left', async (payload: any, ack?: (res: any) => void) => {
     const roomId = extractRoomId(payload);
     if (roomId && user?.id) {
-      const presence = setUserLiveStatus(roomId, user.id, false);
+      const presence = setUserLiveStatus(roomId, user.id, false, socket.id);
       await recordLiveLeave(roomId, user.id, socket.id);
 
       if (presence) {

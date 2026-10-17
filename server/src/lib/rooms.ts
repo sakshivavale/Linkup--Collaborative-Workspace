@@ -97,6 +97,7 @@ export function setMockSession(arg1: string | Session, arg2?: Session) {
     if (arg1.roomId) mockSessionsStore.set(arg1.roomId, arg1);
   }
 }
+export const addMockSession = setMockSession;
 
 export function clearMockRooms(userId?: string) {
   if (userId) {
@@ -2056,6 +2057,10 @@ export async function closeDanglingAttendanceRecords(): Promise<void> {
 export async function getActiveSession(roomId: string): Promise<Session | null> {
   const normalizedRoomId = roomId?.trim();
   if (!normalizedRoomId) return null;
+
+  if (mockSessionsStore.has(normalizedRoomId)) {
+    return mockSessionsStore.get(normalizedRoomId)!;
+  }
 
   // Check demo sample rooms
   if (DEFAULT_SAMPLE_ROOMS[normalizedRoomId]) {
