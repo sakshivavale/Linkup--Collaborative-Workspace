@@ -182,9 +182,9 @@ Code tab
 
 Whiteboard
 - [ ] `[D]` `boardService`: in-memory element map, merge by version (tie → lower `versionNonce`), debounced persist (5 s), flush on last leave
-- [ ] `[D]` `wb:update` handler: permission check, merge, broadcast to the others
-- [ ] `[D]` Whiteboard tab: `<Excalidraw viewModeEnabled={!canEdit}>`, 100 ms-throttled diff broadcast of changed elements, a reconcile function, and an echo guard
-- [ ] `[D]` Disable the image tool, and load the snapshot on join
+- [x] `[D]` `wb:update` handler: permission check, merge, broadcast to the others
+- [x] `[D]` Whiteboard tab: `<Excalidraw viewModeEnabled={!canEdit}>`, 100 ms-throttled diff broadcast of changed elements, a reconcile function, and an echo guard
+- [x] `[D]` Disable the image tool, and load the snapshot on join
 - [ ] `[D]` React to a `perm:changed` for self by toggling view mode live
 - [ ] `(P1)` `[D]` Host "Clear board" (`wb:clear` → `wb:cleared`)
 
@@ -192,7 +192,7 @@ Whiteboard
 - [ ] Host gives the pen to a student, the student types, and 2 viewers see it live within 300 ms
 - [ ] The student runs Python and everyone sees the output
 - [ ] An infinite loop gets a 3 s timeout message
-- [ ] Whiteboard: a permitted student draws and others see it; a non-permitted student cannot draw
+- [x] Whiteboard: a permitted student draws and others see it; a non-permitted student cannot draw
 - [ ] The board and the code survive a reload
 
 ### Phase 5 — Integration, P1s & hardening (Days 7–8)

@@ -35,6 +35,7 @@ import {
 import {
   getWhiteboardElements,
   setWhiteboardElements,
+  mergeWhiteboardElements,
 } from './realtime/whiteboard';
 import { createChatMessage } from './lib/chat';
 
@@ -462,8 +463,8 @@ io.on('connection', (socket) => {
         return;
       }
 
-      // Permitted: store elements and broadcast to room except sender
-      setWhiteboardElements(roomId, elements);
+      // Permitted: merge elements into cache by id and broadcast to room except sender
+      mergeWhiteboardElements(roomId, elements);
       socket.to(roomId).to(`room:${roomId}`).emit('wb:update', {
         roomId,
         elements,
