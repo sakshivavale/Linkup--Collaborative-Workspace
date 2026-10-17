@@ -674,10 +674,10 @@
 > As a **host**, I want to clear the entire whiteboard with a confirmation so that I can start a fresh diagram.
 
 **Acceptance Criteria:**
-- [ ] A **"Clear Board"** button is visible to the host only.
-- [ ] Clicking shows a confirmation dialog.
-- [ ] On confirm, the server emits `wb:cleared` to the room; all clients reset the canvas to empty.
-- [ ] The cleared state is persisted.
+- [x] A **"Clear Board"** button is visible to the host only.
+- [x] Clicking shows a confirmation dialog.
+- [x] On confirm, the server emits `wb:cleared` to the room; all clients reset the canvas to empty.
+- [x] The cleared state is persisted.
 
 ---
 

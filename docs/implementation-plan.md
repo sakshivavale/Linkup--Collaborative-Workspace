@@ -186,7 +186,7 @@ Whiteboard
 - [x] `[D]` Whiteboard tab: `<Excalidraw viewModeEnabled={!canEdit}>`, 100 ms-throttled diff broadcast of changed elements, a reconcile function, and an echo guard
 - [x] `[D]` Disable the image tool, and load the snapshot on join
 - [x] `[D]` React to a `perm:changed` for self by toggling view mode live
-- [ ] `(P1)` `[D]` Host "Clear board" (`wb:clear` → `wb:cleared`)
+- [x] `(P1)` `[D]` Host "Clear board" (`wb:clear` → `wb:cleared`)
 
 **Exit:**
 - [ ] Host gives the pen to a student, the student types, and 2 viewers see it live within 300 ms
