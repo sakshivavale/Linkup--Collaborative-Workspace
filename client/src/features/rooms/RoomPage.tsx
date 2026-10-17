@@ -19,7 +19,7 @@ import {
   Info,
   X,
 } from 'lucide-react';
-import { Session } from '@linkup/shared';
+import { Session, CodeState } from '@linkup/shared';
 import { useRoom } from './useRoom';
 import { LiveTab } from './LiveTab';
 import { WhiteboardTab } from './WhiteboardTab';
@@ -68,6 +68,7 @@ export const RoomPage: React.FC = () => {
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [regenerated, setRegenerated] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [codeState, setCodeState] = useState<CodeState | null>(null);
 
   // US-LIVE-01 & US-LIVE-05 & US-LIVE-06: Session state, inCall state & timer
   const [activeSession, setActiveSession] = useState<Session | null>(null);
@@ -231,6 +232,9 @@ export const RoomPage: React.FC = () => {
       if (snapshot.joinCode) {
         setCurrentJoinCode(snapshot.joinCode);
       }
+      if (snapshot.code) {
+        setCodeState(snapshot.code);
+      }
     };
 
     const handleDisconnect = (reason: string) => {
@@ -341,11 +345,34 @@ export const RoomPage: React.FC = () => {
       }
     };
 
+    const handleCodeState = (data: { roomId: string } & CodeState) => {
+      if (data.roomId === roomId) {
+        setCodeState({
+          content: data.content,
+          language: data.language,
+          rev: data.rev,
+          holderId: data.holderId ?? null,
+        });
+      }
+    };
+
+    const handleCodePen = (data: { roomId: string; holderId: string; by?: string }) => {
+      if (data.roomId === roomId) {
+        setCodeState((prev) =>
+          prev
+            ? { ...prev, holderId: data.holderId }
+            : { content: '', language: 'python', rev: 0, holderId: data.holderId }
+        );
+      }
+    };
+
     socket.on('room:join-code-updated', handleJoinCodeUpdated);
     socket.on('room:updated', handleRoomUpdated);
     socket.on('room:archived', handleRoomArchived);
     socket.on('session:started', handleSessionStarted);
     socket.on('session:ended', handleSessionEnded);
+    socket.on('code:state', handleCodeState);
+    socket.on('code:pen', handleCodePen);
 
     return () => {
       socket.off('room:join-code-updated', handleJoinCodeUpdated);
@@ -353,6 +380,8 @@ export const RoomPage: React.FC = () => {
       socket.off('room:archived', handleRoomArchived);
       socket.off('session:started', handleSessionStarted);
       socket.off('session:ended', handleSessionEnded);
+      socket.off('code:state', handleCodeState);
+      socket.off('code:pen', handleCodePen);
     };
   }, [roomId, room, navigate]);
 
@@ -766,6 +795,9 @@ export const RoomPage: React.FC = () => {
             <CodeTab
               roomId={roomId!}
               canCode={room.myRole === 'host' || Boolean(currentMember?.permissions?.canCode ?? true)}
+              members={room.members || []}
+              initialCodeState={codeState}
+              onCodeStateChange={setCodeState}
             />
           )}
         </main>
