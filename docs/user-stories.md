@@ -569,14 +569,14 @@
 > As the **pen holder or host**, I want to run the code in the editor so that everyone in the room can see the output.
 
 **Acceptance Criteria:**
-- [ ] A **"Run"** button is visible in the Code tab for the pen holder and the host.
-- [ ] An optional stdin text box is available before running.
-- [ ] Clicking Run emits `code:run-started` to the room and calls `POST /execute` via Piston.
-- [ ] The output panel shows stdout, stderr (highlighted), exit code, execution time, and a spinner while running.
-- [ ] All room members see the same output (via `code:run-result`).
-- [ ] Code over 64 KB returns `413 PAYLOAD_TOO_LARGE`: *"Source code exceeds the 64 KB limit."*
-- [ ] A run exceeding 3 seconds shows: *"Time limit exceeded (3 s)."*
-- [ ] After 10 runs per minute from the same user, the 11th returns `429 RATE_LIMITED`: *"Too many runs — try again in a few seconds."*
+- [x] A **"Run"** button is visible in the Code tab for the pen holder and the host.
+- [x] An optional stdin text box is available before running.
+- [x] Clicking Run emits `code:run-started` to the room and calls `POST /execute` via Piston.
+- [x] The output panel shows stdout, stderr (highlighted), exit code, execution time, and a spinner while running.
+- [x] All room members see the same output (via `code:run-result`).
+- [x] Code over 64 KB returns `413 PAYLOAD_TOO_LARGE`: *"Source code exceeds the 64 KB limit."*
+- [x] A run exceeding 3 seconds shows: *"Time limit exceeded (3 s)."*
+- [x] After 10 runs per minute from the same user, the 11th returns `429 RATE_LIMITED`: *"Too many runs — try again in a few seconds."*
 
 ---
 
