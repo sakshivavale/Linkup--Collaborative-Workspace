@@ -28,6 +28,7 @@ The **unique demo moment** is the permission model working across media + whiteb
 
 | # | File | What it answers |
 |---|------|-----------------|
+| 0 | [PROJECT_DOCUMENTATION.md](./PROJECT_DOCUMENTATION.md) | **Master Project Document**: High-level idea, implementation details, APIs & sources, feature breakdown, architecture, and future scope |
 | 1 | [scope-and-decisions.md](./scope-and-decisions.md) | What's in/out of the MVP, decisions taken, report inconsistencies, risks, open questions |
 | 2 | [frd.md](./frd.md) | Functional requirements, user stories, acceptance criteria, screens |
 | 3 | [architecture.md](./architecture.md) | Components, flows, permission enforcement, folder structure, env, deployment |
@@ -35,7 +36,7 @@ The **unique demo moment** is the permission model working across media + whiteb
 | 5 | [api-contract.md](./api-contract.md) | REST endpoints + Socket.IO events (the contract between frontend & backend) |
 | 6 | [implementation-plan.md](./implementation-plan.md) | Day-by-day phases, per-dev tracks, checklists, DoD, demo script |
 
-Recommended reading order for the team: **README → scope → frd → architecture → api-contract → database → plan**.
+Recommended reading order for the team: **PROJECT_DOCUMENTATION → README → scope → frd → architecture → api-contract → database → plan**.
 
 ---
 
