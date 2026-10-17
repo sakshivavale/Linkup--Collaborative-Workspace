@@ -6,6 +6,7 @@ export interface Participant {
   isMuted?: boolean;
   cameraOff?: boolean;
   isSpeaking?: boolean;
+  handRaised?: boolean;
   stream?: MediaStream | null;
 }
 
@@ -57,6 +58,18 @@ export default function ParticipantTile({
         isStrip ? 'w-44 shrink-0' : 'w-full'
       }`}
     >
+      {/* Hand raised indicator badge (US-PERM-07, FR-4.8) */}
+      {participant.handRaised && (
+        <div
+          id={`participant-hand-raised-${participant.id}`}
+          data-testid={`participant-hand-raised-${participant.id}`}
+          className="absolute top-2 right-2 px-1.5 py-0.5 rounded-full bg-amber-500 text-white text-[11px] font-bold flex items-center gap-1 shadow-md z-10 animate-bounce"
+          title={`${participant.name} raised hand`}
+        >
+          <span>✋</span>
+        </div>
+      )}
+
       {participant.cameraOff ? (
         <div
           className={`flex items-center justify-center w-full bg-slate-800/90 ${

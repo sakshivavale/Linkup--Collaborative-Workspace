@@ -153,7 +153,7 @@ Attendance
 - [ ] `[C]` Disabled controls with tooltips ("Your teacher hasn't allowed screen sharing")
 - [ ] `[C]` `room:kicked`: redirect to the dashboard with a toast
 - [ ] `[A]` API tests (vitest + supertest) for the guard matrix: non-member gets 403, participant calling a host route gets 403, host target gets 403, unauthenticated gets 401
-- [ ] `(P1)` `[B]` Raise hand: `hand:raise` / `hand:changed`, a ✋ in the People list, and a "Grant mic" one-click action for the host
+- [x] `(P1)` `[B]` Raise hand: `hand:raise` / `hand:changed`, a ✋ in the People list, and a "Grant mic" one-click action for the host
 - [ ] `(P1)` `[A]` + `[C]` `POST /rooms/:id/permissions/bulk` and a "Mute all" button
 
 **Exit (C2/C3):**

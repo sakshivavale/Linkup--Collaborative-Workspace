@@ -502,10 +502,10 @@
 > As a **student**, I want to raise my hand so that the teacher knows I want to speak; and as the **host**, I want to see raised hands and grant the mic in one click.
 
 **Acceptance Criteria:**
-- [ ] A hand-raise button is available in the call control bar for all participants.
-- [ ] Raising a hand emits `hand:raise { raised: true }` and all room members receive `hand:changed`; a hand icon appears on the student's participant row.
-- [ ] The host can click a **"Grant Mic"** button next to the hand icon; this grants `can_mic = true` and lowers the hand.
-- [ ] The student can lower their own hand at any time.
+- [x] A hand-raise button is available in the call control bar for all participants.
+- [x] Raising a hand emits `hand:raise { raised: true }` and all room members receive `hand:changed`; a hand icon appears on the student's participant row.
+- [x] The host can click a **"Grant Mic"** button next to the hand icon; this grants `can_mic = true` and lowers the hand.
+- [x] The student can lower their own hand at any time.
 
 ---
 

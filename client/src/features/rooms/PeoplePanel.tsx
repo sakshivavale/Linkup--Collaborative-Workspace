@@ -15,6 +15,7 @@ import {
   PenTool,
   Code2,
   Lock,
+  Hand,
 } from 'lucide-react';
 import { RoomSummary, PresenceEntry, Member, PermissionKey } from '@linkup/shared';
 import { useAuth } from '../../context/AuthContext';
@@ -255,7 +256,31 @@ export const PeoplePanel: React.FC<PeoplePanelProps> = ({
       setMembers((prev) => [...prev]);
     };
 
+    // US-PERM-07 AC-2: Listen for real-time hand:changed events
+    const onHandChanged = (data: { roomId: string; userId: string; raised: boolean }) => {
+      if (data.roomId !== room.id) return;
+      setPresenceList((current) => {
+        const found = current.some((p) => p.userId === data.userId);
+        if (found) {
+          return current.map((p) =>
+            p.userId === data.userId ? { ...p, handRaised: data.raised } : p
+          );
+        }
+        const memberObj = members.find((m) => m.userId === data.userId);
+        return [
+          ...current,
+          {
+            userId: data.userId,
+            fullName: memberObj?.name || 'Participant',
+            inLive: false,
+            handRaised: data.raised,
+          },
+        ];
+      });
+    };
+
     socket.on('presence:update', onPresenceUpdate);
+    socket.on('hand:changed', onHandChanged);
     socket.on('member:joined', onMemberJoined);
     socket.on('member:removed', onMemberRemoved);
     socket.on('room:kicked', onRoomKicked);
@@ -263,12 +288,13 @@ export const PeoplePanel: React.FC<PeoplePanelProps> = ({
 
     return () => {
       socket.off('presence:update', onPresenceUpdate);
+      socket.off('hand:changed', onHandChanged);
       socket.off('member:joined', onMemberJoined);
       socket.off('member:removed', onMemberRemoved);
       socket.off('room:kicked', onRoomKicked);
       socket.off('perm:changed', onPermChanged);
     };
-  }, [currentUserId, navigate, room.id, room.members]);
+  }, [currentUserId, members, navigate, room.id, room.members]);
 
   const handleTogglePermission = async (member: PanelMember, permKey: PermissionKey) => {
     if (!member.userId || member.memberRole === 'host' || room.myRole !== 'host') return;
@@ -306,6 +332,62 @@ export const PeoplePanel: React.FC<PeoplePanelProps> = ({
       }
       window.alert(err?.message || 'Failed to update permission');
     }
+  };
+
+  // US-PERM-07 AC-3: Host "Grant Mic" button grants can_mic = true and lowers the hand (FR-4.8)
+  const handleGrantMic = async (member: PanelMember) => {
+    if (!member.userId || member.memberRole === 'host' || room.myRole !== 'host') return;
+
+    // Optimistically update permissions in room.members and members state
+    const currentMemberRecord = room.members?.find((m) => m.userId === member.userId);
+    if (currentMemberRecord) {
+      if (!currentMemberRecord.permissions) {
+        currentMemberRecord.permissions = {
+          canMic: true,
+          canCamera: true,
+          canScreen: false,
+          canWhiteboard: true,
+          canCode: true,
+        };
+      } else {
+        currentMemberRecord.permissions.canMic = true;
+      }
+      setMembers((prev) => [...prev]);
+    }
+
+    // Optimistically lower the hand in presenceList
+    setPresenceList((current) =>
+      current.map((p) => (p.userId === member.userId ? { ...p, handRaised: false } : p))
+    );
+
+    try {
+      // 1. PATCH member permissions with canMic: true
+      await api.patch(`/api/rooms/${room.id}/members/${member.userId}/permissions`, {
+        canMic: true,
+      });
+
+      // 2. Emit socket hand:raise as host to ensure instant synchronization
+      socket.emit('hand:raise', {
+        roomId: room.id,
+        userId: member.userId,
+        raised: false,
+        asHost: true,
+      });
+    } catch (err: any) {
+      console.error('[PeoplePanel] Failed to grant mic:', err);
+      window.alert(err?.message || 'Failed to grant microphone');
+    }
+  };
+
+  // US-PERM-07 AC-4: Student can lower their own hand at any time
+  const handleLowerSelfHand = () => {
+    socket.emit('hand:raise', {
+      roomId: room.id,
+      raised: false,
+    });
+    setPresenceList((current) =>
+      current.map((p) => (p.userId === currentUserId ? { ...p, handRaised: false } : p))
+    );
   };
 
   // Lookup map for fast presence checks (<1ms)
@@ -417,6 +499,7 @@ export const PeoplePanel: React.FC<PeoplePanelProps> = ({
             ? (socket.connected || Boolean(presenceEntry))
             : Boolean(presenceEntry);
           const isInCall = Boolean(presenceEntry?.inLive);
+          const isHandRaised = Boolean(presenceEntry?.handRaised);
           const memberRecord = room.members?.find((m) => m.userId === member.userId);
           const isHostViewer = room.myRole === 'host';
           const isHostMember = member.memberRole === 'host';
@@ -515,8 +598,53 @@ export const PeoplePanel: React.FC<PeoplePanelProps> = ({
                         <span>In call</span>
                       </span>
                     )}
+
+                    {/* US-PERM-07 AC-2: Hand raised icon badge indicator (FR-4.8) */}
+                    {isHandRaised && (
+                      <span
+                        id={`member-hand-icon-${memberId}`}
+                        data-testid={`member-hand-icon-${memberId}`}
+                        className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] font-bold bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700/80 animate-pulse"
+                        title="Hand is raised"
+                      >
+                        <Hand className="w-3 h-3 text-amber-600 dark:text-amber-400 shrink-0" />
+                        <span>✋ Hand raised</span>
+                      </span>
+                    )}
                   </div>
                 </div>
+
+                {/* US-PERM-07 AC-3: Host "Grant Mic" button next to hand icon */}
+                {isHostViewer && isHandRaised && !isHostMember && (
+                  <button
+                    id={`member-grant-mic-btn-${memberId}`}
+                    data-testid={`member-grant-mic-btn-${memberId}`}
+                    type="button"
+                    onClick={() => handleGrantMic(member)}
+                    className="inline-flex items-center gap-1 rounded-lg border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 dark:border-emerald-700 dark:bg-emerald-950/50 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 px-2 py-1 text-[10px] font-bold transition-all shadow-xs cursor-pointer active:scale-95 shrink-0"
+                    title="Grant microphone and lower hand"
+                    aria-label={`Grant mic to ${member.name}`}
+                  >
+                    <Mic className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                    <span>Grant Mic</span>
+                  </button>
+                )}
+
+                {/* US-PERM-07 AC-4: Student can lower their own hand at any time */}
+                {member.isSelf && isHandRaised && (
+                  <button
+                    id={`member-lower-hand-btn-${memberId}`}
+                    data-testid={`member-lower-hand-btn-${memberId}`}
+                    type="button"
+                    onClick={handleLowerSelfHand}
+                    className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-slate-50 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 px-2 py-1 text-[10px] font-semibold transition-all shadow-xs cursor-pointer active:scale-95 shrink-0"
+                    title="Lower your hand"
+                    aria-label="Lower your hand"
+                  >
+                    <Hand className="w-3 h-3 text-slate-500" />
+                    <span>Lower Hand</span>
+                  </button>
+                )}
 
                 {/* Host actions: remove member (US-ROOM-03) */}
                 {isHostViewer && !member.isSelf && !isHostMember && (
