@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { PenLine, Eye, RotateCcw, Download, AlertCircle } from 'lucide-react';
+import { PenLine, Eye, Download, AlertCircle, Trash2, AlertTriangle } from 'lucide-react';
 import { Excalidraw, exportToBlob, reconcileElements } from '@excalidraw/excalidraw';
 import type { ExcalidrawImperativeAPI } from '@excalidraw/excalidraw/types';
 import '@excalidraw/excalidraw/index.css';
@@ -39,6 +39,13 @@ export interface WhiteboardTabProps {
  * 1. Toggling can_whiteboard via the Participants panel sends perm:changed to the room.
  * 2. The target student's view mode updates within 1 second without a page reload.
  * 3. After being revoked, a subsequent wb:update from that student is rejected server-side.
+ *
+ * US-WB-05: Clear Board (Host) (P1 | Traces to: FR-5.14)
+ * Acceptance Criteria:
+ * 1. A "Clear Board" button is visible to the host only.
+ * 2. Clicking shows a confirmation dialog.
+ * 3. On confirm, the server emits wb:cleared to the room; all clients reset the canvas to empty.
+ * 4. The cleared state is persisted.
  */
 export const WhiteboardTab: React.FC<WhiteboardTabProps> = ({
   roomId,
@@ -51,6 +58,9 @@ export const WhiteboardTab: React.FC<WhiteboardTabProps> = ({
   const { theme } = useTheme();
   const [excalidrawAPI, setExcalidrawAPI] = useState<ExcalidrawImperativeAPI | null>(null);
   const [forbiddenError, setForbiddenError] = useState<string | null>(null);
+
+  // US-WB-05: Confirmation modal state for Clear Board
+  const [showClearConfirm, setShowClearConfirm] = useState<boolean>(false);
 
   // US-WB-04: Track can_whiteboard in real-time
   const [liveCanWhiteboard, setLiveCanWhiteboard] = useState<boolean>(Boolean(canWhiteboard));
@@ -285,33 +295,46 @@ export const WhiteboardTab: React.FC<WhiteboardTabProps> = ({
       }
     };
 
+    // US-WB-05 AC-3: Listen to wb:cleared event to reset local canvas to empty
+    const handleWbCleared = (data: { roomId: string }) => {
+      if (data?.roomId && data.roomId !== roomId) return;
+
+      sentVersionsRef.current.clear();
+      pendingUpdatesRef.current.clear();
+      if (throttleTimerRef.current) {
+        clearTimeout(throttleTimerRef.current);
+        throttleTimerRef.current = null;
+      }
+
+      if (excalidrawAPI) {
+        if (typeof (excalidrawAPI as any).resetScene === 'function') {
+          (excalidrawAPI as any).resetScene();
+        }
+        excalidrawAPI.updateScene({ elements: [] });
+      }
+
+      onElementsChange?.([]);
+    };
+
     socket.on('wb:update', handleWbUpdate);
+    socket.on('wb:cleared', handleWbCleared);
     socket.on('room:joined', handleRoomJoined);
     socket.on('error', handleSocketError);
 
     return () => {
       socket.off('wb:update', handleWbUpdate);
+      socket.off('wb:cleared', handleWbCleared);
       socket.off('room:joined', handleRoomJoined);
       socket.off('error', handleSocketError);
     };
   }, [roomId, user?.id, excalidrawAPI, onElementsChange]);
 
-  const clearCanvas = () => {
-    if (isReadOnly || !excalidrawAPI) return;
-    const elements = excalidrawAPI.getSceneElementsIncludingDeleted();
-    // Excalidraw deletion: set isDeleted: true and bump version (US-WB-02 AC-4)
-    const deletedElements = elements.map((el) => ({
-      ...el,
-      isDeleted: true,
-      version: (el.version ?? 0) + 1,
-      versionNonce: Math.floor(Math.random() * 1000000),
-    }));
-    excalidrawAPI.updateScene({ elements: deletedElements });
-    for (const el of deletedElements) {
-      pendingUpdatesRef.current.set(el.id, el);
-    }
-    flushUpdates();
-  };
+  // US-WB-05 AC-3: Host confirms clearing board, sends wb:clear to server
+  const handleConfirmClearBoard = useCallback(() => {
+    if (!isHost) return;
+    setShowClearConfirm(false);
+    socket.emit('wb:clear', { roomId });
+  }, [isHost, roomId]);
 
   const downloadCanvas = async () => {
     if (!excalidrawAPI) return;
@@ -388,21 +411,19 @@ export const WhiteboardTab: React.FC<WhiteboardTabProps> = ({
 
         <div className="flex-1" />
 
-        <button
-          id="whiteboard-clear"
-          data-testid="whiteboard-clear"
-          disabled={isReadOnly}
-          onClick={clearCanvas}
-          title={isReadOnly ? 'Whiteboard access disabled' : 'Clear canvas'}
-          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
-            isReadOnly
-              ? 'opacity-50 cursor-not-allowed bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-400'
-              : 'text-slate-600 dark:text-slate-300 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 border-slate-200 dark:border-slate-700'
-          }`}
-        >
-          <RotateCcw className="w-3.5 h-3.5" />
-          Clear
-        </button>
+        {/* US-WB-05 AC-1: A "Clear Board" button is visible to the host only */}
+        {isHost && (
+          <button
+            id="whiteboard-clear-board"
+            data-testid="whiteboard-clear-board"
+            onClick={() => setShowClearConfirm(true)}
+            title="Clear the entire whiteboard for all participants"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-rose-700 dark:text-rose-300 hover:text-rose-800 dark:hover:text-rose-200 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/50 border border-rose-200 dark:border-rose-800 transition-all shadow-sm cursor-pointer"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            <span>Clear Board</span>
+          </button>
+        )}
 
         <button
           id="whiteboard-download"
@@ -452,6 +473,66 @@ export const WhiteboardTab: React.FC<WhiteboardTabProps> = ({
           ? 'You are viewing the shared whiteboard in view-only mode.'
           : 'Interactive collaborative whiteboard powered by Excalidraw.'}
       </p>
+
+      {/* US-WB-05 AC-2: Confirmation dialog on clicking Clear Board */}
+      {showClearConfirm && (
+        <div
+          id="clear-board-modal-backdrop"
+          data-testid="clear-board-modal-backdrop"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fadeIn"
+          onClick={() => setShowClearConfirm(false)}
+        >
+          <div
+            id="clear-board-modal"
+            data-testid="clear-board-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="clear-board-modal-title"
+            className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-3">
+              <div className="p-2.5 rounded-xl bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 shrink-0">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <div className="space-y-1">
+                <h3
+                  id="clear-board-modal-title"
+                  data-testid="clear-board-modal-title"
+                  className="text-base font-semibold text-slate-900 dark:text-white"
+                >
+                  Clear Whiteboard?
+                </h3>
+                <p className="text-sm text-slate-600 dark:text-slate-400">
+                  Are you sure you want to clear the entire whiteboard? This action will reset the canvas for all participants in the room and cannot be undone.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                id="cancel-clear-board-btn"
+                data-testid="cancel-clear-board-btn"
+                type="button"
+                onClick={() => setShowClearConfirm(false)}
+                className="px-4 py-2 text-xs font-semibold rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                id="confirm-clear-board-btn"
+                data-testid="confirm-clear-board-btn"
+                type="button"
+                onClick={handleConfirmClearBoard}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-xl bg-rose-600 hover:bg-rose-700 text-white transition-all shadow-sm cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Clear Board</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

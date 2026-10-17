@@ -161,7 +161,7 @@ export async function persistWhiteboardState(roomId: string): Promise<boolean> {
   }
 
   const elements = whiteboardMap.get(normalized);
-  if (!elements) return false;
+  if (elements === undefined) return false;
 
   // Persist to mock store for test resilience / offline recovery
   mockWhiteboardDb.set(normalized, Array.isArray(elements) ? [...elements] : []);
@@ -249,6 +249,22 @@ export async function flushAllWhiteboardState(): Promise<void> {
     promises.push(persistWhiteboardState(roomId));
   }
   await Promise.all(promises);
+}
+
+/**
+ * Clear whiteboard elements for a room and persist the cleared empty state (US-WB-05 AC-3, AC-4).
+ */
+export async function clearAndPersistWhiteboard(roomId: string): Promise<boolean> {
+  const normalized = roomId?.trim();
+  if (!normalized) return false;
+  const timer = debounceTimers.get(normalized);
+  if (timer) {
+    clearTimeout(timer);
+    debounceTimers.delete(normalized);
+  }
+  whiteboardMap.set(normalized, []);
+  mockWhiteboardDb.set(normalized, []);
+  return await persistWhiteboardState(normalized);
 }
 
 /**

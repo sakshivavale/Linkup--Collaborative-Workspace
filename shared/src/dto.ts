@@ -224,6 +224,16 @@ export interface WhiteboardState {
   elements: unknown[];
 }
 
+/** US-WB-05: Payload emitted by host to clear whiteboard (FR-5.14) */
+export interface WhiteboardClearPayload {
+  roomId: string;
+}
+
+/** US-WB-05: Payload broadcast to room when whiteboard is cleared (FR-5.14) */
+export interface WhiteboardClearedPayload {
+  roomId: string;
+}
+
 /** US-CODE-05: Code execution result */
 export interface RunResult {
   by: string;

@@ -40,6 +40,7 @@
     "test:wb-draw": "tsx scripts/test-wb-draw.ts",
     "test:wb-persist": "tsx scripts/test-wb-persist.ts",
     "test:wb-live": "tsx scripts/test-wb-grant-revoke-live.ts",
+    "test:wb-clear": "tsx scripts/test-wb-clear.ts",
     "test:attendance": "tsx scripts/test-attendance-auto-record.ts",
     "test:attendance-grace": "tsx scripts/test-attendance-grace-period.ts"
   },

@@ -38,6 +38,7 @@ import {
   mergeWhiteboardElements,
   getOrLoadWhiteboardState,
   persistWhiteboardState,
+  clearAndPersistWhiteboard,
   checkAndPersistWhiteboardOnLeave,
   flushAllWhiteboardState,
 } from './realtime/whiteboard';
@@ -497,6 +498,63 @@ io.on('connection', (socket) => {
     } catch (err: any) {
       console.warn(`[Socket] Error in wb:update for room ${roomId}:`, err);
       const errPayload = { code: 'FORBIDDEN', message: err.message || 'Access denied', event: 'wb:update' };
+      socket.emit('error', errPayload);
+      if (typeof ack === 'function') ack({ ok: false, error: errPayload });
+    }
+  });
+
+  /**
+   * wb:clear — host clears the entire whiteboard (US-WB-05, FR-5.14, api-contract §4.2, §4.3)
+   * Acceptance Criteria:
+   * 1. A "Clear Board" button is visible to the host only.
+   * 2. Clicking shows a confirmation dialog.
+   * 3. On confirm, the server emits wb:cleared to the room; all clients reset the canvas to empty.
+   * 4. The cleared state is persisted.
+   */
+  socket.on('wb:clear', async (payload: any, ack?: (res: any) => void) => {
+    const roomId = extractRoomId(payload);
+
+    if (!roomId || !user?.id) {
+      const err = { code: 'VALIDATION', message: 'Room ID required', event: 'wb:clear' };
+      socket.emit('error', err);
+      if (typeof ack === 'function') ack({ ok: false, error: err });
+      return;
+    }
+
+    try {
+      const room = await getRoomForUser(user.id, roomId);
+      const isHost = room.myRole === 'host';
+
+      if (!isHost) {
+        console.warn(`[Socket] wb:clear rejected: user ${user.id} is not host in room ${roomId}`);
+        const err = {
+          code: 'FORBIDDEN',
+          message: 'Only the room host can clear the whiteboard',
+          event: 'wb:clear',
+        };
+        socket.emit('error', err);
+        if (typeof ack === 'function') ack({ ok: false, error: err });
+        return;
+      }
+
+      // Reset whiteboard elements and persist immediately (US-WB-05 AC-3, AC-4)
+      await clearAndPersistWhiteboard(roomId);
+
+      // Emit wb:cleared to the room (including host)
+      io.to(`room:${roomId}`).to(roomId).emit('wb:cleared', {
+        roomId,
+      });
+
+      if (typeof ack === 'function') {
+        ack({ ok: true });
+      }
+    } catch (err: any) {
+      console.warn(`[Socket] Error in wb:clear for room ${roomId}:`, err);
+      const errPayload = {
+        code: err.code || 'FORBIDDEN',
+        message: err.message || 'Access denied',
+        event: 'wb:clear',
+      };
       socket.emit('error', errPayload);
       if (typeof ack === 'function') ack({ ok: false, error: errPayload });
     }

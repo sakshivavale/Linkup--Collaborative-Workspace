@@ -40,6 +40,7 @@
     "test:wb-draw": "npm run test:wb-draw --workspace=server",
     "test:wb-persist": "npm run test:wb-persist --workspace=server",
     "test:wb-live": "npm run test:wb-live --workspace=server",
+    "test:wb-clear": "npm run test:wb-clear --workspace=server",
     "test:attendance": "npm run test:attendance --workspace=server",
     "test:attendance-grace": "npm run test:attendance-grace --workspace=server"
   },
