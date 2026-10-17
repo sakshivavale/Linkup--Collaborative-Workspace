@@ -27,6 +27,7 @@ import { getActiveScreenShare, stopScreenShare } from './realtime/screenShare';
 import { getChatMessages, createChatMessage } from './lib/chat';
 import { mintLivekitToken, updateLivekitParticipantPermissions } from './lib/livekit';
 import { getPenHolder, setPenHolder, setPen, codeService, getOrLoadCodeState, persistCodeState } from './realtime/codeWorkspace';
+import { getOrLoadWhiteboardState } from './realtime/whiteboard';
 import {
   executeCode,
   checkRunRateLimit,
@@ -410,6 +411,35 @@ app.get('/api/rooms/:roomId/code', async (req: Request, res: Response) => {
     console.error('[Code API] Error fetching code state:', err);
     return res.status(500).json({
       error: { code: 'INTERNAL_SERVER_ERROR', message: 'Failed to retrieve code state' },
+    });
+  }
+});
+
+/**
+ * GET /api/rooms/:roomId/whiteboard — Fetch persisted whiteboard state (US-WB-03, FR-5.13)
+ */
+app.get('/api/rooms/:roomId/whiteboard', async (req: Request, res: Response) => {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({
+      error: { code: 'UNAUTHENTICATED', message: 'Authentication required' },
+    });
+  }
+
+  const { roomId } = req.params;
+  try {
+    await getRoomForUser(user.id, roomId);
+    const boardState = await getOrLoadWhiteboardState(roomId);
+    return res.status(200).json(boardState);
+  } catch (err: any) {
+    if (err instanceof NotAMemberError) {
+      return res.status(403).json({
+        error: { code: 'NOT_A_MEMBER', message: err.message },
+      });
+    }
+    console.error('[Whiteboard API] Error fetching whiteboard state:', err);
+    return res.status(500).json({
+      error: { code: 'INTERNAL_SERVER_ERROR', message: 'Failed to retrieve whiteboard state' },
     });
   }
 });

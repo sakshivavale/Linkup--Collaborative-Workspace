@@ -36,7 +36,9 @@
     "test:code-revoke-pen": "tsx scripts/test-code-revoke-pen.ts",
     "test:code-run": "tsx scripts/test-code-run.ts",
     "test:code-request-pen": "tsx scripts/test-code-request-pen.ts",
-    "test:wb-view": "tsx scripts/test-whiteboard-shared-view.ts"
+    "test:wb-view": "tsx scripts/test-whiteboard-shared-view.ts",
+    "test:wb-draw": "tsx scripts/test-wb-draw.ts",
+    "test:wb-persist": "tsx scripts/test-wb-persist.ts"
   },
   "dependencies": {
     "@linkup/shared": "*",

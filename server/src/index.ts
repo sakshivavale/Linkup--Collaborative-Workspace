@@ -35,6 +35,11 @@ import {
 import {
   getWhiteboardElements,
   setWhiteboardElements,
+  mergeWhiteboardElements,
+  getOrLoadWhiteboardState,
+  persistWhiteboardState,
+  checkAndPersistWhiteboardOnLeave,
+  flushAllWhiteboardState,
 } from './realtime/whiteboard';
 import { createChatMessage } from './lib/chat';
 
@@ -135,7 +140,7 @@ io.on('connection', (socket) => {
       const hostMember = room.members?.find((m) => m.memberRole === 'host');
       const defaultHostId = hostMember?.userId || (room as any).owner_id || (room.myRole === 'host' ? user.id : null);
       const codeSnapshot = await getOrLoadCodeState(roomId, defaultHostId);
-      const boardSnapshot = { elements: getWhiteboardElements(roomId) };
+      const boardSnapshot = await getOrLoadWhiteboardState(roomId);
 
       // US-LIVE-07 AC-3: Full state snapshot returned on room:join (FR-3.8, api-contract §4.2)
       const snapshot = {
@@ -206,6 +211,11 @@ io.on('connection', (socket) => {
           console.warn(`[Socket] Failed to persist code on room leave:`, err);
         });
       }
+
+      // US-WB-03: Persist whiteboard state on last editor leave
+      checkAndPersistWhiteboardOnLeave(roomId, user?.id).catch((err) => {
+        console.warn(`[Socket] Failed to persist whiteboard on room leave:`, err);
+      });
 
       if (typeof ack === 'function') ack({ ok: true });
     }
@@ -462,8 +472,8 @@ io.on('connection', (socket) => {
         return;
       }
 
-      // Permitted: store elements and broadcast to room except sender
-      setWhiteboardElements(roomId, elements);
+      // Permitted: merge elements into cache by id and broadcast to room except sender
+      mergeWhiteboardElements(roomId, elements);
       socket.to(roomId).to(`room:${roomId}`).emit('wb:update', {
         roomId,
         elements,
@@ -770,6 +780,11 @@ io.on('connection', (socket) => {
           console.warn(`[Socket] Failed to persist code on disconnect:`, err);
         });
       }
+
+      // US-WB-03: Persist whiteboard state on last editor leave
+      checkAndPersistWhiteboardOnLeave(roomId, user?.id).catch((err) => {
+        console.warn(`[Socket] Failed to persist whiteboard on disconnect:`, err);
+      });
     }
 
     if (user?.id) {
@@ -824,9 +839,14 @@ if (isDirectExecution && process.env.NODE_ENV !== 'test') {
   });
 }
 
-// Graceful shutdown: flush code cache before exit
+// Graceful shutdown: flush code & whiteboard cache before exit
 process.on('SIGTERM', async () => {
-  await flushAllCodeState();
+  await Promise.all([flushAllCodeState(), flushAllWhiteboardState()]);
+  process.exit(0);
+});
+
+process.on('SIGINT', async () => {
+  await Promise.all([flushAllCodeState(), flushAllWhiteboardState()]);
   process.exit(0);
 });
 

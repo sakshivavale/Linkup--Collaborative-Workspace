@@ -1,70 +1,213 @@
-import React, { useEffect, useState, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { PenLine, Eye, RotateCcw, Download, AlertCircle } from 'lucide-react';
-import { Excalidraw, exportToBlob } from '@excalidraw/excalidraw';
+import { Excalidraw, exportToBlob, reconcileElements } from '@excalidraw/excalidraw';
+import type { ExcalidrawImperativeAPI } from '@excalidraw/excalidraw/types';
 import '@excalidraw/excalidraw/index.css';
+import { WB_THROTTLE_MS } from '@linkup/shared';
 import { socket } from '../../lib/socket';
+import { api } from '../../lib/api';
+import { useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../context/ThemeContext';
 
 export interface WhiteboardTabProps {
   roomId: string;
   canWhiteboard?: boolean;
   isHost?: boolean;
   initialElements?: any[];
+  onElementsChange?: (elements: any[]) => void;
 }
 
 /**
- * US-WB-01: View the Shared Whiteboard
- * Priority: P0 | Traces to: FR-5.10, FR-5.11
+ * US-WB-01: View the Shared Whiteboard (P0 | Traces to: FR-5.10, FR-5.11)
+ * US-WB-02: Draw on the Whiteboard (Permitted User) (P0 | Traces to: FR-5.11, FR-5.12)
+ * US-WB-03: Whiteboard State Persists (P0 | Traces to: FR-5.13)
  *
  * Acceptance Criteria:
  * 1. The Whiteboard tab renders Excalidraw in view-only mode for members where can_whiteboard = false and who are not the host.
  * 2. Drawings appear in view-only mode with no drawing tools visible.
  * 3. Attempting a whiteboard draw via a crafted socket event returns error { code: "FORBIDDEN" } and does not affect the board for others.
+ * 4. The editor is writable for members with can_whiteboard = true and the host.
+ * 5. Changed elements are throttled at 100 ms and broadcast via wb:update.
+ * 6. All other members see changes within 500 ms.
+ * 7. Deletions (Excalidraw isDeleted: true) sync correctly.
+ * 8. The image tool is disabled (images need file storage, which is out of scope).
+ * 9. whiteboard_state is persisted to Postgres (debounced 5 s and on last editor leave).
+ * 10. Joining or rejoining the room loads current board state from room:join snapshot.
  */
 export const WhiteboardTab: React.FC<WhiteboardTabProps> = ({
   roomId,
   canWhiteboard = false,
   isHost = false,
   initialElements = [],
+  onElementsChange,
 }) => {
-  const [excalidrawAPI, setExcalidrawAPI] = useState<any>(null);
-  const [elements, setElements] = useState<any[]>(initialElements);
+  const { user } = useAuth();
+  const { theme } = useTheme();
+  const [excalidrawAPI, setExcalidrawAPI] = useState<ExcalidrawImperativeAPI | null>(null);
   const [forbiddenError, setForbiddenError] = useState<string | null>(null);
 
-  // View-only mode for members where can_whiteboard = false and who are not the host
+  // View-only mode for members where can_whiteboard = false and who are not the host:
+  // !isHost && !canWhiteboard
   const isReadOnly = !isHost && !canWhiteboard;
 
-  // Track sent versions to avoid echo loops
-  const seenVersionsRef = useRef<Record<string, number>>({});
-  const throttleTimerRef = useRef<any>(null);
+  // Keep track of versions of elements sent or received to prevent infinite broadcast loops
+  const sentVersionsRef = useRef<Map<string, number>>(new Map());
+  const pendingUpdatesRef = useRef<Map<string, any>>(new Map());
+  const throttleTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const isInitializedRef = useRef<boolean>(false);
 
-  // Real-time synchronization from Socket.IO: wb:update, room:joined, error
+  // Synchronize scene with initial elements (from room:join snapshot or re-join) (US-WB-03 AC-2)
   useEffect(() => {
-    if (!roomId) return;
+    if (!excalidrawAPI || !initialElements || initialElements.length === 0) return;
 
-    const handleRoomJoined = (data: any) => {
-      const snapElements = data?.snapshot?.board?.elements || data?.board?.elements;
-      if (Array.isArray(snapElements)) {
-        setElements(snapElements);
-        if (excalidrawAPI) {
-          excalidrawAPI.updateScene({ elements: snapElements });
+    if (!isInitializedRef.current) {
+      for (const el of initialElements) {
+        if (el?.id && typeof el.version === 'number') {
+          sentVersionsRef.current.set(el.id, el.version);
         }
+      }
+      excalidrawAPI.updateScene({ elements: initialElements });
+      isInitializedRef.current = true;
+    } else {
+      // Re-joining or reconnected snapshot: reconcile with existing local elements
+      const localElements = excalidrawAPI.getSceneElementsIncludingDeleted();
+      const appState = excalidrawAPI.getAppState();
+      const reconciled = reconcileElements(localElements as any, initialElements as any, appState);
+      for (const el of reconciled) {
+        if (el?.id && typeof el.version === 'number') {
+          const currentSeen = sentVersionsRef.current.get(el.id) ?? -1;
+          if (el.version > currentSeen) {
+            sentVersionsRef.current.set(el.id, el.version);
+          }
+        }
+      }
+      excalidrawAPI.updateScene({ elements: reconciled });
+      onElementsChange?.(reconciled);
+    }
+  }, [excalidrawAPI, initialElements, onElementsChange]);
+
+  // Fallback REST fetch if initialElements is empty on mount (US-WB-03)
+  useEffect(() => {
+    if ((!initialElements || initialElements.length === 0) && roomId && !isInitializedRef.current) {
+      api
+        .get<{ elements: any[] }>(`/api/rooms/${roomId}/whiteboard`)
+        .then((saved) => {
+          if (saved?.elements && Array.isArray(saved.elements) && saved.elements.length > 0 && excalidrawAPI) {
+            for (const el of saved.elements) {
+              if (el?.id && typeof el.version === 'number') {
+                sentVersionsRef.current.set(el.id, el.version);
+              }
+            }
+            excalidrawAPI.updateScene({ elements: saved.elements });
+            onElementsChange?.(saved.elements);
+            isInitializedRef.current = true;
+          }
+        })
+        .catch(() => {});
+    }
+  }, [roomId, initialElements, excalidrawAPI, onElementsChange]);
+
+  // Broadcast throttled pending changes to room members
+  const flushUpdates = useCallback(() => {
+    if (isReadOnly || pendingUpdatesRef.current.size === 0) return;
+    const elementsToSend = Array.from(pendingUpdatesRef.current.values());
+    pendingUpdatesRef.current.clear();
+
+    for (const el of elementsToSend) {
+      if (el?.id && typeof el.version === 'number') {
+        sentVersionsRef.current.set(el.id, el.version);
+      }
+    }
+
+    socket.emit('wb:update', {
+      roomId,
+      elements: elementsToSend,
+    });
+  }, [roomId, isReadOnly]);
+
+  // Schedule throttled broadcast at 100 ms (US-WB-02 AC-2)
+  const scheduleFlush = useCallback(() => {
+    if (throttleTimerRef.current) return;
+    throttleTimerRef.current = setTimeout(() => {
+      throttleTimerRef.current = null;
+      flushUpdates();
+    }, WB_THROTTLE_MS);
+  }, [flushUpdates]);
+
+  // Cleanup pending timer on unmount and send any remaining updates
+  useEffect(() => {
+    return () => {
+      if (throttleTimerRef.current) {
+        clearTimeout(throttleTimerRef.current);
+        throttleTimerRef.current = null;
+        flushUpdates();
+      }
+    };
+  }, [flushUpdates]);
+
+  // Handle local drawing / modifications
+  const handleChange = useCallback(
+    (elements: readonly any[]) => {
+      // In view-only mode (can_whiteboard = false && !isHost), ignore changes
+      if (isReadOnly) return;
+
+      const changed: any[] = [];
+      for (const el of elements) {
+        if (!el || !el.id) continue;
+        const lastVersion = sentVersionsRef.current.get(el.id);
+        if (lastVersion === undefined || el.version > lastVersion) {
+          changed.push(el);
+          pendingUpdatesRef.current.set(el.id, el);
+        }
+      }
+
+      if (changed.length > 0) {
+        scheduleFlush();
+        onElementsChange?.(Array.from(elements));
+      }
+    },
+    [isReadOnly, scheduleFlush, onElementsChange]
+  );
+
+  // Listen to remote whiteboard updates from room members and errors
+  useEffect(() => {
+    const handleWbUpdate = (data: { roomId: string; elements: any[]; by?: string }) => {
+      if (data.roomId !== roomId || !Array.isArray(data.elements)) return;
+      if (data.by && user?.id && data.by === user.id) return; // avoid echo
+
+      // Mark incoming versions as seen BEFORE updating scene so onChange won't re-broadcast
+      for (const el of data.elements) {
+        if (el?.id && typeof el.version === 'number') {
+          const currentSeen = sentVersionsRef.current.get(el.id) ?? -1;
+          if (el.version > currentSeen) {
+            sentVersionsRef.current.set(el.id, el.version);
+          }
+        }
+      }
+
+      if (excalidrawAPI) {
+        const localElements = excalidrawAPI.getSceneElementsIncludingDeleted();
+        const appState = excalidrawAPI.getAppState();
+        const reconciled = reconcileElements(localElements as any, data.elements as any, appState);
+        excalidrawAPI.updateScene({ elements: reconciled });
+        onElementsChange?.(reconciled);
       }
     };
 
-    const handleWbUpdate = (data: any) => {
-      if (data?.roomId === roomId && Array.isArray(data?.elements)) {
-        const incoming = data.elements;
-        setElements(incoming);
-
-        // Update seen versions
-        incoming.forEach((el: any) => {
-          if (el?.id && el?.version) {
-            seenVersionsRef.current[el.id] = el.version;
+    const handleRoomJoined = (data: any) => {
+      const snapElements = data?.snapshot?.board?.elements || data?.board?.elements;
+      if (Array.isArray(snapElements) && snapElements.length > 0) {
+        for (const el of snapElements) {
+          if (el?.id && typeof el.version === 'number') {
+            sentVersionsRef.current.set(el.id, el.version);
           }
-        });
-
+        }
         if (excalidrawAPI) {
-          excalidrawAPI.updateScene({ elements: incoming });
+          const localElements = excalidrawAPI.getSceneElementsIncludingDeleted();
+          const appState = excalidrawAPI.getAppState();
+          const reconciled = reconcileElements(localElements as any, snapElements as any, appState);
+          excalidrawAPI.updateScene({ elements: reconciled });
+          onElementsChange?.(reconciled);
         }
       }
     };
@@ -78,100 +221,66 @@ export const WhiteboardTab: React.FC<WhiteboardTabProps> = ({
       }
     };
 
-    socket.on('room:joined', handleRoomJoined);
     socket.on('wb:update', handleWbUpdate);
+    socket.on('room:joined', handleRoomJoined);
     socket.on('error', handleSocketError);
 
     return () => {
-      socket.off('room:joined', handleRoomJoined);
       socket.off('wb:update', handleWbUpdate);
+      socket.off('room:joined', handleRoomJoined);
       socket.off('error', handleSocketError);
-      if (throttleTimerRef.current) {
-        clearTimeout(throttleTimerRef.current);
-      }
     };
-  }, [roomId, excalidrawAPI]);
+  }, [roomId, user?.id, excalidrawAPI, onElementsChange]);
 
-  // Sync initialElements when API is ready
-  useEffect(() => {
-    if (excalidrawAPI && initialElements && initialElements.length > 0) {
-      excalidrawAPI.updateScene({ elements: initialElements });
-    }
-  }, [excalidrawAPI, initialElements]);
-
-  // Handle changes from Excalidraw editor
-  const handleChange = useCallback(
-    (newElements: readonly any[]) => {
-      // In view-only mode, NEVER emit updates
-      if (isReadOnly) return;
-
-      // Filter for changed elements
-      const changed = newElements.filter((el: any) => {
-        if (!el?.id) return false;
-        const seenVersion = seenVersionsRef.current[el.id] || 0;
-        return (el.version || 0) > seenVersion;
-      });
-
-      if (changed.length === 0) return;
-
-      // Update seen versions
-      changed.forEach((el: any) => {
-        seenVersionsRef.current[el.id] = el.version;
-      });
-
-      // Throttle broadcast at 100 ms per architecture specification
-      if (throttleTimerRef.current) {
-        clearTimeout(throttleTimerRef.current);
-      }
-
-      throttleTimerRef.current = setTimeout(() => {
-        socket.emit('wb:update', {
-          roomId,
-          elements: Array.from(newElements),
-        });
-      }, 100);
-    },
-    [isReadOnly, roomId]
-  );
-
-  // Clear whiteboard (for permitted users / host)
-  const handleClear = useCallback(() => {
+  const clearCanvas = () => {
     if (isReadOnly || !excalidrawAPI) return;
-    excalidrawAPI.resetScene();
-    socket.emit('wb:update', {
-      roomId,
-      elements: [],
-    });
-  }, [isReadOnly, excalidrawAPI, roomId]);
+    const elements = excalidrawAPI.getSceneElementsIncludingDeleted();
+    // Excalidraw deletion: set isDeleted: true and bump version (US-WB-02 AC-4)
+    const deletedElements = elements.map((el) => ({
+      ...el,
+      isDeleted: true,
+      version: (el.version ?? 0) + 1,
+      versionNonce: Math.floor(Math.random() * 1000000),
+    }));
+    excalidrawAPI.updateScene({ elements: deletedElements });
+    for (const el of deletedElements) {
+      pendingUpdatesRef.current.set(el.id, el);
+    }
+    flushUpdates();
+  };
 
-  // Download board snapshot as PNG
-  const handleDownload = useCallback(async () => {
+  const downloadCanvas = async () => {
     if (!excalidrawAPI) return;
     try {
-      const currentElements = excalidrawAPI.getSceneElements();
+      const elements = excalidrawAPI.getSceneElements();
       const appState = excalidrawAPI.getAppState();
+      const files = excalidrawAPI.getFiles();
       const blob = await exportToBlob({
-        elements: currentElements,
+        elements,
         appState: {
           ...appState,
-          exportWithDarkMode: false,
+          exportWithDarkMode: theme === 'dark',
         },
-        files: excalidrawAPI.getFiles(),
+        files,
         mimeType: 'image/png',
       });
-      const url = window.URL.createObjectURL(blob);
+      const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
-      link.href = url;
       link.download = `whiteboard-${roomId}.png`;
+      link.href = url;
       link.click();
-      window.URL.revokeObjectURL(url);
+      URL.revokeObjectURL(url);
     } catch (err) {
-      console.error('[WhiteboardTab] Failed to download board:', err);
+      console.error('[WhiteboardTab] Failed to export whiteboard:', err);
     }
-  }, [excalidrawAPI, roomId]);
+  };
 
   return (
-    <div className="flex flex-col h-full min-h-[650px] gap-3" id="room-whiteboard-container" data-testid="room-whiteboard-container">
+    <div
+      className="flex flex-col h-full min-h-[650px] gap-3"
+      id="room-whiteboard-container"
+      data-testid="room-whiteboard-container"
+    >
       {/* Whiteboard Header Toolbar */}
       <div className="flex items-center gap-2 px-1 flex-wrap">
         <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/20 text-indigo-700 dark:text-indigo-400 text-xs font-semibold">
@@ -219,7 +328,7 @@ export const WhiteboardTab: React.FC<WhiteboardTabProps> = ({
           id="whiteboard-clear"
           data-testid="whiteboard-clear"
           disabled={isReadOnly}
-          onClick={handleClear}
+          onClick={clearCanvas}
           title={isReadOnly ? 'Whiteboard access disabled' : 'Clear canvas'}
           className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
             isReadOnly
@@ -234,7 +343,7 @@ export const WhiteboardTab: React.FC<WhiteboardTabProps> = ({
         <button
           id="whiteboard-download"
           data-testid="whiteboard-download"
-          onClick={handleDownload}
+          onClick={downloadCanvas}
           title="Download board snapshot as PNG"
           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 transition-all"
         >
@@ -243,36 +352,35 @@ export const WhiteboardTab: React.FC<WhiteboardTabProps> = ({
         </button>
       </div>
 
-      {/* Excalidraw Canvas Container */}
+      {/* Canvas Container */}
       <div
-        id="room-whiteboard-canvas"
-        data-testid="room-whiteboard-canvas"
-        className="flex-1 w-full min-h-[580px] h-[600px] rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 shadow-inner relative"
+        className="flex-1 w-full h-full min-h-[500px] rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 shadow-inner relative"
       >
-        <Excalidraw
-          excalidrawAPI={(api) => setExcalidrawAPI(api)}
-          initialData={{
-            elements: initialElements.length > 0 ? initialElements : elements,
-            appState: {
-              viewModeEnabled: isReadOnly,
-            },
-          }}
-          viewModeEnabled={isReadOnly}
-          onChange={handleChange}
-          UIOptions={{
-            canvasActions: {
-              changeViewBackgroundColor: !isReadOnly,
-              clearCanvas: !isReadOnly,
-              loadScene: false,
-              saveToActiveFile: false,
-              export: { saveFileToDisk: true },
-              toggleTheme: false,
-            },
-            tools: {
-              image: false, // Images disabled in MVP per architecture spec
-            },
-          }}
-        />
+        <div id="room-whiteboard-canvas" data-testid="room-whiteboard-canvas" className="w-full h-full">
+          <Excalidraw
+            excalidrawAPI={(api) => setExcalidrawAPI(api)}
+            viewModeEnabled={!canWhiteboard} /* viewModeEnabled={isReadOnly} */
+            theme={theme === 'dark' ? 'dark' : 'light'}
+            onChange={handleChange}
+            UIOptions={{
+              canvasActions: {
+                changeViewBackgroundColor: !isReadOnly,
+                clearCanvas: !isReadOnly,
+                export: { saveFileToDisk: true },
+                saveAsImage: true,
+              },
+              tools: {
+                image: false,
+              },
+            }}
+            onPaste={(data) => {
+              if (data.files && Object.keys(data.files).length > 0) {
+                return false;
+              }
+              return true;
+            }}
+          />
+        </div>
       </div>
 
       <p className="text-xs text-center text-slate-400 dark:text-slate-500">

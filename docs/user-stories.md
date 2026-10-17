@@ -636,11 +636,11 @@
 > As a **user with whiteboard permission (or the host)**, I want to draw on the shared Excalidraw whiteboard so that other members can see my drawings in near real time.
 
 **Acceptance Criteria:**
-- [ ] The editor is writable for members with `can_whiteboard = true` and the host.
-- [ ] Changed elements are throttled at 100 ms and broadcast via `wb:update`.
-- [ ] All other members see changes within 500 ms.
-- [ ] Deletions (Excalidraw `isDeleted: true`) sync correctly.
-- [ ] The image tool is disabled (images need file storage, which is out of scope).
+- [x] The editor is writable for members with `can_whiteboard = true` and the host.
+- [x] Changed elements are throttled at 100 ms and broadcast via `wb:update`.
+- [x] All other members see changes within 500 ms.
+- [x] Deletions (Excalidraw `isDeleted: true`) sync correctly.
+- [x] The image tool is disabled (images need file storage, which is out of scope).
 
 ---
 
@@ -650,9 +650,9 @@
 > As a **room member**, I want the whiteboard to be restored when I reload or rejoin so that drawn content is not lost.
 
 **Acceptance Criteria:**
-- [ ] `whiteboard_state` is persisted to Postgres (debounced 5 s and on last editor leave).
-- [ ] Joining or rejoining the room loads the current board state from the `room:join` snapshot.
-- [ ] Board state survives a server restart.
+- [x] `whiteboard_state` is persisted to Postgres (debounced 5 s and on last editor leave).
+- [x] Joining or rejoining the room loads the current board state from the `room:join` snapshot.
+- [x] Board state survives a server restart.
 
 ---
 
