@@ -70,6 +70,9 @@ export const RoomPage: React.FC = () => {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [codeState, setCodeState] = useState<CodeState | null>(null);
 
+  // US-CODE-08: Pending code editor pen requests count for host badge indicator
+  const [pendingCodeRequests, setPendingCodeRequests] = useState(0);
+
   // US-LIVE-01 & US-LIVE-05 & US-LIVE-06: Session state, inCall state & timer
   const [activeSession, setActiveSession] = useState<Session | null>(null);
   const [isInCall, setIsInCall] = useState(false);
@@ -363,6 +366,14 @@ export const RoomPage: React.FC = () => {
             ? { ...prev, holderId: data.holderId }
             : { content: '', language: 'python', rev: 0, holderId: data.holderId }
         );
+        setPendingCodeRequests((prev) => Math.max(0, prev - 1));
+      }
+    };
+
+    // US-CODE-08 AC-3: Host receives code:pen-requested badge indicator
+    const handlePenRequested = (data: { roomId: string; userId: string }) => {
+      if (data.roomId === roomId) {
+        setPendingCodeRequests((prev) => prev + 1);
       }
     };
 
@@ -373,6 +384,7 @@ export const RoomPage: React.FC = () => {
     socket.on('session:ended', handleSessionEnded);
     socket.on('code:state', handleCodeState);
     socket.on('code:pen', handleCodePen);
+    socket.on('code:pen-requested', handlePenRequested);
 
     return () => {
       socket.off('room:join-code-updated', handleJoinCodeUpdated);
@@ -382,6 +394,7 @@ export const RoomPage: React.FC = () => {
       socket.off('session:ended', handleSessionEnded);
       socket.off('code:state', handleCodeState);
       socket.off('code:pen', handleCodePen);
+      socket.off('code:pen-requested', handlePenRequested);
     };
   }, [roomId, room, navigate]);
 
@@ -750,7 +763,13 @@ export const RoomPage: React.FC = () => {
           <button
             key={key}
             id={`room-tab-${key}`}
-            onClick={() => setMainTab(key)}
+            data-testid={`room-tab-${key}`}
+            onClick={() => {
+              setMainTab(key);
+              if (key === 'code') {
+                setPendingCodeRequests(0);
+              }
+            }}
             className={`inline-flex items-center gap-2 px-4 py-3 text-xs font-semibold border-b-2 transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-inset ${
               mainTab === key
                 ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
@@ -760,7 +779,16 @@ export const RoomPage: React.FC = () => {
             role="tab"
           >
             <Icon className="w-4 h-4" />
-            {label}
+            <span>{label}</span>
+            {key === 'code' && room?.myRole === 'host' && pendingCodeRequests > 0 && (
+              <span
+                id="room-tab-code-badge"
+                data-testid="room-tab-code-badge"
+                className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500 text-white animate-pulse"
+              >
+                {pendingCodeRequests}
+              </span>
+            )}
           </button>
         ))}
       </nav>

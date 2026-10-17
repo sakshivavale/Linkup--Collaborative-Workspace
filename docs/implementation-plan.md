@@ -178,7 +178,7 @@ Code tab
 - [ ] `[D]` Monaco tab: `readOnly` unless holder, 150 ms debounced emit, apply incoming `code:state` while keeping the viewer's scroll, header showing "✏️ <name> is editing", host buttons "Give pen ▾" and "Take back"
 - [ ] `[D]` Run button (holder or host) with stdin box and a shared output panel driven by `code:run-started` / `code:run-result`: spinner, stdout, stderr in red, exit code, time, and a timeout message
 - [ ] `[D]` Default starter snippet per language
-- [ ] `(P1)` `[D]` "Request edit" → `code:pen-requested` badge on the host's header
+- [x] `(P1)` `[D]` "Request edit" → `code:pen-requested` badge on the host's header
 
 Whiteboard
 - [ ] `[D]` `boardService`: in-memory element map, merge by version (tie → lower `versionNonce`), debounced persist (5 s), flush on last leave
