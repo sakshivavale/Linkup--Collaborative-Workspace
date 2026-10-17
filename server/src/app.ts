@@ -10,6 +10,9 @@ import { getRoomsForUser, createRoom, joinRoomByCode, getRoomForUser, NotAMember
 import { getRoomPresence, removeSocketFromRoom } from './realtime/presence';
 import { getActiveScreenShare, stopScreenShare } from './realtime/screenShare';
 import { getChatMessages, createChatMessage } from './lib/chat';
+import { mintLivekitToken, updateLivekitParticipantPermissions } from './lib/livekit';
+import { getPenHolder, setPenHolder } from './realtime/codeWorkspace';
+
 
 // Dynamic CORS origin: accepts localhost AND any 192.168.x.x LAN IP on port 5173.
 // This permanently prevents CORS failures when the dev machine's IP changes.
@@ -444,8 +447,8 @@ app.delete('/api/rooms/:roomId/members/:userId', async (req: Request, res: Respo
   }
 });
 
-// Update member permissions (host-only) — US-LIVE-04, FR-3.5, architecture doc 5.3
-app.patch('/api/rooms/:roomId/members/:userId/permissions', async (req: Request, res: Response) => {
+// Update member permissions (host-only) — US-LIVE-04, US-PERM-05, FR-3.5, FR-4.6, architecture doc 5.3
+app.patch(['/api/rooms/:roomId/members/:userId/permissions', '/rooms/:roomId/members/:userId/permissions'], requireAuth, async (req: Request, res: Response) => {
   const user = req.user;
   if (!user) {
     return res.status(401).json({
@@ -492,6 +495,19 @@ app.patch('/api/rooms/:roomId/members/:userId/permissions', async (req: Request,
         }
       }
 
+      // US-PERM-05: If can_code revoked and user holds pen, reassign pen to host
+      if (patch.canCode === false) {
+        const currentHolder = getPenHolder(roomId);
+        if (currentHolder === targetUserId) {
+          setPenHolder(roomId, user.id);
+          io.to(`room:${roomId}`).to(roomId).emit('code:pen', {
+            roomId,
+            holderId: user.id,
+            by: user.id,
+          });
+        }
+      }
+
       // Architecture doc 5.3: emit perm:changed to room:<id>
       io.to(`room:${roomId}`).to(roomId).emit('perm:changed', {
         roomId,
@@ -501,11 +517,19 @@ app.patch('/api/rooms/:roomId/members/:userId/permissions', async (req: Request,
       });
     }
 
+    // Update LiveKit server participant permissions if session is active
+    getActiveSession(roomId).then((session) => {
+      if (session) {
+        const livekitRoomName = session.livekit_room || `linkup-${session.id}`;
+        updateLivekitParticipantPermissions(livekitRoomName, targetUserId, result.permissions, false).catch(() => {});
+      }
+    }).catch(() => {});
+
     return res.status(200).json({ ok: true, permissions: result.permissions, member: result.member });
   } catch (err: any) {
     if (err?.code === 'HOST_ONLY' || err?.code === 'FORBIDDEN' || err?.status === 403) {
       return res.status(403).json({
-        error: { code: err.code || 'FORBIDDEN', message: err.message || 'Only the room host can update member permissions' },
+        error: { code: err.code || 'HOST_ONLY', message: err.message || 'Only the room host can update member permissions' },
       });
     }
 
@@ -527,6 +551,64 @@ app.patch('/api/rooms/:roomId/members/:userId/permissions', async (req: Request,
     });
   }
 });
+
+// Mint LiveKit access token enforcing permissions (US-PERM-05 AC-1, FR-4.6, api-contract §3.4)
+app.post(['/api/rooms/:roomId/livekit-token', '/rooms/:roomId/livekit-token'], requireAuth, async (req: Request, res: Response) => {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({
+      error: { code: 'UNAUTHENTICATED', message: 'Authentication required' },
+    });
+  }
+
+  const { roomId } = req.params;
+
+  try {
+    const room = await getRoomForUser(user.id, roomId);
+    const activeSession = await getActiveSession(roomId);
+
+    if (!activeSession) {
+      return res.status(409).json({
+        error: { code: 'NO_ACTIVE_SESSION', message: 'No active session in this room' },
+      });
+    }
+
+    const isHost = room.myRole === 'host';
+    const member = room.members?.find((m) => m.userId === user.id);
+    const permissions = isHost
+      ? { canMic: true, canCamera: true, canScreen: true, canWhiteboard: true, canCode: true }
+      : member?.permissions || { canMic: false, canCamera: false, canScreen: false, canWhiteboard: false, canCode: false };
+
+    const livekitRoomName = activeSession.livekit_room || `linkup-${activeSession.id}`;
+    const tokenResult = await mintLivekitToken({
+      userId: user.id,
+      fullName: user.fullName,
+      memberRole: isHost ? 'host' : 'participant',
+      permissions,
+      livekitRoom: livekitRoomName,
+    });
+
+    return res.status(200).json({
+      token: tokenResult.token,
+      url: env.LIVEKIT_URL || 'wss://mock-livekit.local',
+      sessionId: activeSession.id,
+      canPublish: tokenResult.canPublish,
+      sources: tokenResult.sources,
+    });
+  } catch (err: any) {
+    if (err instanceof NotAMemberError) {
+      return res.status(403).json({
+        error: { code: 'NOT_A_MEMBER', message: err.message },
+      });
+    }
+
+    console.error(`[LiveKit API] Error minting token for room ${roomId}:`, err);
+    return res.status(500).json({
+      error: { code: 'INTERNAL_SERVER_ERROR', message: 'Failed to mint LiveKit token' },
+    });
+  }
+});
+
 
 // Get active screen share for a room
 app.get('/api/rooms/:roomId/screen-share', (req: Request, res: Response) => {

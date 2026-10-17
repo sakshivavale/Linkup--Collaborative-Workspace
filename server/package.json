@@ -25,7 +25,8 @@
     "test:chat-history": "tsx scripts/test-chat-history.ts",
     "test:chat-send": "tsx scripts/test-send-message.ts",
     "test:chat-sender": "tsx scripts/test-chat-sender-info.ts",
-    "test:chat-links": "tsx scripts/test-plain-text-and-links.ts"
+    "test:chat-links": "tsx scripts/test-plain-text-and-links.ts",
+    "test:permissions": "tsx scripts/test-permission-enforcement.ts"
   },
   "dependencies": {
     "@linkup/shared": "*",
