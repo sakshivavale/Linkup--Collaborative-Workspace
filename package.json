@@ -32,7 +32,8 @@
     "test:participant-permissions": "npm run test:participant-permissions --workspace=server",
     "test:perm-toast": "npm run test:perm-toast --workspace=server",
     "test:mute-all": "npm run test:mute-all --workspace=server",
-    "test:code-editor": "npm run test:code-editor --workspace=server"
+    "test:code-editor": "npm run test:code-editor --workspace=server",
+    "test:code-give-pen": "npm run test:code-give-pen --workspace=server"
   },
   "devDependencies": {
     "typescript": "^5.4.5"

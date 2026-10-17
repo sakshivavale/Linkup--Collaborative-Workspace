@@ -123,7 +123,7 @@ io.on('connection', (socket) => {
       const activeSession = await getActiveSession(roomId);
 
       const hostMember = room.members?.find((m) => m.memberRole === 'host');
-      const defaultHostId = hostMember?.userId || room.owner_id || (room.myRole === 'host' ? user.id : null);
+      const defaultHostId = hostMember?.userId || (room as any).owner_id || (room.myRole === 'host' ? user.id : null);
       const codeSnapshot = getCodeState(roomId, defaultHostId);
       const boardSnapshot = { elements: getWhiteboardElements(roomId) };
 
@@ -485,7 +485,7 @@ io.on('connection', (socket) => {
     try {
       const room = await getRoomForUser(user.id, roomId);
       const hostMember = room.members?.find((m) => m.memberRole === 'host');
-      const defaultHostId = hostMember?.userId || room.owner_id || (room.myRole === 'host' ? user.id : '');
+      const defaultHostId = hostMember?.userId || (room as any).owner_id || (room.myRole === 'host' ? user.id : '');
       const currentHolderId = getPenHolder(roomId, defaultHostId);
 
       if (currentHolderId !== user.id) {
@@ -523,11 +523,14 @@ io.on('connection', (socket) => {
   });
 
   /**
-   * code:pen — assign code editor pen holder (US-PERM-05, architecture doc §5.5)
+   * code:pen — assign code editor pen holder (US-PERM-05, US-CODE-02, architecture doc §5.5)
    */
   socket.on('code:pen', async (payload: any, ack?: (res: any) => void) => {
     const roomId = extractRoomId(payload);
-    const targetHolderId = typeof payload?.holderId === 'string' ? payload.holderId.trim() : '';
+    const targetHolderId =
+      typeof payload?.holderId === 'string' && payload.holderId.trim()
+        ? payload.holderId.trim()
+        : user?.id || '';
 
     if (!roomId || !user?.id || !targetHolderId) {
       const err = { code: 'VALIDATION', message: 'Room ID and holderId required' };
@@ -548,14 +551,19 @@ io.on('connection', (socket) => {
       }
 
       const targetMember = room.members?.find((m) => m.userId === targetHolderId);
-      if (!targetMember) {
+      const isTargetHost =
+        targetHolderId === user.id ||
+        targetMember?.memberRole === 'host' ||
+        (room as any).owner_id === targetHolderId;
+
+      if (!targetMember && !isTargetHost) {
         const err = { code: 'NOT_FOUND', message: 'Target member not found in room' };
         socket.emit('error', err);
         if (typeof ack === 'function') ack({ ok: false, error: err });
         return;
       }
 
-      const canCode = targetMember.memberRole === 'host' || Boolean(targetMember.permissions?.canCode);
+      const canCode = isTargetHost || Boolean(targetMember?.permissions?.canCode);
       if (!canCode) {
         const err = { code: 'FORBIDDEN', message: 'Target member does not have code permission' };
         socket.emit('error', err);
@@ -572,7 +580,7 @@ io.on('connection', (socket) => {
       });
 
       if (typeof ack === 'function') {
-        ack({ ok: true });
+        ack({ ok: true, data: { holderId: targetHolderId } });
       }
     } catch (err: any) {
       console.warn(`[Socket] Error in code:pen for room ${roomId}:`, err);
@@ -603,6 +611,24 @@ io.on('connection', (socket) => {
           userId: user.id,
           reason: 'DISCONNECTED',
         });
+      }
+
+      for (const { roomId } of affectedRooms) {
+        const holder = getPenHolder(roomId);
+        if (holder === user.id) {
+          getRoomForUser(user.id, roomId)
+            .then((r) => {
+              const hostMember = r.members?.find((m) => m.memberRole === 'host');
+              const hostId = hostMember?.userId || (r as any).owner_id || null;
+              setPenHolder(roomId, hostId);
+              io.to(`room:${roomId}`).to(roomId).emit('code:pen', {
+                roomId,
+                holderId: hostId,
+                by: 'SYSTEM',
+              });
+            })
+            .catch(() => {});
+        }
       }
     }
   });

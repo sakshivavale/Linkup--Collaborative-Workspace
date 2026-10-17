@@ -530,10 +530,10 @@
 > As a **host**, I want to give the edit pen to a student who has `can_code` permission so that they can type code in the shared editor.
 
 **Acceptance Criteria:**
-- [ ] A **"Give Pen"** dropdown lists all participants with `can_code = true`; a **"Take Back"** button is shown when a student holds the pen.
-- [ ] Clicking assigns the pen: the server emits `code:pen { holderId }` to all room members; the student's editor becomes writable; the host's editor becomes read-only.
-- [ ] A student without `can_code` is not listed in the dropdown.
-- [ ] Only the host can assign the pen; a participant cannot self-assign.
+- [x] A **"Give Pen"** dropdown lists all participants with `can_code = true`; a **"Take Back"** button is shown when a student holds the pen.
+- [x] Clicking assigns the pen: the server emits `code:pen { holderId }` to all room members; the student's editor becomes writable; the host's editor becomes read-only.
+- [x] A student without `can_code` is not listed in the dropdown.
+- [x] Only the host can assign the pen; a participant cannot self-assign.
 
 ---
 

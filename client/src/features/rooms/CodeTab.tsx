@@ -7,6 +7,7 @@ import {
   Eye,
   Edit3,
   Sparkles,
+  RotateCcw,
 } from 'lucide-react';
 import { Language, CodeState, Member } from '@linkup/shared';
 import { socket } from '../../lib/socket';
@@ -52,15 +53,17 @@ export interface CodeTabProps {
   members?: Member[];
   initialCodeState?: CodeState | null;
   onCodeStateChange?: (state: CodeState) => void;
+  isHost?: boolean;
 }
 
 /**
  * US-CODE-01: View the Shared Editor
+ * US-CODE-02: Give the Pen to a Student (Host)
  * Acceptance Criteria:
- * 1. The Code tab shows a Monaco editor with a language selector (Python, JavaScript, C++, Java).
- * 2. All members who do not hold the pen see the editor in read-only mode with live updates (under 300 ms after debounce).
- * 3. The editor header shows who is currently editing (e.g., "Priya is editing").
- * 4. Joining the room late shows the current code content from the room:join snapshot.
+ * 1. A "Give Pen" dropdown lists all participants with can_code = true; a "Take Back" button is shown when a student holds the pen.
+ * 2. Clicking assigns the pen: the server emits code:pen { holderId } to all room members; the student's editor becomes writable; the host's editor becomes read-only.
+ * 3. A student without can_code is not listed in the dropdown.
+ * 4. Only the host can assign the pen; a participant cannot self-assign.
  */
 export const CodeTab: React.FC<CodeTabProps> = ({
   roomId,
@@ -68,6 +71,7 @@ export const CodeTab: React.FC<CodeTabProps> = ({
   members = [],
   initialCodeState = null,
   onCodeStateChange,
+  isHost,
 }) => {
   const { user, fullName } = useAuth();
 
@@ -80,6 +84,20 @@ export const CodeTab: React.FC<CodeTabProps> = ({
 
   const [output, setOutput] = useState<string | null>(null);
   const [running, setRunning] = useState<boolean>(false);
+
+  const [localMembers, setLocalMembers] = useState<Member[]>(members);
+  useEffect(() => {
+    setLocalMembers(members);
+  }, [members]);
+
+  const contentRef = useRef<string>(content);
+  contentRef.current = content;
+  const languageRef = useRef<Language>(language);
+  languageRef.current = language;
+  const revRef = useRef<number>(rev);
+  revRef.current = rev;
+  const holderIdRef = useRef<string | null>(holderId);
+  holderIdRef.current = holderId;
 
   const DEBOUNCE_MS = 150;
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -106,6 +124,38 @@ export const CodeTab: React.FC<CodeTabProps> = ({
     }
   }, [initialCodeState, holderId, user?.id]);
 
+  // Determine if current user is host
+  const isUserHost = useMemo(() => {
+    if (typeof isHost === 'boolean') return isHost;
+    const myMember = localMembers.find((m) => m.userId === user?.id);
+    return myMember?.memberRole === 'host';
+  }, [isHost, localMembers, user?.id]);
+
+  // Identify room host user ID
+  const hostUserId = useMemo(() => {
+    const hostMember = localMembers.find((m) => m.memberRole === 'host');
+    if (hostMember) return hostMember.userId;
+    if (isUserHost && user?.id) return user.id;
+    return null;
+  }, [localMembers, isUserHost, user?.id]);
+
+  // Determine if a student currently holds the pen
+  const studentHoldsPen = useMemo(() => {
+    if (!holderId) return false;
+    if (hostUserId && holderId === hostUserId) return false;
+    if (isUserHost && holderId === user?.id) return false;
+    return true;
+  }, [holderId, hostUserId, isUserHost, user?.id]);
+
+  // AC 1 & AC 3: Filter participants who have can_code = true (non-hosts)
+  const eligibleStudents = useMemo(() => {
+    return localMembers.filter((m) => {
+      const isHostMember = m.memberRole === 'host' || (hostUserId && m.userId === hostUserId);
+      if (isHostMember) return false;
+      return Boolean(m.permissions?.canCode);
+    });
+  }, [localMembers, hostUserId]);
+
   // Determine if current user holds the pen
   const isPenHolder = useMemo(() => {
     if (!user?.id) return false;
@@ -114,9 +164,8 @@ export const CodeTab: React.FC<CodeTabProps> = ({
       return holderId === user.id;
     }
     // If holderId is not yet assigned, default to room host
-    const myMember = members.find((m) => m.userId === user.id);
-    return myMember?.memberRole === 'host';
-  }, [holderId, members, user?.id]);
+    return isUserHost;
+  }, [holderId, isUserHost, user?.id]);
 
   const canEdit = Boolean(isPenHolder && canCode);
   const isReadOnly = !canEdit;
@@ -127,14 +176,14 @@ export const CodeTab: React.FC<CodeTabProps> = ({
       if (user?.id && holderId === user.id) {
         return fullName || 'You';
       }
-      const member = members.find((m) => m.userId === holderId);
+      const member = localMembers.find((m) => m.userId === holderId);
       if (member?.fullName) {
         return member.fullName;
       }
     }
 
     // Fallback: look for host in members
-    const hostMember = members.find((m) => m.memberRole === 'host');
+    const hostMember = localMembers.find((m) => m.memberRole === 'host');
     if (hostMember?.fullName) {
       if (user?.id && hostMember.userId === user.id) {
         return fullName || 'You';
@@ -143,14 +192,61 @@ export const CodeTab: React.FC<CodeTabProps> = ({
     }
 
     return 'Teacher';
-  }, [holderId, members, user, fullName]);
+  }, [holderId, localMembers, user, fullName]);
 
-  // Real-time Socket.IO listeners: code:state, code:pen, room:joined
+  // US-CODE-02: Host assigns pen to student
+  const handleAssignPen = (targetHolderId: string) => {
+    if (!targetHolderId || !isUserHost) return;
+    socket.emit(
+      'code:pen',
+      {
+        roomId,
+        holderId: targetHolderId,
+      },
+      (ack: any) => {
+        if (ack?.ok) {
+          setHolderId(targetHolderId);
+          onCodeStateChange?.({
+            content: contentRef.current,
+            language: languageRef.current,
+            rev: revRef.current,
+            holderId: targetHolderId,
+          });
+        }
+      }
+    );
+  };
+
+  // US-CODE-02: Host takes back pen from student
+  const handleTakeBackPen = () => {
+    if (!isUserHost || !user?.id) return;
+    const targetId = hostUserId || user.id;
+    socket.emit(
+      'code:pen',
+      {
+        roomId,
+        holderId: targetId,
+      },
+      (ack: any) => {
+        if (ack?.ok) {
+          setHolderId(targetId);
+          onCodeStateChange?.({
+            content: contentRef.current,
+            language: languageRef.current,
+            rev: revRef.current,
+            holderId: targetId,
+          });
+        }
+      }
+    );
+  };
+
+  // Real-time Socket.IO listeners: code:state, code:pen, perm:changed, room:joined
   useEffect(() => {
     const handleCodeState = (data: { roomId: string } & CodeState) => {
       if (data.roomId === roomId) {
         // If current user is currently actively editing and holds pen, don't overwrite own local keystrokes
-        if (canEdit && data.holderId === user?.id) {
+        if (holderIdRef.current === user?.id && data.holderId === user?.id) {
           return;
         }
 
@@ -167,11 +263,23 @@ export const CodeTab: React.FC<CodeTabProps> = ({
       if (data.roomId === roomId) {
         setHolderId(data.holderId);
         onCodeStateChange?.({
-          content,
-          language,
-          rev,
+          content: contentRef.current,
+          language: languageRef.current,
+          rev: revRef.current,
           holderId: data.holderId,
         });
+      }
+    };
+
+    const handlePermChanged = (data: { roomId: string; userId: string; permissions: any }) => {
+      if (data.roomId === roomId) {
+        setLocalMembers((prev) =>
+          prev.map((m) =>
+            m.userId === data.userId
+              ? { ...m, permissions: { ...m.permissions, ...data.permissions } }
+              : m
+          )
+        );
       }
     };
 
@@ -188,14 +296,16 @@ export const CodeTab: React.FC<CodeTabProps> = ({
 
     socket.on('code:state', handleCodeState);
     socket.on('code:pen', handleCodePen);
+    socket.on('perm:changed', handlePermChanged);
     socket.on('room:joined', handleRoomJoined);
 
     return () => {
       socket.off('code:state', handleCodeState);
       socket.off('code:pen', handleCodePen);
+      socket.off('perm:changed', handlePermChanged);
       socket.off('room:joined', handleRoomJoined);
     };
-  }, [roomId, canEdit, user?.id, content, language, rev, onCodeStateChange]);
+  }, [roomId, user?.id, onCodeStateChange]);
 
   // Debounced code changes (150 ms debounce per US-CODE-03 & FR-5.2)
   const handleEditorChange = (newVal: string | undefined) => {
@@ -326,6 +436,68 @@ export const CodeTab: React.FC<CodeTabProps> = ({
           >
             Teacher turned off code editor access
           </span>
+        )}
+
+        {/* US-CODE-02: Host Pen Controls */}
+        {isUserHost && (
+          <div
+            id="code-pen-host-controls"
+            data-testid="code-pen-host-controls"
+            className="inline-flex items-center gap-2"
+          >
+            {/* Take Back Button (shown when a student holds the pen) */}
+            {studentHoldsPen && (
+              <button
+                id="code-take-back-btn"
+                data-testid="code-take-back-btn"
+                type="button"
+                onClick={handleTakeBackPen}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 active:scale-95 transition-all shadow-sm focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer"
+                title="Take back edit pen from student"
+                aria-label="Take Back"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Take Back</span>
+              </button>
+            )}
+
+            {/* Give Pen Dropdown (lists all participants with can_code = true) */}
+            <div
+              id="code-give-pen-container"
+              data-testid="code-give-pen-container"
+              className="relative inline-flex items-center"
+            >
+              <select
+                id="code-give-pen-select"
+                data-testid="code-give-pen-select"
+                aria-label="Give Pen"
+                value={studentHoldsPen ? (holderId || '') : ''}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (val) {
+                    handleAssignPen(val);
+                  }
+                }}
+                disabled={eligibleStudents.length === 0}
+                className="appearance-none pl-3 pr-8 py-1.5 rounded-xl text-xs font-semibold bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/40 dark:hover:bg-purple-900/50 border border-purple-200 dark:border-purple-800 text-purple-700 dark:text-purple-300 transition-all focus:outline-none focus:ring-2 focus:ring-purple-500 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed shadow-sm"
+              >
+                <option value="" disabled={studentHoldsPen}>
+                  {eligibleStudents.length === 0 ? 'Give Pen (No eligible students)' : 'Give Pen ▾'}
+                </option>
+                {eligibleStudents.map((student) => (
+                  <option
+                    key={student.userId}
+                    value={student.userId}
+                    id={`give-pen-option-${student.userId}`}
+                    data-testid={`give-pen-option-${student.userId}`}
+                  >
+                    {student.fullName} {holderId === student.userId ? '(Pen Holder)' : ''}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="w-3.5 h-3.5 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-purple-500 dark:text-purple-400" />
+            </div>
+          </div>
         )}
 
         {/* AC 1: Language selector (Python, JavaScript, C++, Java) */}
