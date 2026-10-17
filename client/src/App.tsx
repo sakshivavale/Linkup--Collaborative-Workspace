@@ -58,6 +58,7 @@ export const App: React.FC = () => {
                 <Route path="/" element={<DashboardPage />} />
                 <Route path="/rooms/:id" element={<RoomPage />} />
                 <Route path="/rooms/:id/attendance" element={<AttendancePage />} />
+                <Route path="/rooms/:roomId/attendance" element={<AttendancePage />} />
                 <Route path="/playground" element={<PlaygroundPage />} />
                 {/* Fallback for logged-in unknown routes */}
                 <Route path="*" element={<Navigate to="/" replace />} />
