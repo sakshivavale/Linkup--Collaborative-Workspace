@@ -26,7 +26,7 @@ import { getRoomPresence, removeSocketFromRoom, setUserHandStatus } from './real
 import { getActiveScreenShare, stopScreenShare } from './realtime/screenShare';
 import { getChatMessages, createChatMessage } from './lib/chat';
 import { mintLivekitToken, updateLivekitParticipantPermissions } from './lib/livekit';
-import { getPenHolder, setPenHolder, getOrLoadCodeState, persistCodeState } from './realtime/codeWorkspace';
+import { getPenHolder, setPenHolder, setPen, codeService, getOrLoadCodeState, persistCodeState } from './realtime/codeWorkspace';
 import {
   executeCode,
   checkRunRateLimit,
@@ -513,21 +513,22 @@ app.patch(['/api/rooms/:roomId/members/:userId/permissions', '/rooms/:roomId/mem
   const { roomId, userId: targetUserId } = req.params;
   const body = req.body || {};
 
+  const parseBool = (val: any) => (typeof val === 'string' ? val.toLowerCase() === 'true' || val === '1' : Boolean(val));
   const patch: any = {};
   if (body.canMic !== undefined || body.permissions?.canMic !== undefined || body.can_mic !== undefined) {
-    patch.canMic = Boolean(body.canMic ?? body.permissions?.canMic ?? body.can_mic);
+    patch.canMic = parseBool(body.canMic ?? body.permissions?.canMic ?? body.can_mic);
   }
   if (body.canCamera !== undefined || body.permissions?.canCamera !== undefined || body.can_camera !== undefined) {
-    patch.canCamera = Boolean(body.canCamera ?? body.permissions?.canCamera ?? body.can_camera);
+    patch.canCamera = parseBool(body.canCamera ?? body.permissions?.canCamera ?? body.can_camera);
   }
   if (body.canScreen !== undefined || body.permissions?.canScreen !== undefined || body.can_screen !== undefined) {
-    patch.canScreen = Boolean(body.canScreen ?? body.permissions?.canScreen ?? body.can_screen);
+    patch.canScreen = parseBool(body.canScreen ?? body.permissions?.canScreen ?? body.can_screen);
   }
   if (body.canWhiteboard !== undefined || body.permissions?.canWhiteboard !== undefined || body.can_whiteboard !== undefined) {
-    patch.canWhiteboard = Boolean(body.canWhiteboard ?? body.permissions?.canWhiteboard ?? body.can_whiteboard);
+    patch.canWhiteboard = parseBool(body.canWhiteboard ?? body.permissions?.canWhiteboard ?? body.can_whiteboard);
   }
   if (body.canCode !== undefined || body.permissions?.canCode !== undefined || body.can_code !== undefined) {
-    patch.canCode = Boolean(body.canCode ?? body.permissions?.canCode ?? body.can_code);
+    patch.canCode = parseBool(body.canCode ?? body.permissions?.canCode ?? body.can_code);
   }
 
   // Only the room host may change a member's permissions; the service layer enforces this
@@ -567,15 +568,18 @@ app.patch(['/api/rooms/:roomId/members/:userId/permissions', '/rooms/:roomId/mem
         }
       }
 
-      // US-PERM-05: If can_code revoked and user holds pen, reassign pen to host
+      // US-CODE-04 — Revoke Code Permission from Pen Holder (FR-5.4, US-PERM-05)
+      // When can_code is revoked from the current pen holder, the server automatically
+      // calls codeService.setPen(roomId, hostId) and emits a code:pen { holderId: hostId } event to all room members.
       if (patch.canCode === false) {
         const currentHolder = getPenHolder(roomId);
         if (currentHolder === targetUserId) {
-          setPenHolder(roomId, user.id);
+          const hostId = user.id;
+          codeService.setPen(roomId, hostId);
           io.to(`room:${roomId}`).to(roomId).emit('code:pen', {
             roomId,
-            holderId: user.id,
-            by: user.id,
+            holderId: hostId,
+            by: hostId,
           });
         }
       }
@@ -680,6 +684,23 @@ export async function handleBulkPermissions(req: Request, res: Response) {
               roomId,
               userId: member.userId,
               reason: 'PERMISSION_REVOKED',
+            });
+          }
+        }
+      }
+
+      // US-CODE-04: If can_code was revoked in bulk and the current pen holder was affected, return pen to host
+      if (patch.canCode === false) {
+        const currentHolder = getPenHolder(roomId);
+        if (currentHolder && currentHolder !== user.id) {
+          const wasRevoked = result.members.some((m) => m.userId === currentHolder);
+          if (wasRevoked) {
+            const hostId = user.id;
+            codeService.setPen(roomId, hostId);
+            io.to(`room:${roomId}`).to(roomId).emit('code:pen', {
+              roomId,
+              holderId: hostId,
+              by: hostId,
             });
           }
         }

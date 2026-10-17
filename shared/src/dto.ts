@@ -131,6 +131,8 @@ export interface Session {
   startedAt: string;
   endedAt: string | null;
   startedBy: string;
+  livekit_room?: string;
+  livekitRoom?: string;
 }
 
 export interface SessionStartedPayload {

@@ -11,6 +11,9 @@ const envSchema = z.object({
   SUPABASE_URL: z.string().url(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
   PISTON_URL: z.string().default('http://localhost:2000'),
+  LIVEKIT_URL: z.string().default('wss://mock-livekit.local'),
+  LIVEKIT_API_KEY: z.string().optional(),
+  LIVEKIT_API_SECRET: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);

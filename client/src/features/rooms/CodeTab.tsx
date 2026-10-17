@@ -63,11 +63,12 @@ export interface CodeTabProps {
 /**
  * US-CODE-01: View the Shared Editor
  * US-CODE-02: Give the Pen to a Student (Host)
+ * US-CODE-04: Revoke Code Permission from Pen Holder (FR-5.4)
  * Acceptance Criteria:
- * 1. A "Give Pen" dropdown lists all participants with can_code = true; a "Take Back" button is shown when a student holds the pen.
- * 2. Clicking assigns the pen: the server emits code:pen { holderId } to all room members; the student's editor becomes writable; the host's editor becomes read-only.
- * 3. A student without can_code is not listed in the dropdown.
- * 4. Only the host can assign the pen; a participant cannot self-assign.
+ * 1. When can_code is revoked from the current pen holder, the server automatically calls codeService.setPen(roomId, hostId).
+ * 2. A code:pen { holderId: hostId } event is emitted to all room members.
+ * 3. The former holder's editor immediately switches to read-only.
+ * 4. The host's editor becomes writable.
  */
 export const CodeTab: React.FC<CodeTabProps> = ({
   roomId,
@@ -192,8 +193,27 @@ export const CodeTab: React.FC<CodeTabProps> = ({
     return isUserHost;
   }, [holderId, isUserHost, user?.id]);
 
-  const canEdit = Boolean(isPenHolder && canCode);
+  // US-CODE-04: Determine if current user has can_code permission
+  // Check localMembers (updated immediately via perm:changed socket) with canCode prop fallback
+  const userHasCodePermission = useMemo(() => {
+    if (isUserHost) return true;
+    const myMember = localMembers.find((m) => m.userId === user?.id);
+    if (myMember?.permissions?.canCode !== undefined) {
+      return Boolean(myMember.permissions.canCode);
+    }
+    return Boolean(canCode);
+  }, [isUserHost, localMembers, user?.id, canCode]);
+
+  const canEdit = Boolean(isPenHolder && userHasCodePermission);
   const isReadOnly = !canEdit;
+
+  // US-CODE-04 AC-3: Cancel pending debounced edits immediately when canEdit is lost
+  useEffect(() => {
+    if (!canEdit && debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+  }, [canEdit]);
 
   // AC 1: "A 'Run' button is visible in the Code tab for the pen holder and the host."
   const canRun = useMemo(() => {
@@ -451,7 +471,7 @@ export const CodeTab: React.FC<CodeTabProps> = ({
     // Emit code:run-started immediately to the room
     socket.emit('code:run-started', {
       roomId,
-      by: fullName || user?.fullName || user?.id,
+      by: fullName || (user as any)?.fullName || user?.id || 'Unknown',
       language,
     });
 
