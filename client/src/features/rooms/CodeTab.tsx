@@ -130,6 +130,25 @@ export const CodeTab: React.FC<CodeTabProps> = ({
     }
   }, [initialCodeState, holderId, user?.id]);
 
+  // Fallback REST fetch if initialCodeState is not provided on mount (US-CODE-06)
+  useEffect(() => {
+    if (!initialCodeState && roomId) {
+      api
+        .get<CodeState>(`/api/rooms/${roomId}/code`)
+        .then((saved) => {
+          if (saved) {
+            if (typeof saved.content === 'string') setContent(saved.content);
+            if (saved.language) setLanguage(saved.language);
+            if (typeof saved.rev === 'number') setRev(saved.rev);
+            if (saved.holderId !== undefined) setHolderId(saved.holderId);
+            onCodeStateChange?.(saved);
+            isInitializedRef.current = true;
+          }
+        })
+        .catch(() => {});
+    }
+  }, [roomId, initialCodeState, onCodeStateChange]);
+
   // Determine if current user is host
   const isUserHost = useMemo(() => {
     if (typeof isHost === 'boolean') return isHost;
@@ -343,6 +362,14 @@ export const CodeTab: React.FC<CodeTabProps> = ({
     const value = newVal ?? '';
     setContent(value);
 
+    // Immediately keep parent codeState updated so switching tabs retains latest edits
+    onCodeStateChange?.({
+      content: value,
+      language: languageRef.current,
+      rev: revRef.current,
+      holderId: holderIdRef.current,
+    });
+
     if (!canEdit) return;
 
     if (debounceTimerRef.current) {
@@ -355,16 +382,16 @@ export const CodeTab: React.FC<CodeTabProps> = ({
         {
           roomId,
           content: value,
-          language,
+          language: languageRef.current,
         },
         (ack: any) => {
           if (ack?.ok && ack?.data?.rev) {
             setRev(ack.data.rev);
             onCodeStateChange?.({
               content: value,
-              language,
+              language: languageRef.current,
               rev: ack.data.rev,
-              holderId,
+              holderId: holderIdRef.current,
             });
           }
         }
@@ -399,14 +426,21 @@ export const CodeTab: React.FC<CodeTabProps> = ({
     );
   };
 
-  // Clean up debounce on unmount
+  // Clean up and flush pending debounce on unmount
   useEffect(() => {
     return () => {
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);
+        if (canEdit) {
+          socket.emit('code:update', {
+            roomId,
+            content: contentRef.current,
+            language: languageRef.current,
+          });
+        }
       }
     };
-  }, []);
+  }, [canEdit, roomId]);
 
   // AC 3: Clicking Run emits code:run-started to the room and calls POST /execute via Piston
   const handleRun = async () => {
