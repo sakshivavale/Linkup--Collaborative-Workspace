@@ -341,9 +341,12 @@ export async function closeUserAttendance(
 }
 
 /**
- * Close all open attendance records for a session (e.g. on session end).
+ * Close all open attendance records for a session with left_at = ended_at (US-ATT-05, FR-6.5).
+ * Acceptance Criteria:
+ * - POST /rooms/:roomId/sessions/:sessionId/end calls close_session_attendance(sessionId, ended_at).
+ * - All records with left_at IS NULL for that session are updated.
  */
-export async function closeAllSessionAttendance(
+export async function close_session_attendance(
   sessionId: string,
   endedAt: string = new Date().toISOString()
 ): Promise<void> {
@@ -355,7 +358,7 @@ export async function closeAllSessionAttendance(
     }
   }
 
-  // Close mock records
+  // Close mock records with left_at IS NULL
   for (const att of mockAttendanceStore) {
     if (att.sessionId === sessionId && att.leftAt === null) {
       att.leftAt = endedAt;
@@ -379,3 +382,25 @@ export async function closeAllSessionAttendance(
     console.warn('[Attendance] Error closing session attendance in DB:', err);
   }
 }
+
+export const closeAllSessionAttendance = close_session_attendance;
+
+/**
+ * Crash recovery for mock attendance store: closes open records whose session has ended.
+ */
+export function closeDanglingMockAttendance(
+  getEndedAtForSession: (sessionId: string) => string | undefined | null
+): number {
+  let closedCount = 0;
+  for (const att of mockAttendanceStore) {
+    if (att.leftAt === null) {
+      const endedAt = getEndedAtForSession(att.sessionId);
+      if (endedAt) {
+        att.leftAt = endedAt;
+        closedCount++;
+      }
+    }
+  }
+  return closedCount;
+}
+

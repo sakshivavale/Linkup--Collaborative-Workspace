@@ -112,7 +112,7 @@ Sessions & media
 - [ ] `[A]` `POST /rooms/:id/sessions` (409 if active), `POST …/end`, `GET /rooms/:id/sessions`
 - [ ] `[A]` `lib/livekit.ts`: `mintToken()` (grants from flags, per [architecture.md](./architecture.md) §5.2), plus `RoomServiceClient` wrappers: `updatePermissions`, `muteTrack`, `removeParticipant`, `deleteRoom`
 - [ ] `[A]` `POST /rooms/:id/livekit-token`
-- [ ] `[A]` Session end flow: set `ended_at`, `close_session_attendance`, `deleteRoom`, emit `session:ended`
+- [x] `[A]` Session end flow: set `ended_at`, `close_session_attendance`, `deleteRoom`, emit `session:ended`
 - [ ] `[B]` Live tab: "Waiting for host" state, a Join button, `<LiveKitRoom>` with grid layout and a custom control bar (mic/cam/screen/leave)
 - [ ] `[B]` Screen share shown as the focused tile, with a participant strip below
 - [ ] `[B]` Keep the LiveKit connection alive while switching tabs: mount the `LiveKitRoom` at `RoomPage` level, with only the video UI inside the Live tab
@@ -127,7 +127,7 @@ Chat (Track C, end-to-end)
 Attendance
 - [x] `[B]` `live:joined` / `live:left` / disconnect handlers: per-user `liveSockets` set, 15 s grace timer, insert-or-reuse open record (partial unique index)
 - [x] `[B]` Mark `inLive` in presence
-- [ ] `[B]` Server boot recovery: close open attendance for sessions that have ended
+- [x] `[B]` Server boot recovery: close open attendance for sessions that have ended
 - [ ] `[A]` `GET /rooms/:id/sessions/:sid/attendance` (via `attendance_summary` RPC)
 - [ ] `[C]` Attendance page: session picker and table
 

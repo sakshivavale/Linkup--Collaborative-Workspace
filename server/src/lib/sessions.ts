@@ -10,5 +10,7 @@ export {
   getMockAttendance,
   clearMockAttendance,
   addMockAttendance,
+  close_session_attendance,
+  closeAllSessionAttendance,
   closeDanglingAttendanceRecords,
 } from './rooms';
