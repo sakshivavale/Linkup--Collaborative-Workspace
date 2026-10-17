@@ -798,6 +798,7 @@ export const RoomPage: React.FC = () => {
               members={room.members || []}
               initialCodeState={codeState}
               onCodeStateChange={setCodeState}
+              isHost={room.myRole === 'host'}
             />
           )}
         </main>

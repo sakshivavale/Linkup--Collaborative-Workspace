@@ -30,7 +30,8 @@
     "test:participant-permissions": "tsx scripts/test-participant-permissions.ts",
     "test:perm-toast": "tsx scripts/test-permission-toast.ts",
     "test:mute-all": "tsx scripts/test-mute-all.ts",
-    "test:code-editor": "tsx scripts/test-code-shared-editor.ts"
+    "test:code-editor": "tsx scripts/test-code-shared-editor.ts",
+    "test:code-give-pen": "tsx scripts/test-code-give-pen.ts"
   },
   "dependencies": {
     "@linkup/shared": "*",
