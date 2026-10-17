@@ -68,12 +68,15 @@ export {
   getMockAttendance,
   clearMockAttendance,
   addMockAttendance,
+  close_session_attendance,
   closeAllSessionAttendance,
 } from './attendance';
 
 import {
   clearMockAttendance,
+  close_session_attendance,
   closeAllSessionAttendance,
+  closeDanglingMockAttendance,
 } from './attendance';
 
 export function setMockRooms(userId: string, rooms: RoomSummary[]) {
@@ -1884,8 +1887,8 @@ export async function endSession(
     }
     mockSessionsStore.set(currentSessionId, session);
 
-    // Close all open attendance records
-    await closeAllSessionAttendance(currentSessionId, endedAt);
+    // Close all open attendance records (US-ATT-05, FR-6.5)
+    await close_session_attendance(currentSessionId, endedAt);
 
     await deleteLivekitRoom(`linkup-${currentSessionId}`);
     return session;
@@ -1943,8 +1946,8 @@ export async function endSession(
     }
     mockSessionsStore.set(currentSessionId, session);
 
-    // Close all open attendance records
-    await closeAllSessionAttendance(currentSessionId, endedAt);
+    // Close all open attendance records (US-ATT-05, FR-6.5)
+    await close_session_attendance(currentSessionId, endedAt);
 
     await deleteLivekitRoom(`linkup-${currentSessionId}`);
     return session;
@@ -2035,7 +2038,7 @@ export async function endSession(
   }
 
   // 2. Close all open attendance records (US-ATT-05, FR-6.5)
-  await closeAllSessionAttendance(activeSession.id, endedAt);
+  await close_session_attendance(activeSession.id, endedAt);
 
   // 3. Delete LiveKit room
   const livekitRoomName = activeSession.livekit_room || `linkup-${activeSession.id}`;
@@ -2056,6 +2059,13 @@ export async function endSession(
  * On server boot, close open records for already-ended sessions (US-ATT-05 crash recovery)
  */
 export async function closeDanglingAttendanceRecords(): Promise<void> {
+  // 1. In-memory / mock store crash recovery
+  closeDanglingMockAttendance((sessionId) => {
+    const session = mockSessionsStore.get(sessionId);
+    return session?.endedAt;
+  });
+
+  // 2. Supabase DB crash recovery
   try {
     const { data: dangling, error } = await supabase
       .from('attendance')

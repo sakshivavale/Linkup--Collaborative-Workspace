@@ -736,9 +736,9 @@
 > As the **system**, when the host ends a session, I want all open attendance records to be closed with `left_at = ended_at` so that no records are left open.
 
 **Acceptance Criteria:**
-- [ ] `POST /rooms/:roomId/sessions/:sessionId/end` calls `close_session_attendance(sessionId, ended_at)`.
-- [ ] All records with `left_at IS NULL` for that session are updated.
-- [ ] On server boot, open records for already-ended sessions are also closed (crash recovery).
+- [x] `POST /rooms/:roomId/sessions/:sessionId/end` calls `close_session_attendance(sessionId, ended_at)`.
+- [x] All records with `left_at IS NULL` for that session are updated.
+- [x] On server boot, open records for already-ended sessions are also closed (crash recovery).
 
 ---
 

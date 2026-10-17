@@ -1372,6 +1372,8 @@ const handleEndSessionRoute = async (req: Request, res: Response) => {
 
 app.post('/api/rooms/:roomId/sessions/:sessionId/end', handleEndSessionRoute);
 app.post('/api/rooms/:roomId/sessions/end', handleEndSessionRoute);
+app.post('/rooms/:roomId/sessions/:sessionId/end', requireAuth, handleEndSessionRoute);
+app.post('/rooms/:roomId/sessions/end', requireAuth, handleEndSessionRoute);
 
 // Get active session for a room
 app.get('/api/rooms/:roomId/sessions/active', async (req: Request, res: Response) => {
