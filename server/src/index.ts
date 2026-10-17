@@ -19,9 +19,20 @@ import {
   forceStopScreenShare,
   handleUserDisconnectScreenShare,
 } from './realtime/screenShare';
+import {
+  getCodeState,
+  getPenHolder,
+  setPenHolder,
+  updateCodeState,
+} from './realtime/codeWorkspace';
+import {
+  getWhiteboardElements,
+  setWhiteboardElements,
+} from './realtime/whiteboard';
 import { createChatMessage } from './lib/chat';
 
 const server = http.createServer(app);
+
 
 export const io = new SocketIOServer(server, {
   cors: {
@@ -111,6 +122,11 @@ io.on('connection', (socket) => {
       const activeScreen = getActiveScreenShare(roomId);
       const activeSession = await getActiveSession(roomId);
 
+      const hostMember = room.members?.find((m) => m.memberRole === 'host');
+      const defaultHostId = hostMember?.userId || room.owner_id || (room.myRole === 'host' ? user.id : null);
+      const codeSnapshot = getCodeState(roomId, defaultHostId);
+      const boardSnapshot = { elements: getWhiteboardElements(roomId) };
+
       // US-LIVE-07 AC-3: Full state snapshot returned on room:join (FR-3.8, api-contract §4.2)
       const snapshot = {
         roomId,
@@ -120,9 +136,10 @@ io.on('connection', (socket) => {
         presence,
         session: activeSession,
         screenShare: activeScreen,
-        code: { content: '', language: 'python' as const, rev: 0, holderId: null },
-        board: { elements: [] },
+        code: codeSnapshot,
+        board: boardSnapshot,
       };
+
 
       socket.emit('room:joined', {
         roomId,
@@ -391,7 +408,182 @@ io.on('connection', (socket) => {
     }
   });
 
+  /**
+   * wb:update — update whiteboard canvas elements (US-PERM-05 AC-2, FR-4.6, BR-5, api-contract §4.2)
+   * Acceptance Criteria:
+   * "A socket wb:update event from a student without can_whiteboard:
+   * the server drops the event and emits error { code: "FORBIDDEN" } back to the sender;
+   * no other clients receive the update."
+   */
+  socket.on('wb:update', async (payload: any, ack?: (res: any) => void) => {
+    const roomId = extractRoomId(payload);
+    const elements = payload?.elements;
+
+    if (!roomId || !user?.id || !Array.isArray(elements)) {
+      const err = { code: 'VALIDATION', message: 'Room ID and elements array required' };
+      socket.emit('error', err);
+      if (typeof ack === 'function') ack({ ok: false, error: err });
+      return;
+    }
+
+    try {
+      const room = await getRoomForUser(user.id, roomId);
+      const isHost = room.myRole === 'host';
+      const member = room.members?.find((m) => m.userId === user.id);
+      const canWhiteboard = isHost || Boolean(member?.permissions?.canWhiteboard);
+
+      if (!canWhiteboard) {
+        console.warn(`[Socket] wb:update dropped: user ${user.id} lacks can_whiteboard in room ${roomId}`);
+        const forbiddenErr = {
+          code: 'FORBIDDEN',
+          message: 'Whiteboard edit permission required. Ask the room host for access.',
+          event: 'wb:update',
+        };
+        // Server drops event and emits error { code: "FORBIDDEN" } back to sender ONLY
+        socket.emit('error', forbiddenErr);
+        if (typeof ack === 'function') ack({ ok: false, error: forbiddenErr });
+        return;
+      }
+
+      // Permitted: store elements and broadcast to room except sender
+      setWhiteboardElements(roomId, elements);
+      socket.to(roomId).to(`room:${roomId}`).emit('wb:update', {
+        roomId,
+        elements,
+        by: user.id,
+      });
+
+      if (typeof ack === 'function') {
+        ack({ ok: true });
+      }
+    } catch (err: any) {
+      console.warn(`[Socket] Error in wb:update for room ${roomId}:`, err);
+      const errPayload = { code: 'FORBIDDEN', message: err.message || 'Access denied', event: 'wb:update' };
+      socket.emit('error', errPayload);
+      if (typeof ack === 'function') ack({ ok: false, error: errPayload });
+    }
+  });
+
+  /**
+   * code:update — update shared code editor content (US-PERM-05 AC-3, FR-4.6, BR-5, api-contract §4.2)
+   * Acceptance Criteria:
+   * "A socket code:update event from a user who is not the current pen holder:
+   * server drops it with error { code: "NOT_PEN_HOLDER" }."
+   */
+  socket.on('code:update', async (payload: any, ack?: (res: any) => void) => {
+    const roomId = extractRoomId(payload);
+    const content = typeof payload?.content === 'string' ? payload.content : '';
+    const language = typeof payload?.language === 'string' ? payload.language : undefined;
+
+    if (!roomId || !user?.id) {
+      const err = { code: 'VALIDATION', message: 'Room ID required' };
+      socket.emit('error', err);
+      if (typeof ack === 'function') ack({ ok: false, error: err });
+      return;
+    }
+
+    try {
+      const room = await getRoomForUser(user.id, roomId);
+      const hostMember = room.members?.find((m) => m.memberRole === 'host');
+      const defaultHostId = hostMember?.userId || room.owner_id || (room.myRole === 'host' ? user.id : '');
+      const currentHolderId = getPenHolder(roomId, defaultHostId);
+
+      if (currentHolderId !== user.id) {
+        console.warn(`[Socket] code:update dropped: user ${user.id} is not pen holder (${currentHolderId}) in room ${roomId}`);
+        const notHolderErr = {
+          code: 'NOT_PEN_HOLDER',
+          message: 'Only the current pen holder can edit code',
+          event: 'code:update',
+        };
+        // Server drops it with error { code: "NOT_PEN_HOLDER" } to sender ONLY
+        socket.emit('error', notHolderErr);
+        if (typeof ack === 'function') ack({ ok: false, error: notHolderErr });
+        return;
+      }
+
+      // Permitted: update code state and broadcast to room except sender
+      const updatedState = updateCodeState(roomId, content, language as any, user.id);
+      socket.to(roomId).to(`room:${roomId}`).emit('code:state', {
+        roomId,
+        content: updatedState.content,
+        language: updatedState.language,
+        rev: updatedState.rev,
+        holderId: updatedState.holderId,
+      });
+
+      if (typeof ack === 'function') {
+        ack({ ok: true, data: { rev: updatedState.rev } });
+      }
+    } catch (err: any) {
+      console.warn(`[Socket] Error in code:update for room ${roomId}:`, err);
+      const errPayload = { code: 'FORBIDDEN', message: err.message || 'Access denied', event: 'code:update' };
+      socket.emit('error', errPayload);
+      if (typeof ack === 'function') ack({ ok: false, error: errPayload });
+    }
+  });
+
+  /**
+   * code:pen — assign code editor pen holder (US-PERM-05, architecture doc §5.5)
+   */
+  socket.on('code:pen', async (payload: any, ack?: (res: any) => void) => {
+    const roomId = extractRoomId(payload);
+    const targetHolderId = typeof payload?.holderId === 'string' ? payload.holderId.trim() : '';
+
+    if (!roomId || !user?.id || !targetHolderId) {
+      const err = { code: 'VALIDATION', message: 'Room ID and holderId required' };
+      socket.emit('error', err);
+      if (typeof ack === 'function') ack({ ok: false, error: err });
+      return;
+    }
+
+    try {
+      const room = await getRoomForUser(user.id, roomId);
+      const isHost = room.myRole === 'host';
+
+      if (!isHost) {
+        const err = { code: 'HOST_ONLY', message: 'Only the room host can assign the pen' };
+        socket.emit('error', err);
+        if (typeof ack === 'function') ack({ ok: false, error: err });
+        return;
+      }
+
+      const targetMember = room.members?.find((m) => m.userId === targetHolderId);
+      if (!targetMember) {
+        const err = { code: 'NOT_FOUND', message: 'Target member not found in room' };
+        socket.emit('error', err);
+        if (typeof ack === 'function') ack({ ok: false, error: err });
+        return;
+      }
+
+      const canCode = targetMember.memberRole === 'host' || Boolean(targetMember.permissions?.canCode);
+      if (!canCode) {
+        const err = { code: 'FORBIDDEN', message: 'Target member does not have code permission' };
+        socket.emit('error', err);
+        if (typeof ack === 'function') ack({ ok: false, error: err });
+        return;
+      }
+
+      setPenHolder(roomId, targetHolderId);
+
+      io.to(`room:${roomId}`).to(roomId).emit('code:pen', {
+        roomId,
+        holderId: targetHolderId,
+        by: user.id,
+      });
+
+      if (typeof ack === 'function') {
+        ack({ ok: true });
+      }
+    } catch (err: any) {
+      console.warn(`[Socket] Error in code:pen for room ${roomId}:`, err);
+      const errPayload = { code: 'INTERNAL_SERVER_ERROR', message: err.message || 'Failed to assign pen' };
+      socket.emit('error', errPayload);
+      if (typeof ack === 'function') ack({ ok: false, error: errPayload });
+    }
+  });
+
   socket.on('disconnect', async (reason) => {
+
     console.log(`[Socket] User disconnected: ${user?.fullName} (${user?.id}) - Reason: ${reason}`);
     await recordSocketDisconnect(socket.id);
 

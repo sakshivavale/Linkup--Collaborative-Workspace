@@ -4,6 +4,7 @@ export {
   getActiveSession,
   getSessionsForRoom,
   clearMockSessions,
+  setMockSession,
   getMockSessions,
   getMockAttendance,
   clearMockAttendance,
