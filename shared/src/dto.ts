@@ -93,6 +93,33 @@ export interface PresenceEntry {
   handRaised: boolean;
 }
 
+export interface GridParticipant {
+  id: string;
+  name: string;
+  isMuted: boolean;
+  cameraOff: boolean;
+  isSpeaking: boolean;
+  handRaised?: boolean;
+  stream?: unknown | null;
+}
+
+export function buildParticipantTiles(
+  presence: PresenceEntry[] | undefined,
+  activeSpeakerUserId: string | null = null
+): GridParticipant[] {
+  return (presence ?? [])
+    .filter((entry) => entry.inLive)
+    .map((entry) => ({
+      id: entry.userId,
+      name: entry.fullName,
+      isMuted: true,
+      cameraOff: true,
+      isSpeaking: activeSpeakerUserId !== null && entry.userId === activeSpeakerUserId,
+      handRaised: Boolean(entry.handRaised),
+      stream: null,
+    }));
+}
+
 export interface PresenceUpdatePayload {
   roomId: string;
   presence: PresenceEntry[];
@@ -165,6 +192,8 @@ export interface PermChangedPayload {
   userId: string;
   permissions: Permissions;
   by: string;
+  reason?: 'MUTE_ALL' | string;
+  isBulk?: boolean;
 }
 
 export interface CodeState {
@@ -211,4 +240,90 @@ export interface RoomSnapshot {
   screenShare?: ActiveScreenShare | null;
   code?: CodeState;
   board?: { elements: unknown[] };
+}
+
+/**
+ * US-PERM-03 & US-PERM-06: Descriptive user notification toast message for permission change (FR-4.4, FR-4.7)
+ * When reason is MUTE_ALL and canMic revoked, returns "Teacher muted everyone."
+ */
+export function getPermissionChangeMessage(key: PermissionKey, granted: boolean, reason?: string): string {
+  if (granted) {
+    switch (key) {
+      case 'canMic':
+        return 'You can now use your microphone.';
+      case 'canCamera':
+        return 'You can now use your camera.';
+      case 'canScreen':
+        return 'You can now share your screen.';
+      case 'canWhiteboard':
+        return 'You can now edit the whiteboard.';
+      case 'canCode':
+        return 'You can now edit code.';
+    }
+  } else {
+    if ((reason === 'MUTE_ALL' || reason === 'mute_all') && key === 'canMic') {
+      return 'Teacher muted everyone.';
+    }
+    switch (key) {
+      case 'canMic':
+        return 'Teacher turned off your microphone.';
+      case 'canCamera':
+        return 'Teacher turned off your camera.';
+      case 'canScreen':
+        return 'Teacher turned off your screen sharing.';
+      case 'canWhiteboard':
+        return 'Teacher turned off your whiteboard access.';
+      case 'canCode':
+        return 'Teacher turned off your code editor access.';
+    }
+  }
+}
+
+export interface PermissionDiff {
+  key: PermissionKey;
+  granted: boolean;
+  message: string;
+}
+
+/**
+ * US-PERM-03 & US-PERM-06: Computes diff between previous permissions and new permissions
+ */
+export function diffPermissions(
+  prev: Partial<Permissions> | null | undefined,
+  next: Permissions,
+  reason?: string
+): PermissionDiff[] {
+  if (!prev) return [];
+  const diffs: PermissionDiff[] = [];
+  for (const key of PERMISSION_KEYS) {
+    const prevVal = Boolean(prev[key]);
+    const nextVal = Boolean(next[key]);
+    if (prevVal !== nextVal) {
+      diffs.push({
+        key,
+        granted: nextVal,
+        message: getPermissionChangeMessage(key, nextVal, reason),
+      });
+    }
+  }
+  return diffs;
+}
+
+/**
+ * US-PERM-07: Hand raise payload emitted by participant (FR-4.8)
+ */
+export interface HandRaisePayload {
+  roomId?: string;
+  raised: boolean;
+  userId?: string;
+  asHost?: boolean;
+}
+
+/**
+ * US-PERM-07: Hand changed payload broadcast to all room members (FR-4.8)
+ */
+export interface HandChangedPayload {
+  roomId: string;
+  userId: string;
+  raised: boolean;
 }

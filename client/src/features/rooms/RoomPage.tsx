@@ -29,6 +29,8 @@ import { PeoplePanel } from './PeoplePanel';
 import { EditRoomModal } from '../dashboard/EditRoomModal';
 import { api, HttpError } from '../../lib/api';
 import { socket } from '../../lib/socket';
+import { useAuth } from '../../context/AuthContext';
+import { PermissionToastContainer } from './PermissionToast';
 
 // ─── Tab & sidebar definitions ───────────────────────────────────────────────
 type MainTab = 'live' | 'whiteboard' | 'code';
@@ -40,17 +42,19 @@ const MAIN_TABS: { key: MainTab; label: string; Icon: React.FC<{ className?: str
   { key: 'code',       label: 'Code',        Icon: Code2    },
 ];
 
-const SIDE_TABS: { key: SideTab; label: string; Icon: React.FC<{ className?: string }> }[] = [
+const getSideTabs = (isHost: boolean): { key: SideTab; label: string; Icon: React.FC<{ className?: string }> }[] => [
   { key: 'chat',   label: 'Chat',   Icon: MessageSquare },
-  { key: 'people', label: 'People', Icon: Users         },
+  { key: 'people', label: isHost ? 'Participants' : 'People', Icon: Users },
 ];
 
 // ─── RoomPage ─────────────────────────────────────────────────────────────────
 export const RoomPage: React.FC = () => {
   const { id: roomId } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   const { room, setRoom, loading, error } = useRoom(roomId);
+  const currentMember = room?.members?.find((m) => m.userId === user?.id);
 
   const [mainTab, setMainTab] = useState<MainTab>('live');
   const [sideTab, setSideTab] = useState<SideTab>('chat');
@@ -752,8 +756,18 @@ export const RoomPage: React.FC = () => {
               isReconnecting={isReconnecting}
             />
           </div>
-          {mainTab === 'whiteboard' && <WhiteboardTab roomId={roomId!} />}
-          {mainTab === 'code' && <CodeTab roomId={roomId!} />}
+          {mainTab === 'whiteboard' && (
+            <WhiteboardTab
+              roomId={roomId!}
+              canWhiteboard={room.myRole === 'host' || Boolean(currentMember?.permissions?.canWhiteboard ?? true)}
+            />
+          )}
+          {mainTab === 'code' && (
+            <CodeTab
+              roomId={roomId!}
+              canCode={room.myRole === 'host' || Boolean(currentMember?.permissions?.canCode ?? true)}
+            />
+          )}
         </main>
 
         {/* Sidebar */}
@@ -768,10 +782,11 @@ export const RoomPage: React.FC = () => {
               className="shrink-0 flex border-b border-slate-200/70 dark:border-slate-800/70"
               aria-label="Room sidebar tabs"
             >
-              {SIDE_TABS.map(({ key, label, Icon }) => (
+              {getSideTabs(room?.myRole === 'host').map(({ key, label, Icon }) => (
                 <button
                   key={key}
                   id={`room-sidebar-tab-${key}`}
+                  data-testid={`room-sidebar-tab-${key}`}
                   onClick={() => setSideTab(key)}
                   className={`flex-1 inline-flex items-center justify-center gap-1.5 py-3 text-xs font-semibold border-b-2 transition-all focus:outline-none ${
                     sideTab === key
@@ -820,6 +835,13 @@ export const RoomPage: React.FC = () => {
           }}
         />
       )}
+
+      {/* US-PERM-03: Real-time non-blocking permission change toast notification (FR-4.4) */}
+      <PermissionToastContainer
+        roomId={roomId}
+        currentUserId={user?.id}
+        initialPermissions={currentMember?.permissions || null}
+      />
     </div>
   );
 };

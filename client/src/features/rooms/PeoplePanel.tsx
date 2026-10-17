@@ -10,12 +10,49 @@ import {
   RefreshCw,
   Radio,
   ScreenShare,
+  Mic,
+  Video,
+  PenTool,
+  Code2,
+  Lock,
+  Hand,
+  MicOff,
 } from 'lucide-react';
-import { RoomSummary, PresenceEntry, Member } from '@linkup/shared';
+import { RoomSummary, PresenceEntry, Member, PermissionKey } from '@linkup/shared';
 import { useAuth } from '../../context/AuthContext';
 import { socket } from '../../lib/socket';
 import { api, HttpError } from '../../lib/api';
 import { useNavigate } from 'react-router-dom';
+
+const PERMISSION_CONFIG: {
+  key: PermissionKey;
+  label: string;
+  idKey: string;
+  Icon: React.FC<{ className?: string }>;
+}[] = [
+  { key: 'canMic', label: 'Mic', idKey: 'mic', Icon: Mic },
+  { key: 'canCamera', label: 'Camera', idKey: 'camera', Icon: Video },
+  { key: 'canScreen', label: 'Screen', idKey: 'screen', Icon: ScreenShare },
+  { key: 'canWhiteboard', label: 'Whiteboard', idKey: 'whiteboard', Icon: PenTool },
+  { key: 'canCode', label: 'Code', idKey: 'code', Icon: Code2 },
+];
+
+export const getPermissionToggleId = (idKey: string, memberId: string) => {
+  switch (idKey) {
+    case 'mic':
+      return `toggle-perm-mic-${memberId}`;
+    case 'camera':
+      return `toggle-perm-camera-${memberId}`;
+    case 'screen':
+      return `toggle-perm-screen-${memberId}`;
+    case 'whiteboard':
+      return `toggle-perm-whiteboard-${memberId}`;
+    case 'code':
+      return `toggle-perm-code-${memberId}`;
+    default:
+      return `toggle-perm-${idKey}-${memberId}`;
+  }
+};
 
 interface PeoplePanelProps {
   room: RoomSummary;
@@ -46,6 +83,10 @@ export const PeoplePanel: React.FC<PeoplePanelProps> = ({
   const [copiedCode, setCopiedCode] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [regenerated, setRegenerated] = useState(false);
+
+  // US-PERM-06: Mute All state (host only)
+  const [isMutingAll, setIsMutingAll] = useState(false);
+  const [muteAllSuccess, setMuteAllSuccess] = useState(false);
 
   // US-ROOM-02: Real-time presence state
   const [presenceList, setPresenceList] = useState<PresenceEntry[]>(() => room.presence || []);
@@ -220,50 +261,156 @@ export const PeoplePanel: React.FC<PeoplePanelProps> = ({
       setMembers((prev) => [...prev]);
     };
 
+    // US-PERM-07 AC-2: Listen for real-time hand:changed events
+    const onHandChanged = (data: { roomId: string; userId: string; raised: boolean }) => {
+      if (data.roomId !== room.id) return;
+      setPresenceList((current) => {
+        const found = current.some((p) => p.userId === data.userId);
+        if (found) {
+          return current.map((p) =>
+            p.userId === data.userId ? { ...p, handRaised: data.raised } : p
+          );
+        }
+        const memberObj = members.find((m) => m.userId === data.userId);
+        return [
+          ...current,
+          {
+            userId: data.userId,
+            fullName: memberObj?.name || 'Participant',
+            inLive: false,
+            handRaised: data.raised,
+          },
+        ];
+      });
+    };
+
+    // US-PERM-06: Listen to bulk permission updates
+    const onPermBulk = (data: { roomId: string; patch: Partial<Permissions>; members?: Member[] }) => {
+      if (data.roomId !== room.id) return;
+      if (room.members && data.patch) {
+        room.members.forEach((m) => {
+          if (m.memberRole !== 'host') {
+            m.permissions = {
+              ...m.permissions,
+              ...data.patch,
+            };
+          }
+        });
+      }
+      setMembers((prev) => [...prev]);
+    };
+
     socket.on('presence:update', onPresenceUpdate);
+    socket.on('hand:changed', onHandChanged);
     socket.on('member:joined', onMemberJoined);
     socket.on('member:removed', onMemberRemoved);
     socket.on('room:kicked', onRoomKicked);
     socket.on('perm:changed', onPermChanged);
+    socket.on('perm:bulk', onPermBulk);
 
     return () => {
       socket.off('presence:update', onPresenceUpdate);
+      socket.off('hand:changed', onHandChanged);
       socket.off('member:joined', onMemberJoined);
       socket.off('member:removed', onMemberRemoved);
       socket.off('room:kicked', onRoomKicked);
       socket.off('perm:changed', onPermChanged);
+      socket.off('perm:bulk', onPermBulk);
     };
-  }, [currentUserId, navigate, room.id, room.members]);
+  }, [currentUserId, members, navigate, room.id, room.members]);
 
-  const handleToggleScreenPermission = async (member: PanelMember) => {
-    if (!member.userId || member.userId === currentUserId) return;
+  const handleTogglePermission = async (member: PanelMember, permKey: PermissionKey) => {
+    if (!member.userId || member.memberRole === 'host' || room.myRole !== 'host') return;
     const currentMemberRecord = room.members?.find((m) => m.userId === member.userId);
-    const currentCanScreen = Boolean(currentMemberRecord?.permissions?.canScreen);
-    const nextCanScreen = !currentCanScreen;
+    const currentVal = Boolean(currentMemberRecord?.permissions?.[permKey] ?? (permKey !== 'canScreen'));
+    const nextVal = !currentVal;
+
+    // Optimistic update
+    if (currentMemberRecord) {
+      if (!currentMemberRecord.permissions) {
+        currentMemberRecord.permissions = {
+          canMic: true,
+          canCamera: true,
+          canScreen: false,
+          canWhiteboard: true,
+          canCode: true,
+          [permKey]: nextVal,
+        };
+      } else {
+        currentMemberRecord.permissions[permKey] = nextVal;
+      }
+      setMembers((prev) => [...prev]);
+    }
 
     try {
       await api.patch(`/api/rooms/${room.id}/members/${member.userId}/permissions`, {
-        canScreen: nextCanScreen,
+        [permKey]: nextVal,
       });
-
-      if (currentMemberRecord) {
-        if (!currentMemberRecord.permissions) {
-          currentMemberRecord.permissions = {
-            canMic: true,
-            canCamera: true,
-            canScreen: nextCanScreen,
-            canWhiteboard: true,
-            canCode: true,
-          };
-        } else {
-          currentMemberRecord.permissions.canScreen = nextCanScreen;
-        }
-      }
-      setMembers((prev) => [...prev]);
     } catch (err: any) {
-      console.error('[PeoplePanel] Failed to update permissions:', err);
+      console.error('[PeoplePanel] Failed to update permission:', err);
+      // Rollback
+      if (currentMemberRecord?.permissions) {
+        currentMemberRecord.permissions[permKey] = currentVal;
+        setMembers((prev) => [...prev]);
+      }
       window.alert(err?.message || 'Failed to update permission');
     }
+  };
+
+  // US-PERM-07 AC-3: Host "Grant Mic" button grants can_mic = true and lowers the hand (FR-4.8)
+  const handleGrantMic = async (member: PanelMember) => {
+    if (!member.userId || member.memberRole === 'host' || room.myRole !== 'host') return;
+
+    // Optimistically update permissions in room.members and members state
+    const currentMemberRecord = room.members?.find((m) => m.userId === member.userId);
+    if (currentMemberRecord) {
+      if (!currentMemberRecord.permissions) {
+        currentMemberRecord.permissions = {
+          canMic: true,
+          canCamera: true,
+          canScreen: false,
+          canWhiteboard: true,
+          canCode: true,
+        };
+      } else {
+        currentMemberRecord.permissions.canMic = true;
+      }
+      setMembers((prev) => [...prev]);
+    }
+
+    // Optimistically lower the hand in presenceList
+    setPresenceList((current) =>
+      current.map((p) => (p.userId === member.userId ? { ...p, handRaised: false } : p))
+    );
+
+    try {
+      // 1. PATCH member permissions with canMic: true
+      await api.patch(`/api/rooms/${room.id}/members/${member.userId}/permissions`, {
+        canMic: true,
+      });
+
+      // 2. Emit socket hand:raise as host to ensure instant synchronization
+      socket.emit('hand:raise', {
+        roomId: room.id,
+        userId: member.userId,
+        raised: false,
+        asHost: true,
+      });
+    } catch (err: any) {
+      console.error('[PeoplePanel] Failed to grant mic:', err);
+      window.alert(err?.message || 'Failed to grant microphone');
+    }
+  };
+
+  // US-PERM-07 AC-4: Student can lower their own hand at any time
+  const handleLowerSelfHand = () => {
+    socket.emit('hand:raise', {
+      roomId: room.id,
+      raised: false,
+    });
+    setPresenceList((current) =>
+      current.map((p) => (p.userId === currentUserId ? { ...p, handRaised: false } : p))
+    );
   };
 
   // Lookup map for fast presence checks (<1ms)
@@ -292,6 +439,45 @@ export const PeoplePanel: React.FC<PeoplePanelProps> = ({
     }
   };
 
+  // US-PERM-06: Bulk Mute All action (host only, FR-4.7)
+  const handleMuteAll = async () => {
+    if (room.myRole !== 'host' || isMutingAll) return;
+    setIsMutingAll(true);
+
+    // Optimistically update all participants (not host) in local state
+    if (room.members) {
+      room.members.forEach((m) => {
+        if (m.memberRole !== 'host' && m.userId !== currentUserId) {
+          if (m.permissions) {
+            m.permissions.canMic = false;
+          } else {
+            m.permissions = {
+              canMic: false,
+              canCamera: true,
+              canScreen: false,
+              canWhiteboard: true,
+              canCode: true,
+            };
+          }
+        }
+      });
+    }
+    setMembers((prev) => [...prev]);
+
+    try {
+      await api.post(`/api/rooms/${room.id}/permissions/bulk`, {
+        canMic: false,
+      });
+      setMuteAllSuccess(true);
+      setTimeout(() => setMuteAllSuccess(false), 2000);
+    } catch (err: any) {
+      console.error('[PeoplePanel] Failed to mute all participants:', err);
+      window.alert(err?.message || 'Failed to mute all participants');
+    } finally {
+      setIsMutingAll(false);
+    }
+  };
+
   const extraCount = Math.max(0, room.memberCount - members.length);
 
   const getInitials = (name: string) => {
@@ -305,13 +491,36 @@ export const PeoplePanel: React.FC<PeoplePanelProps> = ({
     <div className="flex flex-col h-full">
       <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-200/70 dark:border-slate-800/70 shrink-0">
         <Users className="w-4 h-4 text-indigo-500" />
-        <span className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide">
-          People
+        <span
+          id="people-panel-title"
+          data-testid="people-panel-title"
+          className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide"
+        >
+          {room.myRole === 'host' ? 'Participants' : 'People'}
         </span>
         <span className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-500/20 text-indigo-700 dark:text-indigo-300">
           {members.length > 0 ? members.length : room.memberCount}
         </span>
       </div>
+
+      {/* US-PERM-06: Mute All Button for Host (P1, FR-4.7) */}
+      {room.myRole === 'host' && (
+        <div className="mx-3 mt-3 shrink-0">
+          <button
+            id="mute-all-btn"
+            data-testid="mute-all-btn"
+            type="button"
+            onClick={handleMuteAll}
+            disabled={isMutingAll}
+            className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/50 border border-rose-200/80 dark:border-rose-800/60 text-xs font-bold text-rose-700 dark:text-rose-300 transition-all shadow-xs cursor-pointer active:scale-95 disabled:opacity-50"
+            title="Mute all participants at once"
+            aria-label="Mute All"
+          >
+            <MicOff className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
+            <span>{isMutingAll ? 'Muting everyone...' : muteAllSuccess ? 'Everyone Muted!' : 'Mute All'}</span>
+          </button>
+        </div>
+      )}
 
       {/* US-ROOM-04: Host room join code card with Copy & Regenerate options */}
       {room.myRole === 'host' && (joinCode || room.joinCode) && (
@@ -371,135 +580,215 @@ export const PeoplePanel: React.FC<PeoplePanelProps> = ({
             ? (socket.connected || Boolean(presenceEntry))
             : Boolean(presenceEntry);
           const isInCall = Boolean(presenceEntry?.inLive);
+          const isHandRaised = Boolean(presenceEntry?.handRaised);
           const memberRecord = room.members?.find((m) => m.userId === member.userId);
-          const hasScreenPerm = member.memberRole === 'host' || Boolean(memberRecord?.permissions?.canScreen);
+          const isHostViewer = room.myRole === 'host';
+          const isHostMember = member.memberRole === 'host';
+          const memberId = member.userId || member.id;
 
           return (
             <div
               key={member.id}
-              id={`member-row-${member.userId || member.id}`}
-              data-testid={`member-row-${member.userId || member.id}`}
-              className="flex items-center gap-3 px-2 py-2 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors"
+              id={`member-row-${memberId}`}
+              data-testid={`member-row-${memberId}`}
+              className="flex flex-col gap-1.5 p-2 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors border border-slate-100/80 dark:border-slate-800/60 bg-white/50 dark:bg-slate-900/30"
             >
-              {/* Avatar with Online/Offline indicator dot (US-ROOM-02 AC-1, AC-2) */}
-              <div className="relative shrink-0">
-                <div
-                  className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-sm ${
-                    member.memberRole === 'host'
-                      ? 'bg-gradient-to-tr from-indigo-600 to-indigo-500'
-                      : 'bg-gradient-to-tr from-emerald-600 to-teal-500'
-                  }`}
-                >
-                  {getInitials(member.name)}
-                </div>
-                <span
-                  id={`member-presence-${member.userId || member.id}`}
-                  data-testid={`member-presence-${member.userId || member.id}`}
-                  data-status={isOnline ? 'online' : 'offline'}
-                  title={isOnline ? 'Online' : 'Offline'}
-                  className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white dark:border-slate-950 transition-colors duration-200 ${
-                    isOnline
-                      ? 'bg-emerald-500 shadow-sm'
-                      : 'bg-slate-300 dark:bg-slate-600'
-                  }`}
-                />
-              </div>
-
-              {/* Name and role badges */}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <span
-                    id={`member-name-${member.userId || member.id}`}
-                    data-testid={`member-name-${member.userId || member.id}`}
-                    className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate"
-                  >
-                    {member.name}
-                  </span>
-                  {member.isSelf && (
-                    <span className="text-[10px] text-slate-400 font-normal shrink-0">(you)</span>
-                  )}
-                </div>
-
-                <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                  {/* US-ROOM-02 AC-1: Role badge (Teacher / Student) */}
-                  {member.role === 'teacher' ? (
-                    <span
-                      id={`member-role-${member.userId || member.id}`}
-                      data-testid={`member-role-${member.userId || member.id}`}
-                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/70 dark:border-indigo-800/80"
-                    >
-                      <GraduationCap className="w-3 h-3 text-indigo-500 shrink-0" />
-                      <span>Teacher</span>
-                    </span>
-                  ) : (
-                    <span
-                      id={`member-role-${member.userId || member.id}`}
-                      data-testid={`member-role-${member.userId || member.id}`}
-                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200/70 dark:border-emerald-800/80"
-                    >
-                      <BookOpen className="w-3 h-3 text-emerald-500 shrink-0" />
-                      <span>Student</span>
-                    </span>
-                  )}
-
-                  {/* Host badge */}
-                  {member.memberRole === 'host' && (
-                    <span
-                      id={`member-host-${member.userId || member.id}`}
-                      data-testid={`member-host-${member.userId || member.id}`}
-                      className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border border-amber-200/60 dark:border-amber-800/60"
-                    >
-                      Host
-                    </span>
-                  )}
-
-                  {/* US-ROOM-02 AC-3: "In call" indicator */}
-                  {isInCall && (
-                    <span
-                      id={`member-in-call-${member.userId || member.id}`}
-                      data-testid={`member-in-call-${member.userId || member.id}`}
-                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 border border-rose-200/80 dark:border-rose-900/60 animate-pulse"
-                      title="Currently in live call"
-                    >
-                      <Radio className="w-2.5 h-2.5 text-rose-500 animate-pulse shrink-0" />
-                      <span>In call</span>
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              {/* Host actions: permission toggle & remove member (US-ROOM-03, US-LIVE-04) */}
-              {room.myRole === 'host' && !member.isSelf && member.memberRole !== 'host' && (
-                <div className="flex items-center gap-1.5 shrink-0">
-                  {/* Screen share permission toggle */}
-                  <button
-                    id={`toggle-screen-perm-${member.userId || member.id}`}
-                    data-testid={`toggle-screen-perm-${member.userId || member.id}`}
-                    type="button"
-                    onClick={() => handleToggleScreenPermission(member)}
-                    title={
-                      hasScreenPerm
-                        ? 'Screen share allowed (click to revoke)'
-                        : 'Screen share disabled (click to grant)'
-                    }
-                    className={`p-1.5 rounded-lg border text-xs transition-all flex items-center gap-1 ${
-                      hasScreenPerm
-                        ? 'bg-indigo-50 border-indigo-200 text-indigo-600 dark:bg-indigo-950/60 dark:border-indigo-800 dark:text-indigo-300'
-                        : 'bg-slate-100 border-slate-200 text-slate-400 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-500 hover:text-slate-600'
+              {/* Member header row */}
+              <div className="flex items-center gap-2.5">
+                {/* Avatar with Online/Offline indicator dot (US-ROOM-02 AC-1, AC-2, US-PERM-01 AC-1) */}
+                <div className="relative shrink-0">
+                  <div
+                    className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-sm ${
+                      isHostMember
+                        ? 'bg-gradient-to-tr from-indigo-600 to-indigo-500'
+                        : 'bg-gradient-to-tr from-emerald-600 to-teal-500'
                     }`}
                   >
-                    <ScreenShare className="w-3.5 h-3.5" />
-                  </button>
+                    {getInitials(member.name)}
+                  </div>
+                  <span
+                    id={`member-presence-${memberId}`}
+                    data-testid={`member-presence-${memberId}`}
+                    data-status={isOnline ? 'online' : 'offline'}
+                    title={isOnline ? 'Online' : 'Offline'}
+                    className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white dark:border-slate-950 transition-colors duration-200 ${
+                      isOnline
+                        ? 'bg-emerald-500 shadow-sm'
+                        : 'bg-slate-300 dark:bg-slate-600'
+                    }`}
+                  />
+                </div>
 
+                {/* Name and role badges */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span
+                      id={`member-name-${memberId}`}
+                      data-testid={`member-name-${memberId}`}
+                      className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate"
+                    >
+                      {member.name}
+                    </span>
+                    {member.isSelf && (
+                      <span className="text-[10px] text-slate-400 font-normal shrink-0">(you)</span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                    {/* Role badge (Teacher / Student) */}
+                    {member.role === 'teacher' ? (
+                      <span
+                        id={`member-role-${memberId}`}
+                        data-testid={`member-role-${memberId}`}
+                        className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/70 dark:border-indigo-800/80"
+                      >
+                        <GraduationCap className="w-3 h-3 text-indigo-500 shrink-0" />
+                        <span>Teacher</span>
+                      </span>
+                    ) : (
+                      <span
+                        id={`member-role-${memberId}`}
+                        data-testid={`member-role-${memberId}`}
+                        className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] font-semibold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200/70 dark:border-emerald-800/80"
+                      >
+                        <BookOpen className="w-3 h-3 text-emerald-500 shrink-0" />
+                        <span>Student</span>
+                      </span>
+                    )}
+
+                    {/* Host badge */}
+                    {isHostMember && (
+                      <span
+                        id={`member-host-${memberId}`}
+                        data-testid={`member-host-${memberId}`}
+                        className="inline-flex items-center px-1.5 py-0.2 rounded text-[9px] font-bold uppercase tracking-wider bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border border-amber-200/60 dark:border-amber-800/60"
+                      >
+                        Host
+                      </span>
+                    )}
+
+                    {/* "In call" indicator */}
+                    {isInCall && (
+                      <span
+                        id={`member-in-call-${memberId}`}
+                        data-testid={`member-in-call-${memberId}`}
+                        className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] font-bold bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 border border-rose-200/80 dark:border-rose-900/60 animate-pulse"
+                        title="Currently in live call"
+                      >
+                        <Radio className="w-2.5 h-2.5 text-rose-500 animate-pulse shrink-0" />
+                        <span>In call</span>
+                      </span>
+                    )}
+
+                    {/* US-PERM-07 AC-2: Hand raised icon badge indicator (FR-4.8) */}
+                    {isHandRaised && (
+                      <span
+                        id={`member-hand-icon-${memberId}`}
+                        data-testid={`member-hand-icon-${memberId}`}
+                        className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] font-bold bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700/80 animate-pulse"
+                        title="Hand is raised"
+                      >
+                        <Hand className="w-3 h-3 text-amber-600 dark:text-amber-400 shrink-0" />
+                        <span>✋ Hand raised</span>
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* US-PERM-07 AC-3: Host "Grant Mic" button next to hand icon */}
+                {isHostViewer && isHandRaised && !isHostMember && (
+                  <button
+                    id={`member-grant-mic-btn-${memberId}`}
+                    data-testid={`member-grant-mic-btn-${memberId}`}
+                    type="button"
+                    onClick={() => handleGrantMic(member)}
+                    className="inline-flex items-center gap-1 rounded-lg border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 dark:border-emerald-700 dark:bg-emerald-950/50 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 px-2 py-1 text-[10px] font-bold transition-all shadow-xs cursor-pointer active:scale-95 shrink-0"
+                    title="Grant microphone and lower hand"
+                    aria-label={`Grant mic to ${member.name}`}
+                  >
+                    <Mic className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                    <span>Grant Mic</span>
+                  </button>
+                )}
+
+                {/* US-PERM-07 AC-4: Student can lower their own hand at any time */}
+                {member.isSelf && isHandRaised && (
+                  <button
+                    id={`member-lower-hand-btn-${memberId}`}
+                    data-testid={`member-lower-hand-btn-${memberId}`}
+                    type="button"
+                    onClick={handleLowerSelfHand}
+                    className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-slate-50 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 px-2 py-1 text-[10px] font-semibold transition-all shadow-xs cursor-pointer active:scale-95 shrink-0"
+                    title="Lower your hand"
+                    aria-label="Lower your hand"
+                  >
+                    <Hand className="w-3 h-3 text-slate-500" />
+                    <span>Lower Hand</span>
+                  </button>
+                )}
+
+                {/* Host actions: remove member (US-ROOM-03) */}
+                {isHostViewer && !member.isSelf && !isHostMember && (
                   <button
                     type="button"
                     onClick={() => handleRemoveMember(member)}
-                    className="inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-semibold text-rose-700 hover:bg-rose-100 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300 shrink-0"
+                    className="inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-semibold text-rose-700 hover:bg-rose-100 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300 shrink-0 transition-colors"
                     aria-label={`Remove ${member.name} from room`}
                   >
                     <UserMinus className="w-3 h-3" />
-                    Remove
+                    <span>Remove</span>
                   </button>
+                )}
+              </div>
+
+              {/* US-PERM-01 AC-1, AC-2: 5 Permission Toggles per person for Host view (Mic, Camera, Screen, Whiteboard, Code) */}
+              {isHostViewer && (
+                <div
+                  id={`member-permissions-${memberId}`}
+                  data-testid={`member-permissions-${memberId}`}
+                  className="mt-1 pt-1.5 border-t border-slate-100 dark:border-slate-800/60 flex items-center justify-between gap-1"
+                >
+                  <div className="flex items-center gap-1 w-full justify-between">
+                    {PERMISSION_CONFIG.map(({ key, label, idKey, Icon }) => {
+                      // Host's own row shows all toggles permanently enabled and locked (AC-2)
+                      const isEnabled = isHostMember
+                        ? true
+                        : Boolean(memberRecord?.permissions?.[key] ?? (key !== 'canScreen'));
+                      const isLocked = isHostMember;
+
+                      return (
+                        <button
+                          key={key}
+                          id={`toggle-perm-${idKey}-${memberId}`}
+                          data-testid={`toggle-perm-${idKey}-${memberId}`}
+                          data-permission={key}
+                          data-enabled={isEnabled}
+                          data-locked={isLocked}
+                          type="button"
+                          disabled={isLocked}
+                          onClick={() => !isLocked && handleTogglePermission(member, key)}
+                          title={
+                            isLocked
+                              ? 'Host permissions are permanently enabled and locked'
+                              : `${label}: ${isEnabled ? 'Allowed (click to revoke)' : 'Disabled (click to grant)'}`
+                          }
+                          className={`flex-1 inline-flex items-center justify-center gap-1 px-1 py-1 rounded-md text-[10px] font-semibold transition-all select-none ${
+                            isLocked
+                              ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200/60 dark:border-amber-800/60 cursor-not-allowed opacity-90'
+                              : isEnabled
+                              ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-300 border border-indigo-200/70 dark:border-indigo-800/70 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 active:scale-95 shadow-xs'
+                              : 'bg-slate-100 dark:bg-slate-800/70 text-slate-400 dark:text-slate-500 border border-slate-200 dark:border-slate-700 hover:text-slate-600 dark:hover:text-slate-300'
+                          }`}
+                          aria-label={`${label} permission for ${member.name}`}
+                          aria-pressed={isEnabled}
+                        >
+                          <Icon className="w-3 h-3 shrink-0" />
+                          <span className="hidden sm:inline text-[9px]">{label}</span>
+                          {isLocked && <Lock className="w-2 h-2 ml-0.5 text-amber-600 dark:text-amber-400 shrink-0" />}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
             </div>

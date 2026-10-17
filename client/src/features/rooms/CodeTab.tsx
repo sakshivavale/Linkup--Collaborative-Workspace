@@ -3,6 +3,7 @@ import { Code2, Play, ChevronDown } from 'lucide-react';
 
 interface CodeTabProps {
   roomId: string;
+  canCode?: boolean;
 }
 
 const LANGUAGES = ['Python', 'JavaScript', 'C++', 'Java'] as const;
@@ -12,7 +13,7 @@ type Lang = typeof LANGUAGES[number];
  * CodeTab — collaborative code editor placeholder.
  * Monaco editor + Piston execution will be integrated in a future story.
  */
-export const CodeTab: React.FC<CodeTabProps> = () => {
+export const CodeTab: React.FC<CodeTabProps> = ({ canCode = true }) => {
   const [lang, setLang] = React.useState<Lang>('Python');
   const [code, setCode] = React.useState(
     lang === 'Python'
@@ -23,6 +24,7 @@ export const CodeTab: React.FC<CodeTabProps> = () => {
   const [running, setRunning] = React.useState(false);
 
   const handleRun = async () => {
+    if (!canCode) return;
     setRunning(true);
     setOutput(null);
     // Placeholder — real execution via Piston API in future story
@@ -40,13 +42,24 @@ export const CodeTab: React.FC<CodeTabProps> = () => {
           <span>Code Editor</span>
         </div>
 
+        {!canCode && (
+          <span
+            id="code-disabled-badge"
+            data-testid="code-disabled-badge"
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 text-[11px] font-semibold"
+          >
+            Teacher turned off code editor access
+          </span>
+        )}
+
         {/* Language selector */}
         <div className="relative">
           <select
             id="room-code-language"
             value={lang}
+            disabled={!canCode}
             onChange={e => setLang(e.target.value as Lang)}
-            className="appearance-none pl-3 pr-8 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+            className="appearance-none pl-3 pr-8 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {LANGUAGES.map(l => <option key={l}>{l}</option>)}
           </select>
@@ -58,7 +71,7 @@ export const CodeTab: React.FC<CodeTabProps> = () => {
         <button
           id="room-code-run"
           onClick={handleRun}
-          disabled={running}
+          disabled={running || !canCode}
           className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
         >
           <Play className="w-3.5 h-3.5" />
@@ -71,10 +84,13 @@ export const CodeTab: React.FC<CodeTabProps> = () => {
         <textarea
           id="room-code-editor"
           value={code}
-          onChange={e => setCode(e.target.value)}
+          onChange={e => (!canCode ? null : setCode(e.target.value))}
+          readOnly={!canCode}
           spellCheck={false}
-          className="flex-1 w-full resize-none rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-950 text-emerald-300 font-mono text-sm p-4 leading-relaxed focus:outline-none focus:ring-2 focus:ring-indigo-500 min-h-[240px] shadow-inner"
-          placeholder="// Start coding..."
+          className={`flex-1 w-full resize-none rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-950 font-mono text-sm p-4 leading-relaxed focus:outline-none focus:ring-2 focus:ring-indigo-500 min-h-[240px] shadow-inner ${
+            !canCode ? 'text-slate-500 cursor-not-allowed opacity-75' : 'text-emerald-300'
+          }`}
+          placeholder={!canCode ? '// Code editing turned off by teacher' : '// Start coding...'}
         />
 
         {/* Output panel */}

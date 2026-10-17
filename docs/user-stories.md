@@ -427,9 +427,9 @@
 > As a **host**, I want to see all participants in a panel with 5 permission toggles per person so that I can manage access for each student.
 
 **Acceptance Criteria:**
-- [ ] The Participants tab in the host view shows a row per participant: name, online dot, and 5 toggles (Mic, Camera, Screen, Whiteboard, Code).
-- [ ] The host's own row shows all toggles permanently enabled and locked (cannot be changed).
-- [ ] Students see the People tab but do not see the toggles.
+- [x] The Participants tab in the host view shows a row per participant: name, online dot, and 5 toggles (Mic, Camera, Screen, Whiteboard, Code).
+- [x] The host's own row shows all toggles permanently enabled and locked (cannot be changed).
+- [x] Students see the People tab but do not see the toggles.
 
 ---
 
@@ -452,9 +452,9 @@
 > As a **student**, I want to receive a clear toast notification when the teacher changes one of my permissions so that I know why a control has been enabled or disabled.
 
 **Acceptance Criteria:**
-- [ ] When a permission is revoked, the student sees a toast like: *"Teacher turned off your microphone."*
-- [ ] When a permission is granted, the student sees: *"You can now edit the whiteboard."*
-- [ ] Toasts are non-blocking and auto-dismiss after 4 seconds.
+- [x] When a permission is revoked, the student sees a toast like: *"Teacher turned off your microphone."*
+- [x] When a permission is granted, the student sees: *"You can now edit the whiteboard."*
+- [x] Toasts are non-blocking and auto-dismiss after 4 seconds.
 
 ---
 
@@ -502,10 +502,10 @@
 > As a **student**, I want to raise my hand so that the teacher knows I want to speak; and as the **host**, I want to see raised hands and grant the mic in one click.
 
 **Acceptance Criteria:**
-- [ ] A hand-raise button is available in the call control bar for all participants.
-- [ ] Raising a hand emits `hand:raise { raised: true }` and all room members receive `hand:changed`; a hand icon appears on the student's participant row.
-- [ ] The host can click a **"Grant Mic"** button next to the hand icon; this grants `can_mic = true` and lowers the hand.
-- [ ] The student can lower their own hand at any time.
+- [x] A hand-raise button is available in the call control bar for all participants.
+- [x] Raising a hand emits `hand:raise { raised: true }` and all room members receive `hand:changed`; a hand icon appears on the student's participant row.
+- [x] The host can click a **"Grant Mic"** button next to the hand icon; this grants `can_mic = true` and lowers the hand.
+- [x] The student can lower their own hand at any time.
 
 ---
 

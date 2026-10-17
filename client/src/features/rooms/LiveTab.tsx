@@ -11,10 +11,11 @@ import {
   Sliders,
   ChevronDown,
   Sparkles,
+  Hand,
 } from 'lucide-react';
 import { socket } from '../../lib/socket';
 import VideoGrid from './VideoGrid';
-import { Participant } from './ParticipantTile';
+import { mapParticipantsFromPresence, Participant } from './participantUtils';
 import { useRoom } from './useRoom';
 import { useAuth } from '../../context/AuthContext';
 import { ActiveScreenShare, Permissions } from '@linkup/shared';
@@ -85,6 +86,27 @@ export const LiveTab: React.FC<LiveTabProps> = ({
     () => currentMember?.permissions || null
   );
 
+  const [activeSpeakerId, setActiveSpeakerId] = useState<string | null>(null);
+  const [participants, setParticipants] = useState<Participant[]>(() =>
+    mapParticipantsFromPresence(room?.presence, activeSpeakerId)
+  );
+
+  // US-PERM-07: Track whether current user has hand raised (FR-4.8)
+  const [isHandRaised, setIsHandRaised] = useState<boolean>(() => {
+    const selfPresence = room?.presence?.find((p) => p.userId === user?.id);
+    return Boolean(selfPresence?.handRaised);
+  });
+
+  // Sync handRaised status when room loads or presence updates
+  useEffect(() => {
+    if (room?.presence && user?.id) {
+      const selfPresence = room.presence.find((p) => p.userId === user.id);
+      if (selfPresence) {
+        setIsHandRaised(Boolean(selfPresence.handRaised));
+      }
+    }
+  }, [room?.presence, user?.id]);
+
   // Sync internal inCall if controlled prop changes
   useEffect(() => {
     if (controlledInCall !== undefined) {
@@ -152,22 +174,6 @@ export const LiveTab: React.FC<LiveTabProps> = ({
       active = false;
     };
   }, [camOn, inCall, mediaDevices.selectedVideoInput]);
-
-  // participants shown in grid are derived from room.presence (inLive === true)
-  const [participants, setParticipants] = useState<Participant[]>(() => {
-    const p =
-      room?.presence
-        ?.filter((x) => x.inLive)
-        .map((entry) => ({
-          id: entry.userId,
-          name: entry.fullName,
-          isMuted: false,
-          cameraOff: true,
-          isSpeaking: false,
-          stream: null,
-        })) ?? [];
-    return p;
-  });
 
   // US-LIVE-04 Acceptance Criteria 1:
   // can_screen = true (or user is host)
@@ -261,30 +267,37 @@ export const LiveTab: React.FC<LiveTabProps> = ({
   // Real-time presence, active speaker, and screen share socket listeners
   useEffect(() => {
     const mapPresenceToParticipants = () => {
-      const p =
-        room?.presence
-          ?.filter((x) => x.inLive)
-          .map((entry) => ({
-            id: entry.userId,
-            name: entry.fullName,
-            isMuted: false,
-            cameraOff: true,
-            isSpeaking: false,
-            stream: null,
-          })) ?? [];
-      setParticipants(p);
+      setParticipants(mapParticipantsFromPresence(room?.presence, activeSpeakerId));
     };
 
     mapPresenceToParticipants();
 
     const onPresenceUpdate = (data: { roomId: string; presence: any[] }) => {
       if (data.roomId !== roomId) return;
-      mapPresenceToParticipants();
+      if (Array.isArray(data.presence) && user?.id) {
+        const self = data.presence.find((p: any) => p.userId === user.id);
+        if (self) {
+          setIsHandRaised(Boolean(self.handRaised));
+        }
+      }
+      setParticipants(mapParticipantsFromPresence(data.presence, activeSpeakerId));
+    };
+
+    // US-PERM-07: Real-time hand:changed listener (FR-4.8)
+    const onHandChanged = (data: { roomId: string; userId: string; raised: boolean }) => {
+      if (data.roomId !== roomId) return;
+      if (data.userId === user?.id) {
+        setIsHandRaised(data.raised);
+      }
+      setParticipants((prev) =>
+        prev.map((p) => (p.id === data.userId ? { ...p, handRaised: data.raised } : p))
+      );
     };
 
     const onActiveSpeaker = (data: { roomId: string; userId: string | null }) => {
       if (data.roomId !== roomId) return;
-      setParticipants((prev) => prev.map((p) => ({ ...p, isSpeaking: p.id === data.userId })));
+      setActiveSpeakerId(data.userId ?? null);
+      setParticipants(mapParticipantsFromPresence(room?.presence, data.userId ?? null));
     };
 
     const onScreenStarted = (data: { roomId: string; screenShare: ActiveScreenShare }) => {
@@ -301,35 +314,86 @@ export const LiveTab: React.FC<LiveTabProps> = ({
       }
     };
 
-    // US-LIVE-04 Acceptance Criteria 4:
-    // If can_screen is revoked while sharing, the share stops immediately for all viewers
-    const onPermChanged = (data: { roomId: string; userId: string; permissions: Permissions }) => {
+    // US-LIVE-04 Acceptance Criteria 4 & US-PERM-06 Acceptance Criteria 4:
+    // If can_screen revoked, stops screen share; if can_mic revoked, stops audio publishing within 1 second
+    const onPermChanged = (data: { roomId: string; userId: string; permissions: Permissions; reason?: string }) => {
       if (data.roomId !== roomId) return;
       if (data.userId === user?.id) {
         setMyPermissions(data.permissions);
-        if (data.permissions.canScreen === false && !isHost) {
-          if (activeScreenShare?.userId === user?.id) {
-            handleStopScreenShare();
-            socket.emit('screen:stop', { roomId });
+        if (!isHost) {
+          if (data.permissions.canScreen === false) {
+            if (activeScreenShare?.userId === user?.id) {
+              handleStopScreenShare();
+              socket.emit('screen:stop', { roomId });
+            }
+          }
+          if (data.permissions.canMic === false) {
+            setMicOn(false);
+            if (mediaDevices.localStream) {
+              mediaDevices.localStream.getAudioTracks().forEach((track) => {
+                track.enabled = false;
+              });
+            }
+          }
+          if (data.permissions.canCamera === false) {
+            setCamOn(false);
           }
         }
       }
     };
 
+    // US-PERM-06: Bulk permission change handler
+    const onPermBulk = (data: { roomId: string; by: string; patch: Partial<Permissions> }) => {
+      if (data.roomId !== roomId) return;
+      if (!isHost && data.patch.canMic === false) {
+        setMicOn(false);
+        setMyPermissions((prev) => (prev ? { ...prev, canMic: false } : null));
+        if (mediaDevices.localStream) {
+          mediaDevices.localStream.getAudioTracks().forEach((track) => {
+            track.enabled = false;
+          });
+        }
+      }
+    };
+
     socket.on('presence:update', onPresenceUpdate);
+    socket.on('hand:changed', onHandChanged);
     socket.on('live:active-speaker', onActiveSpeaker);
     socket.on('screen:started', onScreenStarted);
     socket.on('screen:stopped', onScreenStopped);
     socket.on('perm:changed', onPermChanged);
+    socket.on('perm:bulk', onPermBulk);
 
     return () => {
       socket.off('presence:update', onPresenceUpdate);
+      socket.off('hand:changed', onHandChanged);
       socket.off('live:active-speaker', onActiveSpeaker);
       socket.off('screen:started', onScreenStarted);
       socket.off('screen:stopped', onScreenStopped);
       socket.off('perm:changed', onPermChanged);
+      socket.off('perm:bulk', onPermBulk);
     };
-  }, [activeScreenShare?.userId, isHost, roomId, room, screenStream, user?.id]);
+  }, [activeScreenShare?.userId, activeSpeakerId, isHost, mediaDevices.localStream, roomId, room, screenStream, user?.id]);
+
+  // US-PERM-06 AC-4: Ensure actively publishing audio track is instantly muted within 1s
+  useEffect(() => {
+    if (mediaDevices.localStream) {
+      mediaDevices.localStream.getAudioTracks().forEach((track) => {
+        track.enabled = micOn;
+      });
+    }
+  }, [micOn, mediaDevices.localStream]);
+
+  // US-PERM-07: Toggle hand raise for current participant (FR-4.8)
+  const handleToggleHandRaise = () => {
+    if (isControlsDisabled) return;
+    const nextVal = !isHandRaised;
+    setIsHandRaised(nextVal);
+    socket.emit('hand:raise', {
+      roomId,
+      raised: nextVal,
+    });
+  };
 
   const handleToggleCall = () => {
     if (inCall) {
@@ -495,11 +559,19 @@ export const LiveTab: React.FC<LiveTabProps> = ({
           <button
             id="room-mic-toggle"
             data-testid="room-mic-toggle"
-            disabled={isControlsDisabled}
+            disabled={isControlsDisabled || (!isHost && myPermissions?.canMic === false)}
             onClick={() => setMicOn((v) => !v)}
-            title={isControlsDisabled ? 'Reconnecting...' : micOn ? 'Mute microphone' : 'Unmute microphone'}
-            className={`w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+            title={
               isControlsDisabled
+                ? 'Reconnecting...'
+                : !isHost && myPermissions?.canMic === false
+                ? 'Teacher turned off your microphone'
+                : micOn
+                ? 'Mute microphone'
+                : 'Unmute microphone'
+            }
+            className={`w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+              isControlsDisabled || (!isHost && myPermissions?.canMic === false)
                 ? 'opacity-50 cursor-not-allowed bg-slate-200 dark:bg-slate-800 text-slate-400'
                 : micOn
                 ? 'bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 focus:ring-slate-400'
@@ -512,7 +584,7 @@ export const LiveTab: React.FC<LiveTabProps> = ({
             id="room-mic-device-menu-btn"
             data-testid="room-mic-device-menu-btn"
             type="button"
-            disabled={isControlsDisabled}
+            disabled={isControlsDisabled || (!isHost && myPermissions?.canMic === false)}
             onClick={() => setIsDevicePickerOpen(true)}
             title="Switch microphone"
             aria-label="Switch microphone"
@@ -527,11 +599,19 @@ export const LiveTab: React.FC<LiveTabProps> = ({
           <button
             id="room-cam-toggle"
             data-testid="room-cam-toggle"
-            disabled={isControlsDisabled}
+            disabled={isControlsDisabled || (!isHost && myPermissions?.canCamera === false)}
             onClick={() => setCamOn((v) => !v)}
-            title={isControlsDisabled ? 'Reconnecting...' : camOn ? 'Turn off camera' : 'Turn on camera'}
-            className={`w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+            title={
               isControlsDisabled
+                ? 'Reconnecting...'
+                : !isHost && myPermissions?.canCamera === false
+                ? 'Teacher turned off your camera'
+                : camOn
+                ? 'Turn off camera'
+                : 'Turn on camera'
+            }
+            className={`w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+              isControlsDisabled || (!isHost && myPermissions?.canCamera === false)
                 ? 'opacity-50 cursor-not-allowed bg-slate-200 dark:bg-slate-800 text-slate-400'
                 : camOn
                 ? 'bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 focus:ring-slate-400'
@@ -544,7 +624,7 @@ export const LiveTab: React.FC<LiveTabProps> = ({
             id="room-cam-device-menu-btn"
             data-testid="room-cam-device-menu-btn"
             type="button"
-            disabled={isControlsDisabled}
+            disabled={isControlsDisabled || (!isHost && myPermissions?.canCamera === false)}
             onClick={() => setIsDevicePickerOpen(true)}
             title="Switch camera"
             aria-label="Switch camera"
@@ -611,6 +691,33 @@ export const LiveTab: React.FC<LiveTabProps> = ({
           }`}
         >
           <Sliders className="w-5 h-5" />
+        </button>
+
+        {/* ── US-PERM-07: Hand-raise button for all participants in call control bar (FR-4.8) ── */}
+        <button
+          id="room-hand-raise-toggle"
+          data-testid="room-hand-raise-toggle"
+          type="button"
+          disabled={isControlsDisabled}
+          onClick={handleToggleHandRaise}
+          title={
+            isControlsDisabled
+              ? 'Reconnecting...'
+              : isHandRaised
+              ? 'Lower hand'
+              : 'Raise hand'
+          }
+          aria-label={isHandRaised ? 'Lower hand' : 'Raise hand'}
+          aria-pressed={isHandRaised}
+          className={`w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+            isControlsDisabled
+              ? 'opacity-50 cursor-not-allowed bg-slate-200 dark:bg-slate-800 text-slate-400'
+              : isHandRaised
+              ? 'bg-amber-500 hover:bg-amber-600 text-white focus:ring-amber-400 ring-2 ring-amber-300 dark:ring-amber-500 cursor-pointer active:scale-95 shadow-amber-500/25'
+              : 'bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 hover:text-amber-600 dark:hover:text-amber-400 focus:ring-amber-400 cursor-pointer active:scale-95'
+          }`}
+        >
+          <Hand className={`w-5 h-5 ${isHandRaised ? 'text-white' : ''}`} />
         </button>
 
         {/* Call Join/Leave Toggle (US-LIVE-06 AC-3, US-LIVE-07 AC-2) */}

@@ -75,6 +75,15 @@ io.on('connection', (socket) => {
     if (payload && typeof payload === 'object' && typeof payload.roomId === 'string') {
       return payload.roomId.trim();
     }
+    // Fallback: search rooms that socket is currently in
+    for (const room of socket.rooms) {
+      if (room !== socket.id && !room.startsWith('room:')) {
+        return room;
+      }
+      if (room.startsWith('room:')) {
+        return room.replace('room:', '');
+      }
+    }
     return '';
   };
 
@@ -333,24 +342,33 @@ io.on('connection', (socket) => {
   });
 
   /**
-   * hand:raise — raise or lower hand in live session
+   * hand:raise — raise or lower hand in live session (US-PERM-07, FR-4.8)
    */
   socket.on('hand:raise', (payload: any) => {
     const roomId = extractRoomId(payload);
     const raised = Boolean(payload?.raised);
-    if (roomId && user?.id) {
-      const presence = setUserHandStatus(roomId, user.id, raised);
+    const targetUserId =
+      payload?.userId && (payload?.asHost || user?.role === 'teacher' || socket.data.isHost)
+        ? String(payload.userId)
+        : user?.id;
+
+    if (roomId && targetUserId) {
+      let presence = setUserHandStatus(roomId, targetUserId, raised);
+      if (!presence && targetUserId === user?.id && user) {
+        addSocketToRoom(roomId, socket.id, user);
+        presence = setUserHandStatus(roomId, targetUserId, raised);
+      }
       if (presence) {
         io.to(`room:${roomId}`).to(roomId).emit('presence:update', {
           roomId,
           presence,
         });
-        io.to(`room:${roomId}`).to(roomId).emit('hand:changed', {
-          roomId,
-          userId: user.id,
-          raised,
-        });
       }
+      io.to(`room:${roomId}`).to(roomId).emit('hand:changed', {
+        roomId,
+        userId: targetUserId,
+        raised,
+      });
     }
   });
 
