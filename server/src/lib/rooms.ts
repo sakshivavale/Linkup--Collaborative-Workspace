@@ -980,6 +980,144 @@ export async function updateMemberPermissions(
 }
 
 /**
+ * Bulk update member permissions in a room (host only).
+ * Traces to FR-4.7, US-PERM-06, api-contract §3.3.
+ * Sets permissions (e.g. canMic = false) for every participant (not the host) in a single bulk request.
+ */
+export async function bulkUpdateMemberPermissions(
+  requesterUserId: string,
+  roomId: string,
+  patch: Partial<Permissions>
+): Promise<{ members: Member[]; affectedCount: number }> {
+  const normalizedRoomId = roomId?.trim();
+  const normalizedRequester = requesterUserId?.trim();
+
+  if (!normalizedRoomId || !normalizedRequester) {
+    const error: any = new Error('Room ID and requester ID are required');
+    error.code = 'VALIDATION';
+    error.status = 400;
+    throw error;
+  }
+
+  // 1. Check mock store
+  const mockRoomLists = Array.from(mockRoomsStore.values());
+  const isMockRoomKnown = mockRoomLists.some((rooms) => rooms.some((room) => room.id === normalizedRoomId));
+
+  if (isMockRoomKnown) {
+    const hostRoom = (mockRoomsStore.get(normalizedRequester) || []).find((room) => room.id === normalizedRoomId);
+    if (!hostRoom || hostRoom.myRole !== 'host') {
+      const error: any = new Error('Only the room host can update member permissions');
+      error.code = 'HOST_ONLY';
+      error.status = 403;
+      throw error;
+    }
+
+    const updatedMembersMap = new Map<string, Member>();
+    let affectedCount = 0;
+
+    for (const [userId, rooms] of mockRoomsStore.entries()) {
+      for (const room of rooms) {
+        if (room.id === normalizedRoomId && room.members) {
+          for (const m of room.members) {
+            // Apply to all participants, never the host!
+            if (m.memberRole !== 'host' && m.userId !== normalizedRequester) {
+              const previousCanMic = m.permissions?.canMic;
+              m.permissions = {
+                ...m.permissions,
+                ...(patch.canMic !== undefined && { canMic: Boolean(patch.canMic) }),
+                ...(patch.canCamera !== undefined && { canCamera: Boolean(patch.canCamera) }),
+                ...(patch.canScreen !== undefined && { canScreen: Boolean(patch.canScreen) }),
+                ...(patch.canWhiteboard !== undefined && { canWhiteboard: Boolean(patch.canWhiteboard) }),
+                ...(patch.canCode !== undefined && { canCode: Boolean(patch.canCode) }),
+              };
+              if (patch.canMic !== undefined && previousCanMic !== m.permissions.canMic) {
+                affectedCount++;
+              }
+              if (!updatedMembersMap.has(m.userId)) {
+                updatedMembersMap.set(m.userId, m);
+              }
+            }
+          }
+        }
+      }
+    }
+
+    return { members: Array.from(updatedMembersMap.values()), affectedCount };
+  }
+
+  // 2. Database path (Supabase)
+  const { data: room, error: roomError } = await supabase
+    .from('rooms')
+    .select('id, owner_id')
+    .eq('id', normalizedRoomId)
+    .maybeSingle();
+
+  if (roomError) {
+    console.warn('[Rooms Service] Error verifying room for bulk permissions update:', roomError.message);
+    throw new Error(roomError.message);
+  }
+
+  if (!room) {
+    const error: any = new Error('Room not found');
+    error.code = 'ROOM_NOT_FOUND';
+    error.status = 404;
+    throw error;
+  }
+
+  if (normalizedRequester !== room.owner_id) {
+    const error: any = new Error('Only the room host can update member permissions');
+    error.code = 'HOST_ONLY';
+    error.status = 403;
+    throw error;
+  }
+
+  const dbUpdates: any = {};
+  if (patch.canMic !== undefined) dbUpdates.can_mic = Boolean(patch.canMic);
+  if (patch.canCamera !== undefined) dbUpdates.can_camera = Boolean(patch.canCamera);
+  if (patch.canScreen !== undefined) dbUpdates.can_screen = Boolean(patch.canScreen);
+  if (patch.canWhiteboard !== undefined) dbUpdates.can_whiteboard = Boolean(patch.canWhiteboard);
+  if (patch.canCode !== undefined) dbUpdates.can_code = Boolean(patch.canCode);
+
+  const { data: updatedRows, error: updateError } = await supabase
+    .from('room_members')
+    .update(dbUpdates)
+    .eq('room_id', normalizedRoomId)
+    .neq('user_id', room.owner_id)
+    .neq('member_role', 'host')
+    .select('user_id, member_role, created_at, can_mic, can_camera, can_screen, can_whiteboard, can_code');
+
+  if (updateError) {
+    console.warn('[Rooms Service] Error bulk updating member permissions:', updateError.message);
+    throw new Error(updateError.message);
+  }
+
+  const userIds = (updatedRows || []).map((r) => r.user_id);
+  const { data: profiles } = userIds.length > 0
+    ? await supabase.from('profiles').select('id, full_name, role').in('id', userIds)
+    : { data: [] };
+
+  const members: Member[] = (updatedRows || []).map((row) => {
+    const profile = profiles?.find((p) => p.id === row.user_id);
+    return {
+      userId: row.user_id,
+      fullName: profile?.full_name || 'Participant',
+      userRole: profile?.role || 'student',
+      memberRole: row.member_role,
+      permissions: {
+        canMic: Boolean(row.can_mic),
+        canCamera: Boolean(row.can_camera),
+        canScreen: Boolean(row.can_screen),
+        canWhiteboard: Boolean(row.can_whiteboard),
+        canCode: Boolean(row.can_code),
+      },
+      joinedAt: row.created_at,
+    };
+  });
+
+  return { members, affectedCount: members.length };
+}
+
+/**
  * Regenerates the 6-character join code for a room (US-ROOM-04, FR-2.6)
  * - Only the host can regenerate the join code.
  * - The old code immediately becomes invalid for joining.
