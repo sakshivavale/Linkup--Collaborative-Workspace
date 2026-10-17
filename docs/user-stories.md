@@ -773,8 +773,8 @@
 > As a **student**, if I try to join a live session that has not started, I want a meaningful message so that I know what to do.
 
 **Acceptance Criteria:**
-- [ ] The UI shows: *"Waiting for the teacher to start the session."*
-- [ ] When the teacher starts, the status updates automatically via `session:started` event without requiring a page reload.
+- [x] The UI shows: *"Waiting for the teacher to start the session."*
+- [x] When the teacher starts, the status updates automatically via `session:started` event without requiring a page reload.
 
 ---
 

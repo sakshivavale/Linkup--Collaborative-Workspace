@@ -2127,8 +2127,9 @@ export async function getActiveSession(roomId: string): Promise<Session | null> 
 
   // Check mock store
   for (const rooms of mockRoomsStore.values()) {
-    const r = rooms.find((rm) => rm.id === normalizedRoomId);
-    if (r && r.activeSessionId) {
+    if (Array.isArray(rooms)) {
+      const r = rooms.find((rm) => rm.id === normalizedRoomId);
+      if (r && r.activeSessionId) {
       return (
         mockSessionsStore.get(r.activeSessionId) || {
           id: r.activeSessionId,
@@ -2142,6 +2143,7 @@ export async function getActiveSession(roomId: string): Promise<Session | null> 
       );
     }
   }
+}
 
   // Supabase DB
   const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

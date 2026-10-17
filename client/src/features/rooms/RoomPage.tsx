@@ -677,6 +677,19 @@ export const RoomPage: React.FC = () => {
             </button>
           )}
 
+          {/* US-ERR-02: Waiting indicator for student when live session has not started */}
+          {!activeSession && room.myRole !== 'host' && (
+            <div
+              id="room-header-waiting-session"
+              data-testid="room-header-waiting-session"
+              className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 text-xs font-medium shrink-0 animate-fade-in"
+              title="Waiting for the teacher to start the session."
+            >
+              <Radio className="w-3.5 h-3.5 text-slate-400" />
+              <span>Waiting for teacher…</span>
+            </div>
+          )}
+
           {sessionError && (
             <span
               id="room-header-session-error"

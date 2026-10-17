@@ -799,7 +799,7 @@ app.post(['/api/rooms/:roomId/livekit-token', '/rooms/:roomId/livekit-token'], r
 
     if (!activeSession) {
       return res.status(409).json({
-        error: { code: 'NO_ACTIVE_SESSION', message: 'No active session in this room' },
+        error: { code: 'NO_ACTIVE_SESSION', message: 'Waiting for the teacher to start the session.' },
       });
     }
 
