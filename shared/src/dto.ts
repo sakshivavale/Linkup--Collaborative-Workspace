@@ -145,6 +145,16 @@ export interface SessionEndedPayload {
   sessionId: string;
 }
 
+/** US-ATT-01: Auto Record Join and Leave attendance record (FR-6.1) */
+export interface AttendanceRecord {
+  id: number | string;
+  sessionId: string;
+  roomId: string;
+  userId: string;
+  joinedAt: string;
+  leftAt: string | null;
+}
+
 export interface ChatMessage {
   id: number;
   roomId: string;

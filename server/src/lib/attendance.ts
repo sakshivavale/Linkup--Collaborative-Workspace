@@ -1,14 +1,8 @@
 import { supabase } from './supabase';
 import { getActiveSession } from './rooms';
+import { AttendanceRecord } from '@linkup/shared';
 
-export interface MockAttendanceRecord {
-  id: number | string;
-  sessionId: string;
-  roomId: string;
-  userId: string;
-  joinedAt: string;
-  leftAt: string | null;
-}
+export type MockAttendanceRecord = AttendanceRecord;
 
 // In-memory mock store for attendance records
 const mockAttendanceStore: MockAttendanceRecord[] = [];
@@ -221,17 +215,33 @@ export async function recordLiveLeave(
  */
 export async function recordSocketDisconnect(
   socketId: string,
-  customGracePeriodMs?: number
+  customGracePeriodMs?: number,
+  userId?: string
 ): Promise<void> {
+  let matched = false;
   for (const [key, sockets] of Array.from(liveSocketsMap.entries())) {
     if (sockets.has(socketId)) {
+      matched = true;
       sockets.delete(socketId);
-      const [roomId, userId] = key.split(':');
+      const [roomId, uId] = key.split(':');
       if (sockets.size === 0) {
         liveSocketsMap.delete(key);
         const activeSession = await getActiveSession(roomId);
         if (activeSession?.id) {
-          startGraceTimer(activeSession.id, userId, roomId, customGracePeriodMs ?? configuredGracePeriodMs);
+          startGraceTimer(activeSession.id, uId, roomId, customGracePeriodMs ?? configuredGracePeriodMs);
+        }
+      }
+    }
+  }
+
+  // Fallback: if not matched by socketId but userId was in a live session with an open record
+  if (!matched && userId) {
+    const normUser = userId.trim();
+    for (const att of mockAttendanceStore) {
+      if (att.userId === normUser && att.leftAt === null) {
+        const activeSession = await getActiveSession(att.roomId);
+        if (activeSession?.id === att.sessionId) {
+          startGraceTimer(activeSession.id, normUser, att.roomId, customGracePeriodMs ?? configuredGracePeriodMs);
         }
       }
     }

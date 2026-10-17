@@ -125,8 +125,8 @@ Chat (Track C, end-to-end)
 - [ ] `[C]` Plain-text rendering plus a linkify helper (no HTML)
 
 Attendance
-- [ ] `[B]` `live:joined` / `live:left` / disconnect handlers: per-user `liveSockets` set, 15 s grace timer, insert-or-reuse open record (partial unique index)
-- [ ] `[B]` Mark `inLive` in presence
+- [x] `[B]` `live:joined` / `live:left` / disconnect handlers: per-user `liveSockets` set, 15 s grace timer, insert-or-reuse open record (partial unique index)
+- [x] `[B]` Mark `inLive` in presence
 - [ ] `[B]` Server boot recovery: close open attendance for sessions that have ended
 - [ ] `[A]` `GET /rooms/:id/sessions/:sid/attendance` (via `attendance_summary` RPC)
 - [ ] `[C]` Attendance page: session picker and table
