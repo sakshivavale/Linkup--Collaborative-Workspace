@@ -33,6 +33,12 @@ export interface WhiteboardTabProps {
  * 8. The image tool is disabled (images need file storage, which is out of scope).
  * 9. whiteboard_state is persisted to Postgres (debounced 5 s and on last editor leave).
  * 10. Joining or rejoining the room loads current board state from room:join snapshot.
+ *
+ * US-WB-04: Grant/Revoke Whiteboard Access Live (P0 | Traces to: FR-5.11)
+ * Acceptance Criteria:
+ * 1. Toggling can_whiteboard via the Participants panel sends perm:changed to the room.
+ * 2. The target student's view mode updates within 1 second without a page reload.
+ * 3. After being revoked, a subsequent wb:update from that student is rejected server-side.
  */
 export const WhiteboardTab: React.FC<WhiteboardTabProps> = ({
   roomId,
@@ -46,15 +52,73 @@ export const WhiteboardTab: React.FC<WhiteboardTabProps> = ({
   const [excalidrawAPI, setExcalidrawAPI] = useState<ExcalidrawImperativeAPI | null>(null);
   const [forbiddenError, setForbiddenError] = useState<string | null>(null);
 
+  // US-WB-04: Track can_whiteboard in real-time
+  const [liveCanWhiteboard, setLiveCanWhiteboard] = useState<boolean>(Boolean(canWhiteboard));
+
+  // Synchronize prop changes into live permission state
+  useEffect(() => {
+    setLiveCanWhiteboard(Boolean(canWhiteboard));
+  }, [canWhiteboard]);
+
+  // US-WB-04 AC-2: React to perm:changed and perm:bulk socket events in real time without page reload
+  useEffect(() => {
+    const handlePermChanged = (data: { roomId: string; userId: string; permissions: any; by?: string }) => {
+      if (data.roomId !== roomId) return;
+      if (user?.id && data.userId === user.id && data.permissions) {
+        if (typeof data.permissions.canWhiteboard === 'boolean') {
+          setLiveCanWhiteboard(data.permissions.canWhiteboard);
+        }
+      }
+    };
+
+    const handlePermBulk = (data: { roomId: string; patch: Partial<any> }) => {
+      if (data.roomId !== roomId) return;
+      if (!isHost && data.patch && typeof data.patch.canWhiteboard === 'boolean') {
+        setLiveCanWhiteboard(data.patch.canWhiteboard);
+      }
+    };
+
+    socket.on('perm:changed', handlePermChanged);
+    socket.on('perm:bulk', handlePermBulk);
+
+    return () => {
+      socket.off('perm:changed', handlePermChanged);
+      socket.off('perm:bulk', handlePermBulk);
+    };
+  }, [roomId, user?.id, isHost]);
+
   // View-only mode for members where can_whiteboard = false and who are not the host:
-  // !isHost && !canWhiteboard
-  const isReadOnly = !isHost && !canWhiteboard;
+  // Effective permission combines host role and live can_whiteboard flag
+  const effectiveCanWhiteboard = isHost || liveCanWhiteboard;
+  const isReadOnly = !isHost && !effectiveCanWhiteboard;
 
   // Keep track of versions of elements sent or received to prevent infinite broadcast loops
   const sentVersionsRef = useRef<Map<string, number>>(new Map());
   const pendingUpdatesRef = useRef<Map<string, any>>(new Map());
   const throttleTimerRef = useRef<NodeJS.Timeout | null>(null);
   const isInitializedRef = useRef<boolean>(false);
+
+  // US-WB-04 AC-3: Immediately cancel scheduled flush timer and clear pending updates when revoked
+  useEffect(() => {
+    if (isReadOnly) {
+      if (throttleTimerRef.current) {
+        clearTimeout(throttleTimerRef.current);
+        throttleTimerRef.current = null;
+      }
+      pendingUpdatesRef.current.clear();
+    }
+  }, [isReadOnly]);
+
+  // Keep Excalidraw imperative API appState.viewModeEnabled in sync live when isReadOnly changes
+  useEffect(() => {
+    if (excalidrawAPI) {
+      excalidrawAPI.updateScene({
+        appState: {
+          viewModeEnabled: isReadOnly,
+        },
+      });
+    }
+  }, [excalidrawAPI, isReadOnly]);
 
   // Synchronize scene with initial elements (from room:join snapshot or re-join) (US-WB-03 AC-2)
   useEffect(() => {
@@ -359,7 +423,7 @@ export const WhiteboardTab: React.FC<WhiteboardTabProps> = ({
         <div id="room-whiteboard-canvas" data-testid="room-whiteboard-canvas" className="w-full h-full">
           <Excalidraw
             excalidrawAPI={(api) => setExcalidrawAPI(api)}
-            viewModeEnabled={!canWhiteboard} /* viewModeEnabled={isReadOnly} */
+            viewModeEnabled={isReadOnly} /* viewModeEnabled={!canWhiteboard} */
             theme={theme === 'dark' ? 'dark' : 'light'}
             onChange={handleChange}
             UIOptions={{

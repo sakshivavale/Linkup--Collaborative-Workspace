@@ -828,6 +828,33 @@ export async function updateMemberPermissions(
     throw error;
   }
 
+  // Check built-in sample demo rooms
+  if (DEFAULT_SAMPLE_ROOMS[normalizedRoomId]) {
+    const sample = DEFAULT_SAMPLE_ROOMS[normalizedRoomId];
+    if (normalizedRequester === normalizedTarget) {
+      const error: any = new Error('The host always retains full permissions');
+      error.code = 'FORBIDDEN';
+      error.status = 403;
+      throw error;
+    }
+    const target = sample.members?.find((m) => m.userId === normalizedTarget);
+    if (!target) {
+      const error: any = new Error('Member not found in room');
+      error.code = 'NOT_FOUND';
+      error.status = 404;
+      throw error;
+    }
+    target.permissions = {
+      ...target.permissions,
+      ...(patch.canMic !== undefined && { canMic: Boolean(patch.canMic) }),
+      ...(patch.canCamera !== undefined && { canCamera: Boolean(patch.canCamera) }),
+      ...(patch.canScreen !== undefined && { canScreen: Boolean(patch.canScreen) }),
+      ...(patch.canWhiteboard !== undefined && { canWhiteboard: Boolean(patch.canWhiteboard) }),
+      ...(patch.canCode !== undefined && { canCode: Boolean(patch.canCode) }),
+    };
+    return { member: target, permissions: target.permissions };
+  }
+
   // Check mock store
   const mockRoomLists = Array.from(mockRoomsStore.values());
   const isMockRoomKnown = mockRoomLists.some((rooms) => rooms.some((room) => room.id === normalizedRoomId));

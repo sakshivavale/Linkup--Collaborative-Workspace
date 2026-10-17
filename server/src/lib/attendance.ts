@@ -256,7 +256,7 @@ export async function recordSocketDisconnect(
       if (dbRecords && dbRecords.length > 0) {
         for (const rec of dbRecords) {
           const activeSession = await getActiveSession(rec.room_id);
-          if (activeSession?.id === rec.session_id) {
+          if (activeSession && activeSession.id === rec.session_id) {
             startGraceTimer(activeSession.id, normUser, rec.room_id, customGracePeriodMs ?? configuredGracePeriodMs);
           }
         }
