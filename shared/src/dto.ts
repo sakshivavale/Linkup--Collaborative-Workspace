@@ -206,6 +206,38 @@ export interface CodeState {
 export const MAX_CODE_BYTES = 64 * 1024; // 64 KB = 65,536 bytes (US-CODE-03, FR-5.2)
 export const CODE_DEBOUNCE_MS = 150; // 150 ms debounce for keystroke emissions (US-CODE-03, FR-5.2)
 
+/** US-CODE-05: Code execution result */
+export interface RunResult {
+  by: string;
+  language: Language;
+  stdout: string;
+  stderr: string;
+  exitCode: number | null;
+  timeMs: number;
+  timedOut: boolean;
+  truncated: boolean;
+}
+
+/** US-CODE-05: Payload for POST /execute */
+export interface ExecuteCodeDto {
+  language: Language;
+  code: string;
+  stdin?: string;
+  roomId?: string;
+}
+
+/** US-CODE-05: Payload for code:run-started event */
+export interface CodeRunStartedPayload {
+  roomId: string;
+  by: string;
+  language: Language;
+}
+
+/** US-CODE-05: Payload for code:run-result event */
+export interface CodeRunResultPayload {
+  roomId: string;
+  result: RunResult;
+}
 
 export interface ApiError {
   code:

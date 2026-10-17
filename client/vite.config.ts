@@ -23,6 +23,16 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
       },
+      '/execute': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+        secure: false,
+      },
+      '/runtimes': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+        secure: false,
+      },
       '/health': {
         target: 'http://localhost:3001',
         changeOrigin: true,

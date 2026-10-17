@@ -10,6 +10,7 @@ const envSchema = z.object({
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
   SUPABASE_URL: z.string().url(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
+  PISTON_URL: z.string().default('http://localhost:2000'),
 });
 
 const parsed = envSchema.safeParse(process.env);

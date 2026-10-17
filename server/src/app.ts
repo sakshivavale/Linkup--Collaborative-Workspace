@@ -26,7 +26,15 @@ import { getRoomPresence, removeSocketFromRoom, setUserHandStatus } from './real
 import { getActiveScreenShare, stopScreenShare } from './realtime/screenShare';
 import { getChatMessages, createChatMessage } from './lib/chat';
 import { mintLivekitToken, updateLivekitParticipantPermissions } from './lib/livekit';
-import { getPenHolder, setPenHolder } from './realtime/codeWorkspace';
+import { getPenHolder, setPenHolder, getOrLoadCodeState, persistCodeState } from './realtime/codeWorkspace';
+import {
+  executeCode,
+  checkRunRateLimit,
+  getAvailableRuntimes,
+  MAX_CODE_BYTES,
+  MAX_STDIN_BYTES,
+} from './lib/piston';
+import { RunResult, Language } from '@linkup/shared';
 
 
 // Dynamic CORS origin: accepts localhost AND any 192.168.x.x LAN IP on port 5173.
@@ -371,6 +379,37 @@ app.get('/api/rooms/:roomId', async (req: Request, res: Response) => {
     console.error('[Room API] Error fetching room:', err);
     return res.status(500).json({
       error: { code: 'INTERNAL_SERVER_ERROR', message: 'Failed to retrieve room' },
+    });
+  }
+});
+
+/**
+ * GET /api/rooms/:roomId/code — Fetch persisted code state and selected language (US-CODE-06, FR-5.7)
+ */
+app.get('/api/rooms/:roomId/code', async (req: Request, res: Response) => {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({
+      error: { code: 'UNAUTHENTICATED', message: 'Authentication required' },
+    });
+  }
+
+  const { roomId } = req.params;
+  try {
+    const room = await getRoomForUser(user.id, roomId);
+    const hostMember = room.members?.find((m) => m.memberRole === 'host');
+    const defaultHostId = hostMember?.userId || (room as any).owner_id || (room.myRole === 'host' ? user.id : null);
+    const codeState = await getOrLoadCodeState(roomId, defaultHostId);
+    return res.status(200).json(codeState);
+  } catch (err: any) {
+    if (err instanceof NotAMemberError) {
+      return res.status(403).json({
+        error: { code: 'NOT_A_MEMBER', message: err.message },
+      });
+    }
+    console.error('[Code API] Error fetching code state:', err);
+    return res.status(500).json({
+      error: { code: 'INTERNAL_SERVER_ERROR', message: 'Failed to retrieve code state' },
     });
   }
 });
@@ -1350,6 +1389,196 @@ app.get('/api/rooms/:roomId/sessions', async (req: Request, res: Response) => {
     });
   }
 });
+
+// US-CODE-05: Code execution endpoint (FR-5.5, FR-5.6, api-contract §3.7)
+const handleExecuteCode = async (req: Request, res: Response) => {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({
+      error: {
+        code: 'UNAUTHENTICATED',
+        message: 'Authentication required',
+      },
+    });
+  }
+
+  const { language, code, stdin, roomId } = req.body || {};
+
+  if (!language || !['python', 'javascript', 'cpp', 'java'].includes(language)) {
+    return res.status(400).json({
+      error: {
+        code: 'VALIDATION',
+        message: 'Valid language (python, javascript, cpp, java) is required',
+      },
+    });
+  }
+
+  if (typeof code !== 'string') {
+    return res.status(400).json({
+      error: {
+        code: 'VALIDATION',
+        message: 'Code must be a string',
+      },
+    });
+  }
+
+  // Acceptance Criterion 6: Code over 64 KB returns 413 PAYLOAD_TOO_LARGE: "Source code exceeds the 64 KB limit."
+  if (Buffer.byteLength(code, 'utf8') > MAX_CODE_BYTES) {
+    return res.status(413).json({
+      error: {
+        code: 'PAYLOAD_TOO_LARGE',
+        message: 'Source code exceeds the 64 KB limit.',
+      },
+    });
+  }
+
+  // Standard input size check (≤ 8 KB per api-contract §3.7)
+  if (stdin !== undefined && stdin !== null) {
+    if (typeof stdin !== 'string') {
+      return res.status(400).json({
+        error: {
+          code: 'VALIDATION',
+          message: 'Standard input must be a string',
+        },
+      });
+    }
+    if (Buffer.byteLength(stdin, 'utf8') > MAX_STDIN_BYTES) {
+      return res.status(413).json({
+        error: {
+          code: 'PAYLOAD_TOO_LARGE',
+          message: 'Standard input exceeds the 8 KB limit.',
+        },
+      });
+    }
+  }
+
+  // Acceptance Criterion 8: After 10 runs per minute from the same user, the 11th returns 429 RATE_LIMITED: "Too many runs — try again in a few seconds."
+  const rateLimit = checkRunRateLimit(user.id);
+  if (!rateLimit.allowed) {
+    return res.status(429).json({
+      error: {
+        code: 'RATE_LIMITED',
+        message: 'Too many runs — try again in a few seconds.',
+      },
+    });
+  }
+
+  const io = req.app.get('io');
+  let roomNormalized: string | undefined;
+
+  // When roomId is set: pen holder or host guard, and emit code:run-started / code:run-result
+  if (roomId && typeof roomId === 'string' && roomId.trim()) {
+    roomNormalized = roomId.trim();
+    try {
+      const room = await getRoomForUser(user.id, roomNormalized);
+      const hostMember = room.members?.find((m) => m.memberRole === 'host');
+      const defaultHostId = hostMember?.userId || (room as any).owner_id || (room.myRole === 'host' ? user.id : '');
+      const currentHolderId = getPenHolder(roomNormalized, defaultHostId);
+
+      const isHost = room.myRole === 'host' || user.id === defaultHostId;
+      const isHolder = currentHolderId === user.id;
+
+      if (!isHost && !isHolder) {
+        return res.status(403).json({
+          error: {
+            code: 'NOT_PEN_HOLDER',
+            message: 'Only the pen holder or room host can run code',
+          },
+        });
+      }
+
+      // Acceptance Criterion 3: Clicking Run emits code:run-started to the room
+      if (io) {
+        io.to(`room:${roomNormalized}`).to(roomNormalized).emit('code:run-started', {
+          roomId: roomNormalized,
+          by: user.fullName || user.id,
+          language: language as Language,
+        });
+      }
+    } catch (err: any) {
+      if (err instanceof NotAMemberError || err?.code === 'NOT_A_MEMBER') {
+        return res.status(403).json({
+          error: {
+            code: 'NOT_A_MEMBER',
+            message: err.message || 'You are not a member of this room',
+          },
+        });
+      }
+      return res.status(500).json({
+        error: {
+          code: 'INTERNAL_SERVER_ERROR',
+          message: err.message || 'Failed to verify room permissions',
+        },
+      });
+    }
+  }
+
+  try {
+    const execResult = await executeCode({
+      language: language as Language,
+      code,
+      stdin: typeof stdin === 'string' ? stdin : undefined,
+    });
+
+    const runResult: RunResult = {
+      by: user.fullName || user.id,
+      language: language as Language,
+      stdout: execResult.stdout,
+      stderr: execResult.stderr,
+      exitCode: execResult.exitCode,
+      timeMs: execResult.timeMs,
+      timedOut: execResult.timedOut,
+      truncated: execResult.truncated,
+    };
+
+    // Acceptance Criterion 5: All room members see the same output (via code:run-result)
+    if (roomNormalized && io) {
+      io.to(`room:${roomNormalized}`).to(roomNormalized).emit('code:run-result', {
+        roomId: roomNormalized,
+        result: runResult,
+      });
+    }
+
+    return res.status(200).json(runResult);
+  } catch (err: any) {
+    if (err.code === 'EXECUTION_UNAVAILABLE' || err.status === 502) {
+      return res.status(502).json({
+        error: {
+          code: 'EXECUTION_UNAVAILABLE',
+          message: 'Code execution service is currently unavailable',
+        },
+      });
+    }
+    return res.status(err.status || 500).json({
+      error: {
+        code: err.code || 'INTERNAL_SERVER_ERROR',
+        message: err.message || 'Code execution failed',
+      },
+    });
+  }
+};
+
+const handleGetRuntimes = async (_req: Request, res: Response) => {
+  try {
+    const runtimes = await getAvailableRuntimes();
+    return res.status(200).json(runtimes);
+  } catch (err: any) {
+    return res.status(500).json({
+      error: {
+        code: 'INTERNAL_SERVER_ERROR',
+        message: err.message || 'Failed to retrieve runtimes',
+      },
+    });
+  }
+};
+
+// Mount execute routes (both /api/execute and /execute)
+app.post('/api/execute', handleExecuteCode);
+app.post('/execute', requireAuth, handleExecuteCode);
+
+// Mount runtimes routes (both /api/runtimes and /runtimes)
+app.get('/api/runtimes', handleGetRuntimes);
+app.get('/runtimes', handleGetRuntimes);
 
 // Test routes to verify all HTTP methods under /api/* enforce token authentication
 app.all('/api/test', (req: Request, res: Response) => {

@@ -9,10 +9,14 @@ import {
   Sparkles,
   RotateCcw,
   AlertCircle,
+  Loader2,
+  Terminal,
+  AlertTriangle,
 } from 'lucide-react';
-import { Language, CodeState, Member, MAX_CODE_BYTES, CODE_DEBOUNCE_MS } from '@linkup/shared';
+import { Language, CodeState, Member, RunResult, MAX_CODE_BYTES, CODE_DEBOUNCE_MS } from '@linkup/shared';
 import { socket } from '../../lib/socket';
 import { useAuth } from '../../context/AuthContext';
+import { api } from '../../lib/api';
 
 export interface LanguageOption {
   id: Language;
@@ -83,10 +87,12 @@ export const CodeTab: React.FC<CodeTabProps> = ({
   const [rev, setRev] = useState<number>(initialCodeState?.rev ?? 0);
   const [holderId, setHolderId] = useState<string | null>(initialCodeState?.holderId ?? null);
 
-  const [output, setOutput] = useState<string | null>(null);
+  const [stdin, setStdin] = useState<string>('');
   const [running, setRunning] = useState<boolean>(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [sizeError, setSizeError] = useState<string | null>(null);
+  const [runResult, setRunResult] = useState<RunResult | null>(null);
+  const [runError, setRunError] = useState<string | null>(null);
 
   const [localMembers, setLocalMembers] = useState<Member[]>(members);
   useEffect(() => {
@@ -126,6 +132,25 @@ export const CodeTab: React.FC<CodeTabProps> = ({
       }
     }
   }, [initialCodeState, holderId, user?.id]);
+
+  // Fallback REST fetch if initialCodeState is not provided on mount (US-CODE-06)
+  useEffect(() => {
+    if (!initialCodeState && roomId) {
+      api
+        .get<CodeState>(`/api/rooms/${roomId}/code`)
+        .then((saved) => {
+          if (saved) {
+            if (typeof saved.content === 'string') setContent(saved.content);
+            if (saved.language) setLanguage(saved.language);
+            if (typeof saved.rev === 'number') setRev(saved.rev);
+            if (saved.holderId !== undefined) setHolderId(saved.holderId);
+            onCodeStateChange?.(saved);
+            isInitializedRef.current = true;
+          }
+        })
+        .catch(() => {});
+    }
+  }, [roomId, initialCodeState, onCodeStateChange]);
 
   // Determine if current user is host
   const isUserHost = useMemo(() => {
@@ -172,6 +197,11 @@ export const CodeTab: React.FC<CodeTabProps> = ({
 
   const canEdit = Boolean(isPenHolder && canCode);
   const isReadOnly = !canEdit;
+
+  // AC 1: "A 'Run' button is visible in the Code tab for the pen holder and the host."
+  const canRun = useMemo(() => {
+    return Boolean(isPenHolder || isUserHost);
+  }, [isPenHolder, isUserHost]);
 
   // Acceptance Criterion 3: "The editor header shows who is currently editing (e.g., 'Priya is editing')"
   const editorDisplayName = useMemo(() => {
@@ -307,11 +337,29 @@ export const CodeTab: React.FC<CodeTabProps> = ({
       }
     };
 
+    // AC 3 & AC 5: Shared execution listeners
+    const handleRunStarted = (data: { roomId: string; by: string; language: Language }) => {
+      if (data.roomId === roomId) {
+        setRunning(true);
+        setRunError(null);
+      }
+    };
+
+    const handleRunResult = (data: { roomId: string; result: RunResult }) => {
+      if (data.roomId === roomId) {
+        setRunning(false);
+        setRunResult(data.result);
+        setRunError(null);
+      }
+    };
+
     socket.on('code:state', handleCodeState);
     socket.on('code:pen', handleCodePen);
     socket.on('perm:changed', handlePermChanged);
     socket.on('room:joined', handleRoomJoined);
     socket.on('error', handleSocketError);
+    socket.on('code:run-started', handleRunStarted);
+    socket.on('code:run-result', handleRunResult);
 
     return () => {
       socket.off('code:state', handleCodeState);
@@ -319,6 +367,8 @@ export const CodeTab: React.FC<CodeTabProps> = ({
       socket.off('perm:changed', handlePermChanged);
       socket.off('room:joined', handleRoomJoined);
       socket.off('error', handleSocketError);
+      socket.off('code:run-started', handleRunStarted);
+      socket.off('code:run-result', handleRunResult);
     };
   }, [roomId, user?.id, onCodeStateChange]);
 
@@ -326,6 +376,14 @@ export const CodeTab: React.FC<CodeTabProps> = ({
   const handleEditorChange = (newVal: string | undefined) => {
     const value = newVal ?? '';
     setContent(value);
+
+    // Immediately keep parent codeState updated so switching tabs retains latest edits
+    onCodeStateChange?.({
+      content: value,
+      language: languageRef.current,
+      rev: revRef.current,
+      holderId: holderIdRef.current,
+    });
 
     if (!canEdit) return;
 
@@ -402,23 +460,50 @@ export const CodeTab: React.FC<CodeTabProps> = ({
     );
   };
 
-  // Clean up debounce on unmount
+  // Clean up and flush pending debounce on unmount
   useEffect(() => {
     return () => {
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);
+        if (canEdit) {
+          socket.emit('code:update', {
+            roomId,
+            content: contentRef.current,
+            language: languageRef.current,
+          });
+        }
       }
     };
-  }, []);
+  }, [canEdit, roomId]);
 
+  // AC 3: Clicking Run emits code:run-started to the room and calls POST /execute via Piston
   const handleRun = async () => {
-    if (!canCode) return;
+    if (!canRun || running) return;
     setRunning(true);
-    setOutput(null);
-    // Real execution via Piston API in US-CODE-05
-    await new Promise((r) => setTimeout(r, 600));
-    setOutput(`[Output - ${language}]\nProgram execution started...\nHello, Linkup!\n[Process finished with exit code 0]`);
-    setRunning(false);
+    setRunError(null);
+
+    // Emit code:run-started immediately to the room
+    socket.emit('code:run-started', {
+      roomId,
+      by: fullName || (user as any)?.fullName || user?.id || 'User',
+      language,
+    });
+
+    try {
+      const res = await api.post<RunResult>('/api/execute', {
+        roomId,
+        language,
+        code: content,
+        stdin: stdin.trim() ? stdin : undefined,
+      });
+      setRunResult(res);
+      setRunError(null);
+    } catch (err: any) {
+      const errMsg = err?.data?.error?.message || err?.message || 'Execution failed';
+      setRunError(errMsg);
+    } finally {
+      setRunning(false);
+    }
   };
 
   const monacoLanguage = useMemo(() => {
@@ -583,16 +668,24 @@ export const CodeTab: React.FC<CodeTabProps> = ({
 
         <div className="flex-1" />
 
-        {/* Run Button */}
-        <button
-          id="room-code-run"
-          onClick={handleRun}
-          disabled={running || !canCode}
-          className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 active:scale-95"
-        >
-          <Play className="w-3.5 h-3.5" />
-          {running ? 'Running…' : 'Run'}
-        </button>
+        {/* AC 1: Run Button (visible for pen holder and host) */}
+        {canRun && (
+          <button
+            id="room-code-run"
+            data-testid="room-code-run"
+            type="button"
+            onClick={handleRun}
+            disabled={running || !canCode}
+            className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 active:scale-95 cursor-pointer"
+          >
+            {running ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Play className="w-3.5 h-3.5" />
+            )}
+            <span>{running ? 'Running…' : 'Run'}</span>
+          </button>
+        )}
       </div>
 
       {/* Editor Area with Monaco */}
@@ -604,7 +697,7 @@ export const CodeTab: React.FC<CodeTabProps> = ({
           data-max-bytes="65536"
           data-rev={rev}
           data-pen-holder={holderId || ''}
-          className="flex-1 w-full min-h-[340px] h-full rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-950 shadow-inner relative flex flex-col"
+          className="flex-1 w-full min-h-[300px] h-full rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-950 shadow-inner relative flex flex-col"
         >
           <Editor
             height="100%"
@@ -648,13 +741,149 @@ export const CodeTab: React.FC<CodeTabProps> = ({
           />
         </div>
 
-        {/* Output Panel */}
-        {output !== null && (
-          <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-black/90 p-3 font-mono text-xs text-emerald-400 whitespace-pre-wrap max-h-36 overflow-y-auto shadow-inner">
-            <span className="text-slate-500 select-none">$ output &gt; </span>
-            {output}
+        {/* AC 2: Optional stdin text box available before running */}
+        <div
+          id="room-code-stdin-container"
+          data-testid="room-code-stdin-container"
+          className="flex flex-col gap-1 px-1 shrink-0"
+        >
+          <label
+            htmlFor="room-code-stdin"
+            className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1.5 select-none"
+          >
+            <Terminal className="w-3 h-3 text-slate-400" />
+            <span>Standard Input (stdin)</span>
+            <span className="text-[10px] text-slate-400 font-normal">(optional)</span>
+          </label>
+          <textarea
+            id="room-code-stdin"
+            data-testid="room-code-stdin"
+            value={stdin}
+            onChange={(e) => setStdin(e.target.value)}
+            placeholder="Enter input passed to program on stdin..."
+            rows={2}
+            disabled={!canRun}
+            className="w-full px-3 py-1.5 text-xs font-mono rounded-xl bg-slate-900/90 border border-slate-200 dark:border-slate-800 text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all resize-none shadow-inner"
+          />
+        </div>
+
+        {/* AC 4 & AC 5: Shared Output Panel */}
+        <div
+          id="room-code-output-panel"
+          data-testid="room-code-output-panel"
+          className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-950/95 p-3.5 font-mono text-xs shadow-inner flex flex-col gap-2 max-h-52 overflow-y-auto shrink-0"
+        >
+          <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 select-none">
+                Execution Output
+              </span>
+              {runResult?.by && (
+                <span className="text-[11px] text-slate-500 select-none">
+                  • run by <strong className="text-slate-300 font-medium">{runResult.by}</strong>
+                </span>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2">
+              {running && (
+                <div
+                  id="code-run-spinner"
+                  data-testid="code-run-spinner"
+                  className="inline-flex items-center gap-1.5 text-indigo-400 text-xs font-semibold animate-pulse"
+                >
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-400" />
+                  <span>Running code...</span>
+                </div>
+              )}
+
+              {!running && runResult && (
+                <div
+                  id="code-run-meta"
+                  data-testid="code-run-meta"
+                  className="flex items-center gap-2 text-[11px]"
+                >
+                  <span
+                    id="code-run-exit-code"
+                    data-testid="code-run-exit-code"
+                    className={`px-2 py-0.5 rounded-md font-semibold ${
+                      runResult.exitCode === 0
+                        ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                        : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                    }`}
+                  >
+                    Exit: {runResult.exitCode ?? 'N/A'}
+                  </span>
+                  <span
+                    id="code-run-time"
+                    data-testid="code-run-time"
+                    className="text-slate-400 font-medium px-1.5 py-0.5 rounded-md bg-slate-800/50"
+                  >
+                    {runResult.timeMs} ms
+                  </span>
+                  {runResult.truncated && (
+                    <span className="text-amber-400 text-[10px] px-1 py-0.5 rounded bg-amber-500/10 border border-amber-500/20">
+                      truncated
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
-        )}
+
+          {/* Timeout banner */}
+          {(runResult?.timedOut || runResult?.stderr?.includes('Time limit exceeded (3 s).')) && (
+            <div
+              id="code-run-timeout"
+              data-testid="code-run-timeout"
+              className="flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-semibold"
+            >
+              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+              <span>Time limit exceeded (3 s).</span>
+            </div>
+          )}
+
+          {/* Error banner (e.g. 413, 429, 502) */}
+          {runError && (
+            <div
+              id="code-run-error"
+              data-testid="code-run-error"
+              className="flex items-center gap-2 px-3 py-2 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs font-semibold"
+            >
+              <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+              <span>{runError}</span>
+            </div>
+          )}
+
+          {/* Stdout display */}
+          {runResult?.stdout && (
+            <div
+              id="code-run-stdout"
+              data-testid="code-run-stdout"
+              className="text-emerald-400 whitespace-pre-wrap leading-relaxed font-mono"
+            >
+              {runResult.stdout}
+            </div>
+          )}
+
+          {/* Stderr display (highlighted in red) */}
+          {runResult?.stderr && (
+            <div
+              id="code-run-stderr"
+              data-testid="code-run-stderr"
+              className="text-rose-400 bg-rose-950/30 p-2.5 rounded-xl border border-rose-900/40 whitespace-pre-wrap leading-relaxed font-mono"
+            >
+              {runResult.stderr}
+            </div>
+          )}
+
+          {/* Idle placeholder */}
+          {!running && !runResult && !runError && (
+            <div className="text-slate-500 italic text-xs py-1 select-none">
+              Click &quot;Run&quot; to execute code in the sandbox. Output will appear here for all room members.
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

@@ -569,14 +569,14 @@
 > As the **pen holder or host**, I want to run the code in the editor so that everyone in the room can see the output.
 
 **Acceptance Criteria:**
-- [ ] A **"Run"** button is visible in the Code tab for the pen holder and the host.
-- [ ] An optional stdin text box is available before running.
-- [ ] Clicking Run emits `code:run-started` to the room and calls `POST /execute` via Piston.
-- [ ] The output panel shows stdout, stderr (highlighted), exit code, execution time, and a spinner while running.
-- [ ] All room members see the same output (via `code:run-result`).
-- [ ] Code over 64 KB returns `413 PAYLOAD_TOO_LARGE`: *"Source code exceeds the 64 KB limit."*
-- [ ] A run exceeding 3 seconds shows: *"Time limit exceeded (3 s)."*
-- [ ] After 10 runs per minute from the same user, the 11th returns `429 RATE_LIMITED`: *"Too many runs — try again in a few seconds."*
+- [x] A **"Run"** button is visible in the Code tab for the pen holder and the host.
+- [x] An optional stdin text box is available before running.
+- [x] Clicking Run emits `code:run-started` to the room and calls `POST /execute` via Piston.
+- [x] The output panel shows stdout, stderr (highlighted), exit code, execution time, and a spinner while running.
+- [x] All room members see the same output (via `code:run-result`).
+- [x] Code over 64 KB returns `413 PAYLOAD_TOO_LARGE`: *"Source code exceeds the 64 KB limit."*
+- [x] A run exceeding 3 seconds shows: *"Time limit exceeded (3 s)."*
+- [x] After 10 runs per minute from the same user, the 11th returns `429 RATE_LIMITED`: *"Too many runs — try again in a few seconds."*
 
 ---
 
@@ -598,10 +598,10 @@
 > As any **logged-in user**, I want a private code editor page where I can run code just for myself so that I can experiment without affecting the shared room editor.
 
 **Acceptance Criteria:**
-- [ ] A `/playground` route shows a Monaco editor, language selector, stdin box, Run button, and output panel.
-- [ ] Code runs via `POST /execute` without a `roomId`; output is shown only to the user.
-- [ ] No code or output is shared to any room.
-- [ ] Same rate limits apply (10 runs/minute).
+- [x] A `/playground` route shows a Monaco editor, language selector, stdin box, Run button, and output panel.
+- [x] Code runs via `POST /execute` without a `roomId`; output is shown only to the user.
+- [x] No code or output is shared to any room.
+- [x] Same rate limits apply (10 runs/minute).
 
 ---
 
