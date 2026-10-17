@@ -185,7 +185,7 @@ Whiteboard
 - [x] `[D]` `wb:update` handler: permission check, merge, broadcast to the others
 - [x] `[D]` Whiteboard tab: `<Excalidraw viewModeEnabled={!canEdit}>`, 100 ms-throttled diff broadcast of changed elements, a reconcile function, and an echo guard
 - [x] `[D]` Disable the image tool, and load the snapshot on join
-- [ ] `[D]` React to a `perm:changed` for self by toggling view mode live
+- [x] `[D]` React to a `perm:changed` for self by toggling view mode live
 - [ ] `(P1)` `[D]` Host "Clear board" (`wb:clear` → `wb:cleared`)
 
 **Exit:**

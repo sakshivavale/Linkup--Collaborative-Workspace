@@ -662,9 +662,9 @@
 > As a **host**, I want to grant or revoke a student's whiteboard permission while the whiteboard is open so that I can invite students to draw at any moment.
 
 **Acceptance Criteria:**
-- [ ] Toggling `can_whiteboard` via the Participants panel sends `perm:changed` to the room.
-- [ ] The target student's view mode updates within 1 second without a page reload.
-- [ ] After being revoked, a subsequent `wb:update` from that student is rejected server-side.
+- [x] Toggling `can_whiteboard` via the Participants panel sends `perm:changed` to the room.
+- [x] The target student's view mode updates within 1 second without a page reload.
+- [x] After being revoked, a subsequent `wb:update` from that student is rejected server-side.
 
 ---
 
