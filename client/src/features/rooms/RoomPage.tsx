@@ -69,6 +69,7 @@ export const RoomPage: React.FC = () => {
   const [regenerated, setRegenerated] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [codeState, setCodeState] = useState<CodeState | null>(null);
+  const [boardState, setBoardState] = useState<{ elements: any[] } | null>(null);
 
   // US-CODE-08: Pending code editor pen requests count for host badge indicator
   const [pendingCodeRequests, setPendingCodeRequests] = useState(0);
@@ -237,6 +238,9 @@ export const RoomPage: React.FC = () => {
       }
       if (snapshot.code) {
         setCodeState(snapshot.code);
+      }
+      if (snapshot.board) {
+        setBoardState(snapshot.board);
       }
     };
 
@@ -816,7 +820,9 @@ export const RoomPage: React.FC = () => {
           {mainTab === 'whiteboard' && (
             <WhiteboardTab
               roomId={roomId!}
-              canWhiteboard={room.myRole === 'host' || Boolean(currentMember?.permissions?.canWhiteboard ?? true)}
+              canWhiteboard={room.myRole === 'host' || Boolean(currentMember?.permissions?.canWhiteboard ?? false)}
+              isHost={room.myRole === 'host'}
+              initialElements={boardState?.elements}
             />
           )}
           {mainTab === 'code' && (

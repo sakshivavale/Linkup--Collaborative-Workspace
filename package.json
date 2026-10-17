@@ -35,7 +35,8 @@
     "test:code-editor": "npm run test:code-editor --workspace=server",
     "test:code-give-pen": "npm run test:code-give-pen --workspace=server",
     "test:code-sync": "npm run test:code-sync --workspace=server",
-    "test:code-run": "npm run test:code-run --workspace=server"
+    "test:code-run": "npm run test:code-run --workspace=server",
+    "test:wb-view": "npm run test:wb-view --workspace=server"
   },
   "devDependencies": {
     "typescript": "^5.4.5"
