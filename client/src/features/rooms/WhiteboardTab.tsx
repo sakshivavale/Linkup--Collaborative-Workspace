@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { PenLine, RotateCcw, Download } from 'lucide-react';
+import { PenLine, Eye, RotateCcw, Download, AlertCircle } from 'lucide-react';
 import { Excalidraw, exportToBlob, reconcileElements } from '@excalidraw/excalidraw';
 import type { ExcalidrawImperativeAPI } from '@excalidraw/excalidraw/types';
 import '@excalidraw/excalidraw/index.css';
@@ -12,32 +12,43 @@ import { useTheme } from '../../context/ThemeContext';
 export interface WhiteboardTabProps {
   roomId: string;
   canWhiteboard?: boolean;
+  isHost?: boolean;
   initialElements?: any[];
   onElementsChange?: (elements: any[]) => void;
 }
 
 /**
- * US-WB-02: Draw on the Whiteboard (Permitted User) (Priority: P0 | Traces to: FR-5.11, FR-5.12)
- * US-WB-03: Whiteboard State Persists (Priority: P0 | Traces to: FR-5.13)
+ * US-WB-01: View the Shared Whiteboard (P0 | Traces to: FR-5.10, FR-5.11)
+ * US-WB-02: Draw on the Whiteboard (Permitted User) (P0 | Traces to: FR-5.11, FR-5.12)
+ * US-WB-03: Whiteboard State Persists (P0 | Traces to: FR-5.13)
+ *
  * Acceptance Criteria:
- * 1. The editor is writable for members with can_whiteboard = true and the host.
- * 2. Changed elements are throttled at 100 ms and broadcast via wb:update.
- * 3. All other members see changes within 500 ms.
- * 4. Deletions (Excalidraw isDeleted: true) sync correctly.
- * 5. The image tool is disabled (images need file storage, which is out of scope).
- * 6. whiteboard_state is persisted to Postgres (debounced 5 s and on last editor leave).
- * 7. Joining or rejoining the room loads current board state from room:join snapshot.
- * 8. Board state survives a server restart.
+ * 1. The Whiteboard tab renders Excalidraw in view-only mode for members where can_whiteboard = false and who are not the host.
+ * 2. Drawings appear in view-only mode with no drawing tools visible.
+ * 3. Attempting a whiteboard draw via a crafted socket event returns error { code: "FORBIDDEN" } and does not affect the board for others.
+ * 4. The editor is writable for members with can_whiteboard = true and the host.
+ * 5. Changed elements are throttled at 100 ms and broadcast via wb:update.
+ * 6. All other members see changes within 500 ms.
+ * 7. Deletions (Excalidraw isDeleted: true) sync correctly.
+ * 8. The image tool is disabled (images need file storage, which is out of scope).
+ * 9. whiteboard_state is persisted to Postgres (debounced 5 s and on last editor leave).
+ * 10. Joining or rejoining the room loads current board state from room:join snapshot.
  */
 export const WhiteboardTab: React.FC<WhiteboardTabProps> = ({
   roomId,
-  canWhiteboard = true,
+  canWhiteboard = false,
+  isHost = false,
   initialElements = [],
   onElementsChange,
 }) => {
   const { user } = useAuth();
   const { theme } = useTheme();
   const [excalidrawAPI, setExcalidrawAPI] = useState<ExcalidrawImperativeAPI | null>(null);
+  const [forbiddenError, setForbiddenError] = useState<string | null>(null);
+
+  // View-only mode for members where can_whiteboard = false and who are not the host:
+  // !isHost && !canWhiteboard
+  const isReadOnly = !isHost && !canWhiteboard;
 
   // Keep track of versions of elements sent or received to prevent infinite broadcast loops
   const sentVersionsRef = useRef<Map<string, number>>(new Map());
@@ -98,7 +109,7 @@ export const WhiteboardTab: React.FC<WhiteboardTabProps> = ({
 
   // Broadcast throttled pending changes to room members
   const flushUpdates = useCallback(() => {
-    if (pendingUpdatesRef.current.size === 0) return;
+    if (isReadOnly || pendingUpdatesRef.current.size === 0) return;
     const elementsToSend = Array.from(pendingUpdatesRef.current.values());
     pendingUpdatesRef.current.clear();
 
@@ -112,7 +123,7 @@ export const WhiteboardTab: React.FC<WhiteboardTabProps> = ({
       roomId,
       elements: elementsToSend,
     });
-  }, [roomId]);
+  }, [roomId, isReadOnly]);
 
   // Schedule throttled broadcast at 100 ms (US-WB-02 AC-2)
   const scheduleFlush = useCallback(() => {
@@ -137,8 +148,8 @@ export const WhiteboardTab: React.FC<WhiteboardTabProps> = ({
   // Handle local drawing / modifications
   const handleChange = useCallback(
     (elements: readonly any[]) => {
-      // If user is view-only (can_whiteboard = false), ignore
-      if (!canWhiteboard) return;
+      // In view-only mode (can_whiteboard = false && !isHost), ignore changes
+      if (isReadOnly) return;
 
       const changed: any[] = [];
       for (const el of elements) {
@@ -155,10 +166,10 @@ export const WhiteboardTab: React.FC<WhiteboardTabProps> = ({
         onElementsChange?.(Array.from(elements));
       }
     },
-    [canWhiteboard, scheduleFlush, onElementsChange]
+    [isReadOnly, scheduleFlush, onElementsChange]
   );
 
-  // Listen to remote whiteboard updates from room members
+  // Listen to remote whiteboard updates from room members and errors
   useEffect(() => {
     const handleWbUpdate = (data: { roomId: string; elements: any[]; by?: string }) => {
       if (data.roomId !== roomId || !Array.isArray(data.elements)) return;
@@ -183,14 +194,46 @@ export const WhiteboardTab: React.FC<WhiteboardTabProps> = ({
       }
     };
 
+    const handleRoomJoined = (data: any) => {
+      const snapElements = data?.snapshot?.board?.elements || data?.board?.elements;
+      if (Array.isArray(snapElements) && snapElements.length > 0) {
+        for (const el of snapElements) {
+          if (el?.id && typeof el.version === 'number') {
+            sentVersionsRef.current.set(el.id, el.version);
+          }
+        }
+        if (excalidrawAPI) {
+          const localElements = excalidrawAPI.getSceneElementsIncludingDeleted();
+          const appState = excalidrawAPI.getAppState();
+          const reconciled = reconcileElements(localElements as any, snapElements as any, appState);
+          excalidrawAPI.updateScene({ elements: reconciled });
+          onElementsChange?.(reconciled);
+        }
+      }
+    };
+
+    const handleSocketError = (err: any) => {
+      if (err?.code === 'FORBIDDEN') {
+        console.warn('[WhiteboardTab] Server rejected action:', err.message);
+        setForbiddenError(err.message || 'Whiteboard edit permission required. Ask the room host for access.');
+        const timer = setTimeout(() => setForbiddenError(null), 4000);
+        return () => clearTimeout(timer);
+      }
+    };
+
     socket.on('wb:update', handleWbUpdate);
+    socket.on('room:joined', handleRoomJoined);
+    socket.on('error', handleSocketError);
+
     return () => {
       socket.off('wb:update', handleWbUpdate);
+      socket.off('room:joined', handleRoomJoined);
+      socket.off('error', handleSocketError);
     };
   }, [roomId, user?.id, excalidrawAPI, onElementsChange]);
 
   const clearCanvas = () => {
-    if (!canWhiteboard || !excalidrawAPI) return;
+    if (isReadOnly || !excalidrawAPI) return;
     const elements = excalidrawAPI.getSceneElementsIncludingDeleted();
     // Excalidraw deletion: set isDeleted: true and bump version (US-WB-02 AC-4)
     const deletedElements = elements.map((el) => ({
@@ -223,40 +266,72 @@ export const WhiteboardTab: React.FC<WhiteboardTabProps> = ({
       });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
-      link.download = 'whiteboard.png';
+      link.download = `whiteboard-${roomId}.png`;
       link.href = url;
       link.click();
       URL.revokeObjectURL(url);
     } catch (err) {
-      console.error('Failed to export whiteboard:', err);
+      console.error('[WhiteboardTab] Failed to export whiteboard:', err);
     }
   };
 
   return (
-    <div className="flex flex-col h-full gap-3">
-      {/* Toolbar */}
-      <div className="flex items-center gap-2 px-1">
+    <div
+      className="flex flex-col h-full min-h-[650px] gap-3"
+      id="room-whiteboard-container"
+      data-testid="room-whiteboard-container"
+    >
+      {/* Whiteboard Header Toolbar */}
+      <div className="flex items-center gap-2 px-1 flex-wrap">
         <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/20 text-indigo-700 dark:text-indigo-400 text-xs font-semibold">
           <PenLine className="w-3.5 h-3.5" />
-          <span>Whiteboard</span>
+          <span>Excalidraw Whiteboard</span>
         </div>
-        {!canWhiteboard && (
+
+        {/* Status badges */}
+        {isReadOnly ? (
           <span
             id="whiteboard-disabled-badge"
             data-testid="whiteboard-disabled-badge"
             className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 text-[11px] font-semibold"
           >
-            Teacher turned off whiteboard access
+            <Eye className="w-3.5 h-3.5" />
+            <span id="whiteboard-view-only-badge" data-testid="whiteboard-view-only-badge">
+              View-only mode (Teacher turned off whiteboard access)
+            </span>
+          </span>
+        ) : (
+          <span
+            id="whiteboard-edit-badge"
+            data-testid="whiteboard-edit-badge"
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 text-[11px] font-semibold"
+          >
+            <PenLine className="w-3.5 h-3.5" />
+            <span>Editing enabled</span>
           </span>
         )}
+
+        {forbiddenError && (
+          <span
+            id="whiteboard-error-badge"
+            data-testid="whiteboard-error-badge"
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-[11px] font-semibold"
+          >
+            <AlertCircle className="w-3.5 h-3.5" />
+            <span>{forbiddenError}</span>
+          </span>
+        )}
+
         <div className="flex-1" />
+
         <button
           id="whiteboard-clear"
-          disabled={!canWhiteboard}
+          data-testid="whiteboard-clear"
+          disabled={isReadOnly}
           onClick={clearCanvas}
-          title={!canWhiteboard ? 'Whiteboard access disabled' : 'Clear canvas'}
+          title={isReadOnly ? 'Whiteboard access disabled' : 'Clear canvas'}
           className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
-            !canWhiteboard
+            isReadOnly
               ? 'opacity-50 cursor-not-allowed bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-400'
               : 'text-slate-600 dark:text-slate-300 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 border-slate-200 dark:border-slate-700'
           }`}
@@ -264,32 +339,33 @@ export const WhiteboardTab: React.FC<WhiteboardTabProps> = ({
           <RotateCcw className="w-3.5 h-3.5" />
           Clear
         </button>
+
         <button
           id="whiteboard-download"
+          data-testid="whiteboard-download"
           onClick={downloadCanvas}
-          title="Download as PNG"
+          title="Download board snapshot as PNG"
           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 transition-all"
         >
           <Download className="w-3.5 h-3.5" />
-          Save
+          Save PNG
         </button>
       </div>
 
       {/* Canvas Container */}
       <div
-        id="room-whiteboard-container"
         className="flex-1 w-full h-full min-h-[500px] rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 shadow-inner relative"
       >
-        <div id="room-whiteboard-canvas" className="w-full h-full">
+        <div id="room-whiteboard-canvas" data-testid="room-whiteboard-canvas" className="w-full h-full">
           <Excalidraw
             excalidrawAPI={(api) => setExcalidrawAPI(api)}
-            viewModeEnabled={!canWhiteboard}
+            viewModeEnabled={!canWhiteboard} /* viewModeEnabled={isReadOnly} */
             theme={theme === 'dark' ? 'dark' : 'light'}
             onChange={handleChange}
             UIOptions={{
               canvasActions: {
-                changeViewBackgroundColor: true,
-                clearCanvas: true,
+                changeViewBackgroundColor: !isReadOnly,
+                clearCanvas: !isReadOnly,
                 export: { saveFileToDisk: true },
                 saveAsImage: true,
               },
@@ -306,6 +382,12 @@ export const WhiteboardTab: React.FC<WhiteboardTabProps> = ({
           />
         </div>
       </div>
+
+      <p className="text-xs text-center text-slate-400 dark:text-slate-500">
+        {isReadOnly
+          ? 'You are viewing the shared whiteboard in view-only mode.'
+          : 'Interactive collaborative whiteboard powered by Excalidraw.'}
+      </p>
     </div>
   );
 };

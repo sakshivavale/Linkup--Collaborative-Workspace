@@ -239,8 +239,11 @@ export const RoomPage: React.FC = () => {
       if (snapshot.code) {
         setCodeState(snapshot.code);
       }
-      if (snapshot.board?.elements) {
-        setBoardElements(snapshot.board.elements);
+      if (snapshot.board) {
+        const elements = snapshot.board.elements || snapshot.board;
+        if (Array.isArray(elements)) {
+          setBoardElements(elements);
+        }
       }
     };
 
@@ -851,7 +854,8 @@ export const RoomPage: React.FC = () => {
           {mainTab === 'whiteboard' && (
             <WhiteboardTab
               roomId={roomId!}
-              canWhiteboard={room.myRole === 'host' || Boolean(currentMember?.permissions?.canWhiteboard ?? true)}
+              canWhiteboard={room.myRole === 'host' || Boolean(currentMember?.permissions?.canWhiteboard ?? false)}
+              isHost={room.myRole === 'host'}
               initialElements={boardElements}
               onElementsChange={setBoardElements}
             />
