@@ -55,7 +55,8 @@
     "test:sec-routes": "tsx scripts/test-all-api-routes-authenticated.ts",
     "test:sec-secrets": "tsx scripts/test-secrets-never-exposed.ts",
     "test:sec-sandbox": "tsx scripts/test-sandboxed-code-execution.ts",
-    "test:sec-perf": "tsx scripts/test-performance-targets.ts"
+    "test:sec-perf": "tsx scripts/test-performance-targets.ts",
+    "test:sec-scale": "tsx scripts/test-scalability-mvp.ts"
   },
   "dependencies": {
     "@linkup/shared": "*",
