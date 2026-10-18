@@ -903,8 +903,8 @@
 > As the **system**, the MVP must support up to 15 participants per room and 3 concurrent rooms on a single backend instance so that the demo can run without performance issues.
 
 **Acceptance Criteria:**
-- [ ] A 15-participant room with all features active (video, chat, code, whiteboard) runs without errors.
-- [ ] 3 concurrent rooms do not degrade each other's performance.
+- [x] A 15-participant room with all features active (video, chat, code, whiteboard) runs without errors.
+- [x] 3 concurrent rooms do not degrade each other's performance.
 
 ---
 
