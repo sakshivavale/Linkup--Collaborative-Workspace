@@ -79,6 +79,9 @@ io.use(socketAuthMiddleware);
 io.on('connection', (socket) => {
   const user = socket.data.user;
   console.log(`[Socket] Authenticated user connected: ${user?.fullName} (${user?.id}) - Socket ID: ${socket.id}`);
+  if (user?.id) {
+    socket.join(`user:${user.id}`);
+  }
 
   /**
    * Helper to extract roomId from either string or object payload
@@ -431,7 +434,14 @@ io.on('connection', (socket) => {
    */
   socket.on('chat:send', async (payload: any, ack?: (res: any) => void) => {
     const roomId = extractRoomId(payload);
-    const body = typeof payload?.body === 'string' ? payload.body : '';
+    const body =
+      typeof payload?.body === 'string'
+        ? payload.body
+        : typeof payload?.text === 'string'
+        ? payload.text
+        : typeof payload?.content === 'string'
+        ? payload.content
+        : '';
     const clientId = typeof payload?.clientId === 'string' ? payload.clientId : undefined;
 
     if (!roomId || !user?.id) {

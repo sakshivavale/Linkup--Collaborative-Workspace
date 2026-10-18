@@ -110,6 +110,18 @@ export function handleUserDisconnectScreenShare(
 }
 
 /**
+ * Clear active screen share for a room or all rooms (for testing cleanup)
+ */
+export function clearActiveScreenShare(roomId?: string): void {
+  if (roomId) {
+    const normalized = roomId.trim();
+    if (normalized) roomScreenShareMap.delete(normalized);
+  } else {
+    roomScreenShareMap.clear();
+  }
+}
+
+/**
  * Clear all screen shares (for testing)
  */
 export function clearAllScreenShares(): void {
