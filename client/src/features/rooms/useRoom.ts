@@ -151,21 +151,23 @@ export function useRoom(roomId: string | undefined): UseRoomResult {
         }
       } catch (err) {
         if (cancelled) return;
+        if (err instanceof HttpError) {
+          if (err.status === 403 && (err.code === 'NOT_A_MEMBER' || err.code === 'FORBIDDEN')) {
+            setError('NOT_A_MEMBER');
+            return;
+          } else if (err.status === 404) {
+            setError('NOT_FOUND');
+            return;
+          } else {
+            setError('UNKNOWN');
+            return;
+          }
+        }
         if (SAMPLE_ROOMS[roomId]) {
           setRoom(SAMPLE_ROOMS[roomId]);
           return;
         }
-        if (err instanceof HttpError) {
-          if (err.status === 403 && err.code === 'NOT_A_MEMBER') {
-            setError('NOT_A_MEMBER');
-          } else if (err.status === 404) {
-            setError('NOT_FOUND');
-          } else {
-            setError('UNKNOWN');
-          }
-        } else {
-          setError('UNKNOWN');
-        }
+        setError('UNKNOWN');
       } finally {
         if (!cancelled) setLoading(false);
       }

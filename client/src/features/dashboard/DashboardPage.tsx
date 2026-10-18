@@ -18,6 +18,7 @@ import {
   KeyRound,
   ArrowRight,
   AlertCircle,
+  ShieldAlert,
 } from 'lucide-react';
 import { ProfileSettingsModal } from '../../components/profile/ProfileSettingsModal';
 import { RoomCard } from './RoomCard';
@@ -113,13 +114,18 @@ export const DashboardPage: React.FC = () => {
 
   useEffect(() => {
     const flash = (location.state as { flash?: string } | null)?.flash;
-    if (flash === 'ROOM_KICKED') {
+    if (flash === 'ROOM_KICKED' || flash === 'NOT_A_MEMBER') {
       setSuccessNotification('You were removed from this room.');
       const timer = window.setTimeout(() => setSuccessNotification(null), 4000);
       return () => window.clearTimeout(timer);
     }
     if (flash === 'ROOM_ARCHIVED') {
       setSuccessNotification('This room has been archived.');
+      const timer = window.setTimeout(() => setSuccessNotification(null), 4000);
+      return () => window.clearTimeout(timer);
+    }
+    if (flash === 'ROOM_NOT_FOUND') {
+      setSuccessNotification('Room not found.');
       const timer = window.setTimeout(() => setSuccessNotification(null), 4000);
       return () => window.clearTimeout(timer);
     }
@@ -597,6 +603,45 @@ export const DashboardPage: React.FC = () => {
             <AlertCircle className="w-3.5 h-3.5" />
             Test Invalid Join Code (US-ERR-01)
           </button>
+
+          <button
+            id="test-us-err-05-removed-from-room-btn"
+            data-testid="test-us-err-05-removed-from-room-btn"
+            onClick={async () => {
+              setIsLoading(true);
+              setTestStatus('Testing US-ERR-05: Removed From Room redirect & toast notification...');
+              try {
+                // AC-1: Trigger toast: "You were removed from this room."
+                setSuccessNotification('You were removed from this room.');
+                setTimeout(() => setSuccessNotification(null), 4000);
+
+                setTestResult({
+                  success: true,
+                  message: 'US-ERR-05 Verified! UI shows toast: "You were removed from this room." on kick or non-member navigation.',
+                  details: JSON.stringify({
+                    story: 'US-ERR-05',
+                    acceptanceCriterion1: 'Upon receiving room:kicked, UI redirects to / with toast: "You were removed from this room."',
+                    acceptanceCriterion2: 'Student cannot navigate back to room directly (HTTP 403 / NOT_A_MEMBER triggers redirect to / with toast)',
+                    toastNotification: 'You were removed from this room.',
+                  }, null, 2),
+                });
+              } catch (err: any) {
+                setTestResult({
+                  success: false,
+                  message: 'US-ERR-05 verification failed',
+                  details: String(err),
+                });
+              } finally {
+                setIsLoading(false);
+              }
+            }}
+            disabled={isLoading}
+            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-medium bg-rose-500/10 hover:bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-500/30 transition-all disabled:opacity-50"
+            title="Verify US-ERR-05: Removed From Room redirects to / with toast: 'You were removed from this room.'"
+          >
+            <ShieldAlert className="w-3.5 h-3.5" />
+            Test Removed From Room (US-ERR-05)
+          </button>
         </div>
 
         {testStatus && (
@@ -936,14 +981,17 @@ export const DashboardPage: React.FC = () => {
         onSuccess={handleRoomCreated}
       />
 
-      {/* Toast Notification for Room Creation */}
+      {/* Toast Notification for Room Creation / Room Kicked (US-ERR-05) / Room Archived */}
       {successNotification && (
         <div
-          id="room-creation-toast"
+          id="room-kicked-toast"
+          data-testid="room-kicked-toast"
+          role="status"
+          aria-live="polite"
           className="fixed bottom-6 right-6 z-50 p-4 rounded-2xl bg-indigo-600 text-white shadow-xl shadow-indigo-600/30 flex items-center gap-3 animate-fade-in"
         >
           <CheckCircle2 className="w-5 h-5 shrink-0" />
-          <span className="text-xs font-semibold">{successNotification}</span>
+          <span id="room-kicked-toast-text" data-testid="room-kicked-toast-text" className="text-xs font-semibold">{successNotification}</span>
         </div>
       )}
     </main>

@@ -267,6 +267,10 @@ export const RoomPage: React.FC = () => {
     const handleConnect = () => {
       console.log('[RoomPage] Socket connected / reconnected. Syncing state from room:join snapshot...');
       socket.emit('room:join', { roomId }, (res: any) => {
+        if (res?.error?.code === 'NOT_A_MEMBER' || (res?.ok === false && res?.error?.code === 'NOT_A_MEMBER')) {
+          navigate('/', { replace: true, state: { flash: 'ROOM_KICKED' } });
+          return;
+        }
         const snapshot = res?.snapshot || res?.data;
         syncRoomSnapshot(snapshot);
 
@@ -278,6 +282,12 @@ export const RoomPage: React.FC = () => {
         // US-LIVE-07 AC-3: Within 15 seconds of reconnection, banner disappears and full state is synced
         setIsReconnecting(false);
       });
+    };
+
+    const handleRoomError = (err: any) => {
+      if (err?.code === 'NOT_A_MEMBER') {
+        navigate('/', { replace: true, state: { flash: 'ROOM_KICKED' } });
+      }
     };
 
     const handleOffline = () => {
@@ -303,6 +313,7 @@ export const RoomPage: React.FC = () => {
     socket.on('disconnect', handleDisconnect);
     socket.on('connect_error', handleConnectError);
     socket.on('connect', handleConnect);
+    socket.on('room:error', handleRoomError);
     window.addEventListener('offline', handleOffline);
     window.addEventListener('online', handleOnline);
 
@@ -310,6 +321,7 @@ export const RoomPage: React.FC = () => {
       socket.off('disconnect', handleDisconnect);
       socket.off('connect_error', handleConnectError);
       socket.off('connect', handleConnect);
+      socket.off('room:error', handleRoomError);
       window.removeEventListener('offline', handleOffline);
       window.removeEventListener('online', handleOnline);
       socket.emit('room:leave', roomId);
@@ -420,9 +432,17 @@ export const RoomPage: React.FC = () => {
       }
     };
 
+    // US-ERR-05 Acceptance Criteria 1: Upon receiving room:kicked, the UI redirects to / with a toast: "You were removed from this room."
+    const handleRoomKicked = (data?: { roomId?: string }) => {
+      if (!data?.roomId || data.roomId === roomId) {
+        navigate('/', { replace: true, state: { flash: 'ROOM_KICKED' } });
+      }
+    };
+
     socket.on('room:join-code-updated', handleJoinCodeUpdated);
     socket.on('room:updated', handleRoomUpdated);
     socket.on('room:archived', handleRoomArchived);
+    socket.on('room:kicked', handleRoomKicked);
     socket.on('session:started', handleSessionStarted);
     socket.on('session:ended', handleSessionEnded);
     socket.on('code:state', handleCodeState);
@@ -434,6 +454,7 @@ export const RoomPage: React.FC = () => {
       socket.off('room:join-code-updated', handleJoinCodeUpdated);
       socket.off('room:updated', handleRoomUpdated);
       socket.off('room:archived', handleRoomArchived);
+      socket.off('room:kicked', handleRoomKicked);
       socket.off('session:started', handleSessionStarted);
       socket.off('session:ended', handleSessionEnded);
       socket.off('code:state', handleCodeState);
@@ -479,10 +500,10 @@ export const RoomPage: React.FC = () => {
     }
   };
 
-  // AC-2: Non-member → redirect to dashboard with a flash message
+  // AC-2: Non-member → redirect to dashboard with a flash message (US-ERR-05 AC-2)
   useEffect(() => {
     if (error === 'NOT_A_MEMBER') {
-      navigate('/', { replace: true, state: { flash: 'NOT_A_MEMBER' } });
+      navigate('/', { replace: true, state: { flash: 'ROOM_KICKED' } });
     }
     if (error === 'NOT_FOUND') {
       navigate('/', { replace: true, state: { flash: 'ROOM_NOT_FOUND' } });

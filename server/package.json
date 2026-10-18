@@ -49,7 +49,8 @@
     "test:attendance-csv": "tsx scripts/test-attendance-export-csv.ts",
     "test:invalid-join-code": "tsx scripts/test-invalid-join-code.ts",
     "test:join-live-no-session": "tsx scripts/test-join-live-no-session.ts",
-    "test:camera-mic-permission": "tsx scripts/test-camera-mic-permission-denied.ts"
+    "test:camera-mic-permission": "tsx scripts/test-camera-mic-permission-denied.ts",
+    "test:removed-from-room": "tsx scripts/test-removed-from-room.ts"
   },
   "dependencies": {
     "@linkup/shared": "*",

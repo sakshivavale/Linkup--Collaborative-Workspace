@@ -466,6 +466,9 @@ export function kickUserFromRoom(io: any, roomId: string, targetUserId: string) 
     removeSocketFromRoom(roomKey, socket.id);
   }
 
+  // Also emit to user's direct channel for multi-tab or pending connections
+  io.to(`user:${targetUserId}`).emit('room:kicked', { roomId: roomKey });
+
   const presence = getRoomPresence(roomKey);
   io.to(roomKey).emit('presence:update', {
     roomId: roomKey,
@@ -483,8 +486,8 @@ export function kickUserFromRoom(io: any, roomId: string, targetUserId: string) 
   };
 }
 
-// Remove a room member (host-only) — US-ROOM-03, FR-2.5
-app.delete('/api/rooms/:roomId/members/:userId', async (req: Request, res: Response) => {
+// Remove a room member (host-only) — US-ROOM-03, US-ERR-05, FR-2.5
+app.delete(['/api/rooms/:roomId/members/:userId', '/rooms/:roomId/members/:userId'], requireAuth, async (req: Request, res: Response) => {
   const user = req.user;
   if (!user) {
     return res.status(401).json({
@@ -779,8 +782,16 @@ export async function handleBulkPermissions(req: Request, res: Response) {
   }
 }
 
-app.post('/api/rooms/:roomId/permissions/bulk', handleBulkPermissions);
-app.post('/rooms/:roomId/permissions/bulk', handleBulkPermissions);
+app.post(
+  [
+    '/api/rooms/:roomId/permissions/bulk',
+    '/rooms/:roomId/permissions/bulk',
+    '/api/rooms/:roomId/bulk-permissions',
+    '/rooms/:roomId/bulk-permissions',
+  ],
+  requireAuth,
+  handleBulkPermissions
+);
 
 // Mint LiveKit access token enforcing permissions (US-PERM-05 AC-1, FR-4.6, api-contract §3.4)
 app.post(['/api/rooms/:roomId/livekit-token', '/rooms/:roomId/livekit-token'], requireAuth, async (req: Request, res: Response) => {

@@ -46,7 +46,8 @@
     "test:attendance-view": "npm run test:attendance-view --workspace=server",
     "test:invalid-join-code": "npm run test:invalid-join-code --workspace=server",
     "test:join-live-no-session": "npm run test:join-live-no-session --workspace=server",
-    "test:camera-mic-permission": "npm run test:camera-mic-permission --workspace=server"
+    "test:camera-mic-permission": "npm run test:camera-mic-permission --workspace=server",
+    "test:removed-from-room": "npm run test:removed-from-room --workspace=server"
   },
   "devDependencies": {
     "typescript": "^5.4.5"
