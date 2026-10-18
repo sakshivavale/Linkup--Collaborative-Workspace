@@ -890,10 +890,10 @@
 > As a **user**, I want the platform to be fast and responsive so that it feels professional.
 
 **Acceptance Criteria:**
-- [ ] Permission change is reflected on the target client in under 1 second.
-- [ ] Chat messages appear for all online members in under 500 ms.
-- [ ] Code syncs to viewers in under 300 ms after the debounce fires.
-- [ ] The dashboard loads in under 2 seconds on broadband.
+- [x] Permission change is reflected on the target client in under 1 second.
+- [x] Chat messages appear for all online members in under 500 ms.
+- [x] Code syncs to viewers in under 300 ms after the debounce fires.
+- [x] The dashboard loads in under 2 seconds on broadband.
 
 ---
 
