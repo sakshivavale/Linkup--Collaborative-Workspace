@@ -854,10 +854,10 @@
 > As the **system**, every API route and socket event must require authentication and verify room membership and permissions server-side so that no action can be performed without authorisation.
 
 **Acceptance Criteria:**
-- [ ] `requireAuth` middleware is applied to every route except `GET /health`.
-- [ ] `requireMember` is applied to every `/rooms/:id/*` route.
-- [ ] `requireHost` is applied to host-only routes (start/end session, permission changes, remove member).
-- [ ] Socket handlers re-check membership and flags from DB/cache on every event, not just on `room:join`.
+- [x] `requireAuth` middleware is applied to every route except `GET /health`.
+- [x] `requireMember` is applied to every `/rooms/:id/*` route.
+- [x] `requireHost` is applied to host-only routes (start/end session, permission changes, remove member).
+- [x] Socket handlers re-check membership and flags from DB/cache on every event, not just on `room:join`.
 
 ---
 
