@@ -50,7 +50,8 @@
     "test:invalid-join-code": "tsx scripts/test-invalid-join-code.ts",
     "test:join-live-no-session": "tsx scripts/test-join-live-no-session.ts",
     "test:camera-mic-permission": "tsx scripts/test-camera-mic-permission-denied.ts",
-    "test:removed-from-room": "tsx scripts/test-removed-from-room.ts"
+    "test:removed-from-room": "tsx scripts/test-removed-from-room.ts",
+    "test:socket-disconnect": "tsx scripts/test-socket-disconnected-banner.ts"
   },
   "dependencies": {
     "@linkup/shared": "*",

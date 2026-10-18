@@ -266,6 +266,9 @@ export const RoomPage: React.FC = () => {
 
     const handleConnect = () => {
       console.log('[RoomPage] Socket connected / reconnected. Syncing state from room:join snapshot...');
+      // US-ERR-08 AC-3: The banner disappears and controls re-enable within 1 second of reconnection
+      setIsReconnecting(false);
+
       socket.emit('room:join', { roomId }, (res: any) => {
         if (res?.error?.code === 'NOT_A_MEMBER' || (res?.ok === false && res?.error?.code === 'NOT_A_MEMBER')) {
           navigate('/', { replace: true, state: { flash: 'ROOM_KICKED' } });
@@ -278,9 +281,6 @@ export const RoomPage: React.FC = () => {
         if (isInCall) {
           socket.emit('live:joined', { roomId });
         }
-
-        // US-LIVE-07 AC-3: Within 15 seconds of reconnection, banner disappears and full state is synced
-        setIsReconnecting(false);
       });
     };
 
@@ -302,6 +302,10 @@ export const RoomPage: React.FC = () => {
       }
     };
 
+    const handleReconnectAttempt = () => {
+      setIsReconnecting(true);
+    };
+
     if (!socket.connected) {
       socket.connect();
     }
@@ -314,6 +318,8 @@ export const RoomPage: React.FC = () => {
     socket.on('connect_error', handleConnectError);
     socket.on('connect', handleConnect);
     socket.on('room:error', handleRoomError);
+    socket.io.on('reconnect_attempt', handleReconnectAttempt);
+    socket.io.on('reconnect', handleConnect);
     window.addEventListener('offline', handleOffline);
     window.addEventListener('online', handleOnline);
 
@@ -322,6 +328,8 @@ export const RoomPage: React.FC = () => {
       socket.off('connect_error', handleConnectError);
       socket.off('connect', handleConnect);
       socket.off('room:error', handleRoomError);
+      socket.io.off('reconnect_attempt', handleReconnectAttempt);
+      socket.io.off('reconnect', handleConnect);
       window.removeEventListener('offline', handleOffline);
       window.removeEventListener('online', handleOnline);
       socket.emit('room:leave', roomId);
@@ -547,7 +555,7 @@ export const RoomPage: React.FC = () => {
   // ── Main room workspace ────────────────────────────────────────────────────
   return (
     <div className="flex flex-col flex-1 h-full overflow-hidden">
-      {/* US-LIVE-07 Acceptance Criteria 1: A top-of-screen "Reconnecting..." banner appears when the connection drops */}
+      {/* US-ERR-08 & US-LIVE-07: Persistent top-of-screen "Reconnecting..." banner appears on socket disconnect */}
       {isReconnecting && (
         <aside
           id="reconnecting-banner"
@@ -557,7 +565,7 @@ export const RoomPage: React.FC = () => {
           className="shrink-0 bg-amber-500 text-slate-950 font-bold px-4 py-2 text-xs sm:text-sm flex items-center justify-center gap-2 shadow-md animate-pulse z-50 border-b border-amber-600/30"
         >
           <RefreshCw className="w-4 h-4 animate-spin text-slate-950 shrink-0" />
-          <span>Reconnecting... Network connection dropped. Re-syncing room state.</span>
+          <span>Reconnecting... Network connection dropped. Real-time features are temporarily unavailable.</span>
         </aside>
       )}
 
@@ -953,6 +961,7 @@ export const RoomPage: React.FC = () => {
               isHost={room.myRole === 'host'}
               initialElements={boardElements}
               onElementsChange={setBoardElements}
+              disabled={isReconnecting}
             />
           )}
           {mainTab === 'code' && (
@@ -963,6 +972,7 @@ export const RoomPage: React.FC = () => {
               initialCodeState={codeState}
               onCodeStateChange={setCodeState}
               isHost={room.myRole === 'host'}
+              disabled={isReconnecting}
             />
           )}
         </main>
