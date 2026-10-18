@@ -585,6 +585,18 @@ export const CodeTab: React.FC<CodeTabProps> = ({
     }
   };
 
+  // US-ERR-06: Clean partial stderr by removing appended timeout string so partial stderr can be displayed cleanly above timeout banner
+  // US-RUN-02 AC-7: Displays "Time limit exceeded (3 s)." on timeout
+  const displayStderr = useMemo(() => {
+    if (!runResult?.stderr) return '';
+    if (runResult.timedOut) {
+      return runResult.stderr
+        .replace(/(\r?\n)?Time limit exceeded \(3 s\)\.?/g, '')
+        .trim();
+    }
+    return runResult.stderr;
+  }, [runResult?.stderr, runResult?.timedOut]);
+
   const monacoLanguage = useMemo(() => {
     const matched = LANGUAGES.find((l) => l.id === language);
     return matched?.monacoLang || 'python';
@@ -975,18 +987,6 @@ export const CodeTab: React.FC<CodeTabProps> = ({
             </div>
           </div>
 
-          {/* Timeout banner */}
-          {(runResult?.timedOut || runResult?.stderr?.includes('Time limit exceeded (3 s).')) && (
-            <div
-              id="code-run-timeout"
-              data-testid="code-run-timeout"
-              className="flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-semibold"
-            >
-              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
-              <span>Time limit exceeded (3 s).</span>
-            </div>
-          )}
-
           {/* Error banner (e.g. 413, 429, 502) */}
           {runError && (
             <div
@@ -999,7 +999,7 @@ export const CodeTab: React.FC<CodeTabProps> = ({
             </div>
           )}
 
-          {/* Stdout display */}
+          {/* Partial stdout display (US-ERR-06 AC-2: shown above timeout message) */}
           {runResult?.stdout && (
             <div
               id="code-run-stdout"
@@ -1010,14 +1010,26 @@ export const CodeTab: React.FC<CodeTabProps> = ({
             </div>
           )}
 
-          {/* Stderr display (highlighted in red) */}
-          {runResult?.stderr && (
+          {/* Partial stderr display (US-ERR-06 AC-2: shown above timeout message) */}
+          {displayStderr && (
             <div
               id="code-run-stderr"
               data-testid="code-run-stderr"
               className="text-rose-400 bg-rose-950/30 p-2.5 rounded-xl border border-rose-900/40 whitespace-pre-wrap leading-relaxed font-mono"
             >
-              {runResult.stderr}
+              {displayStderr}
+            </div>
+          )}
+
+          {/* Timeout banner (US-ERR-06 AC-1 & US-RUN-02 AC-7: shown below partial stdout/stderr when timedOut: true) */}
+          {(runResult?.timedOut || runResult?.stderr?.includes('Time limit exceeded (3 s)')) && (
+            <div
+              id="code-run-timeout"
+              data-testid="code-run-timeout"
+              className="flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-semibold"
+            >
+              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+              <span>Time limit exceeded (3 s)</span>
             </div>
           )}
 
