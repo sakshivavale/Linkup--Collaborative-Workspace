@@ -14,6 +14,9 @@ import {
   Hand,
   Radio,
   Info,
+  ShieldAlert,
+  ExternalLink,
+  X,
 } from 'lucide-react';
 import { socket } from '../../lib/socket';
 import VideoGrid from './VideoGrid';
@@ -21,7 +24,7 @@ import { mapParticipantsFromPresence, Participant } from './participantUtils';
 import { useRoom } from './useRoom';
 import { useAuth } from '../../context/AuthContext';
 import { ActiveScreenShare, Permissions } from '@linkup/shared';
-import { useMediaDevices } from './useMediaDevices';
+import { useMediaDevices, isPermissionDeniedError, PERMISSION_DENIED_MESSAGE, BROWSER_PERMISSION_HELP_URL } from './useMediaDevices';
 import { DevicePickerModal } from './DevicePickerModal';
 
 interface LiveTabProps {
@@ -33,6 +36,7 @@ interface LiveTabProps {
   isHost?: boolean;
   disabled?: boolean;
   isReconnecting?: boolean;
+  onMediaPermissionError?: (isDenied: boolean) => void;
 }
 
 /**
@@ -52,6 +56,7 @@ export const LiveTab: React.FC<LiveTabProps> = ({
   isHost: propIsHost,
   disabled = false,
   isReconnecting = false,
+  onMediaPermissionError,
 }) => {
   const isControlsDisabled = Boolean(disabled || isReconnecting);
   const { user } = useAuth();
@@ -62,9 +67,10 @@ export const LiveTab: React.FC<LiveTabProps> = ({
   const [internalInCall, setInternalInCall] = useState(Boolean(sessionId));
   const inCall = controlledInCall !== undefined ? controlledInCall : internalInCall;
 
-  // Media devices management (US-LIVE-08)
+  // Media devices management (US-LIVE-08, US-ERR-03)
   const [isDevicePickerOpen, setIsDevicePickerOpen] = useState(false);
   const [deviceNotification, setDeviceNotification] = useState<string | null>(null);
+  const [mediaPermissionDenied, setMediaPermissionDenied] = useState<boolean>(false);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
 
   const mediaDevices = useMediaDevices({
@@ -74,6 +80,19 @@ export const LiveTab: React.FC<LiveTabProps> = ({
       setTimeout(() => setDeviceNotification(null), 3000);
     },
   });
+
+  // US-ERR-03: Sync mediaDevices permission denial state & notify parent
+  useEffect(() => {
+    if (mediaDevices.permissionDenied) {
+      setMediaPermissionDenied(true);
+    }
+  }, [mediaDevices.permissionDenied]);
+
+  useEffect(() => {
+    if (onMediaPermissionError) {
+      onMediaPermissionError(mediaPermissionDenied);
+    }
+  }, [mediaPermissionDenied, onMediaPermissionError]);
 
   // Screen share state
   const [activeScreenShare, setActiveScreenShare] = useState<ActiveScreenShare | null>(
@@ -199,8 +218,13 @@ export const LiveTab: React.FC<LiveTabProps> = ({
               localVideoRef.current.play().catch(() => {});
             }
           }
-        } catch (err) {
+        } catch (err: any) {
           console.warn('[LiveTab] Camera getUserMedia error:', err);
+          // US-ERR-03: Detect browser camera permission denial
+          if (isPermissionDeniedError(err)) {
+            setMediaPermissionDenied(true);
+            setCamOn(false); // Gracefully disable camera toggle so it does not loop
+          }
         }
       }
     };
@@ -211,6 +235,58 @@ export const LiveTab: React.FC<LiveTabProps> = ({
       active = false;
     };
   }, [camOn, inCall, mediaDevices.selectedVideoInput]);
+
+  // US-ERR-03: Handle local microphone audio stream with browser permission denial protection
+  useEffect(() => {
+    let active = true;
+    const updateAudioStream = async () => {
+      if (!micOn || !inCall) {
+        return;
+      }
+
+      // Check if localStream already has an active audio track
+      const existingAudioTrack = mediaDevices.localStream?.getAudioTracks()[0];
+      if (existingAudioTrack && existingAudioTrack.readyState === 'live') {
+        existingAudioTrack.enabled = true;
+        return;
+      }
+
+      if (typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia) {
+        try {
+          const constraints: MediaStreamConstraints = {
+            audio:
+              mediaDevices.selectedAudioInput !== 'default'
+                ? { deviceId: { exact: mediaDevices.selectedAudioInput } }
+                : true,
+          };
+          const stream = await navigator.mediaDevices.getUserMedia(constraints);
+          if (active) {
+            mediaDevices.setLocalStream((prev) => {
+              if (prev) {
+                prev.getAudioTracks().forEach((t) => t.stop());
+                const videoTracks = prev.getVideoTracks();
+                return new MediaStream([...stream.getAudioTracks(), ...videoTracks]);
+              }
+              return stream;
+            });
+            mediaDevices.setupAudioMeter(stream);
+          }
+        } catch (err: any) {
+          console.warn('[LiveTab] Microphone getUserMedia error:', err);
+          if (isPermissionDeniedError(err)) {
+            setMediaPermissionDenied(true);
+            setMicOn(false); // Gracefully disable mic toggle so it does not loop
+          }
+        }
+      }
+    };
+
+    updateAudioStream();
+
+    return () => {
+      active = false;
+    };
+  }, [micOn, inCall, mediaDevices.selectedAudioInput]);
 
   // US-LIVE-04 Acceptance Criteria 1:
   // can_screen = true (or user is host)
@@ -522,6 +598,84 @@ export const LiveTab: React.FC<LiveTabProps> = ({
         >
           <Info className="w-4 h-4 text-amber-500 shrink-0" />
           <span>{joinError}</span>
+        </div>
+      )}
+
+      {/* US-ERR-03: Camera and Mic Browser Permission Denied (FRD Section 7) */}
+      {mediaPermissionDenied && (
+        <div
+          id="media-permission-denied-alert"
+          data-testid="media-permission-denied-alert"
+          role="alert"
+          className="flex flex-col sm:flex-row items-center justify-between gap-3.5 p-4 rounded-2xl bg-amber-500/15 border border-amber-500/30 text-amber-900 dark:text-amber-200 shadow-xl backdrop-blur-sm max-w-2xl w-full text-center sm:text-left animate-fade-in z-20"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-600 dark:text-amber-400 shrink-0">
+              <ShieldAlert className="w-5 h-5" />
+            </div>
+            <div>
+              <p
+                id="media-permission-denied-message"
+                data-testid="media-permission-denied-message"
+                className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white"
+              >
+                {PERMISSION_DENIED_MESSAGE}
+              </p>
+              <p className="text-[11px] text-slate-600 dark:text-slate-300 mt-0.5">
+                Camera or microphone access was blocked by your browser. You can still use chat, code, and whiteboard.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <a
+              id="media-permission-help-link"
+              data-testid="media-permission-help-link"
+              href={BROWSER_PERMISSION_HELP_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 shadow-sm transition-colors cursor-pointer"
+              title="Learn how to allow camera and mic permissions in your browser"
+            >
+              <span>Help</span>
+              <ExternalLink className="w-3.5 h-3.5" />
+            </a>
+            <button
+              type="button"
+              id="media-permission-retry-btn"
+              data-testid="media-permission-retry-btn"
+              onClick={async () => {
+                try {
+                  const granted = await mediaDevices.requestPermissions();
+                  if (granted) {
+                    setMediaPermissionDenied(false);
+                    if (mediaDevices.clearPermissionDenied) {
+                      mediaDevices.clearPermissionDenied();
+                    }
+                  }
+                } catch {
+                  // Keep permission denied message
+                }
+              }}
+              className="px-3 py-1.5 rounded-xl text-xs font-semibold text-amber-900 dark:text-amber-200 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 transition-colors cursor-pointer"
+            >
+              Try Again
+            </button>
+            <button
+              type="button"
+              id="media-permission-dismiss-btn"
+              data-testid="media-permission-dismiss-btn"
+              onClick={() => {
+                setMediaPermissionDenied(false);
+                if (mediaDevices.clearPermissionDenied) {
+                  mediaDevices.clearPermissionDenied();
+                }
+              }}
+              className="p-1 rounded-lg text-amber-700 dark:text-amber-300 hover:bg-amber-500/20 transition-colors"
+              aria-label="Dismiss alert"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       )}
 
@@ -883,6 +1037,7 @@ export const LiveTab: React.FC<LiveTabProps> = ({
         onRequestPermissions={mediaDevices.requestPermissions}
         onPlayTestSound={mediaDevices.playTestSound}
         hasPermission={mediaDevices.hasPermission}
+        permissionDenied={mediaDevices.permissionDenied || mediaPermissionDenied}
         audioLevel={mediaDevices.audioLevel}
         previewStream={mediaDevices.previewStream}
         onStartPreview={mediaDevices.startCameraPreview}

@@ -126,10 +126,6 @@ async function runTests() {
       email: 'teacher-wb@linkup.test',
       fullName: 'Prof. Ada Lovelace',
       role: 'teacher',
-      avatarUrl: null,
-      bio: null,
-      phone: null,
-      organization: 'Linkup Univ',
     };
 
     const permittedStudent: Me = {
@@ -137,10 +133,6 @@ async function runTests() {
       email: 'student-perm@linkup.test',
       fullName: 'Claude Shannon',
       role: 'student',
-      avatarUrl: null,
-      bio: null,
-      phone: null,
-      organization: 'Linkup Univ',
     };
 
     const restrictedStudent: Me = {
@@ -148,10 +140,6 @@ async function runTests() {
       email: 'student-restr@linkup.test',
       fullName: 'Charles Babbage',
       role: 'student',
-      avatarUrl: null,
-      bio: null,
-      phone: null,
-      organization: 'Linkup Univ',
     };
 
     const lateStudent: Me = {
@@ -159,10 +147,6 @@ async function runTests() {
       email: 'student-late@linkup.test',
       fullName: 'Alan Turing',
       role: 'student',
-      avatarUrl: null,
-      bio: null,
-      phone: null,
-      organization: 'Linkup Univ',
     };
 
     const teacherToken = 'mock-token-teacher-wb-02';
@@ -181,8 +165,7 @@ async function runTests() {
       {
         userId: teacherUser.id,
         fullName: teacherUser.fullName,
-        role: teacherUser.role,
-        avatarUrl: null,
+        userRole: teacherUser.role,
         joinedAt: new Date().toISOString(),
         memberRole: 'host',
         permissions: { canMic: true, canCamera: true, canScreen: true, canWhiteboard: true, canCode: true },
@@ -190,8 +173,7 @@ async function runTests() {
       {
         userId: permittedStudent.id,
         fullName: permittedStudent.fullName,
-        role: permittedStudent.role,
-        avatarUrl: null,
+        userRole: permittedStudent.role,
         joinedAt: new Date().toISOString(),
         memberRole: 'participant',
         permissions: { canMic: true, canCamera: true, canScreen: true, canWhiteboard: true, canCode: true },
@@ -199,8 +181,7 @@ async function runTests() {
       {
         userId: restrictedStudent.id,
         fullName: restrictedStudent.fullName,
-        role: restrictedStudent.role,
-        avatarUrl: null,
+        userRole: restrictedStudent.role,
         joinedAt: new Date().toISOString(),
         memberRole: 'participant',
         permissions: { canMic: true, canCamera: true, canScreen: false, canWhiteboard: false, canCode: true },
@@ -208,8 +189,7 @@ async function runTests() {
       {
         userId: lateStudent.id,
         fullName: lateStudent.fullName,
-        role: lateStudent.role,
-        avatarUrl: null,
+        userRole: lateStudent.role,
         joinedAt: new Date().toISOString(),
         memberRole: 'participant',
         permissions: { canMic: true, canCamera: true, canScreen: true, canWhiteboard: true, canCode: true },

@@ -784,8 +784,8 @@
 > As a **user** whose browser blocks camera or mic access, I want a helpful error message so that I know how to fix it.
 
 **Acceptance Criteria:**
-- [ ] If `getUserMedia` is denied by the browser, the UI shows: *"Allow camera/mic access in your browser settings"* with a help link.
-- [ ] The app does not crash; the user can still use chat, code, and whiteboard.
+- [x] If `getUserMedia` is denied by the browser, the UI shows: *"Allow camera/mic access in your browser settings"* with a help link.
+- [x] The app does not crash; the user can still use chat, code, and whiteboard.
 
 ---
 

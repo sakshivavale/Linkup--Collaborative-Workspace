@@ -31,6 +31,30 @@ const DEFAULT_DEVICES = {
   },
 };
 
+export const PERMISSION_DENIED_MESSAGE = 'Allow camera/mic access in your browser settings';
+export const BROWSER_PERMISSION_HELP_URL = 'https://support.google.com/chrome/answer/2693767';
+
+/**
+ * Checks whether an error from getUserMedia or mediaDevices is a browser permission denial
+ * (US-ERR-03 / FRD Section 7)
+ */
+export function isPermissionDeniedError(err: any): boolean {
+  if (!err) return false;
+  const name = err.name || '';
+  const message = (err.message || '').toLowerCase();
+  return (
+    name === 'NotAllowedError' ||
+    name === 'PermissionDeniedError' ||
+    name === 'SecurityError' ||
+    name === 'AbortError' ||
+    message.includes('permission denied') ||
+    message.includes('not allowed') ||
+    message.includes('permission dismissed') ||
+    message.includes('permission') ||
+    message.includes('denied')
+  );
+}
+
 export interface UseMediaDevicesOptions {
   enableAudioOnStart?: boolean;
   enableVideoOnStart?: boolean;
@@ -55,8 +79,15 @@ export function useMediaDevices(options: UseMediaDevicesOptions = {}) {
   });
 
   const [hasPermission, setHasPermission] = useState(false);
+  const [permissionDenied, setPermissionDenied] = useState(false);
+  const [permissionErrorMessage, setPermissionErrorMessage] = useState<string | null>(null);
   const [isSwitchingDevice, setIsSwitchingDevice] = useState(false);
   const [deviceError, setDeviceError] = useState<string | null>(null);
+
+  const clearPermissionDenied = useCallback(() => {
+    setPermissionDenied(false);
+    setPermissionErrorMessage(null);
+  }, []);
 
   // Active streams
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
@@ -172,13 +203,17 @@ export function useMediaDevices(options: UseMediaDevicesOptions = {}) {
   /**
    * Explicitly request device permissions to reveal device labels
    */
-  const requestPermissions = useCallback(async () => {
+  const requestPermissions = useCallback(async (): Promise<boolean> => {
     if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+      setPermissionDenied(true);
+      setPermissionErrorMessage(PERMISSION_DENIED_MESSAGE);
       return false;
     }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
       setHasPermission(true);
+      setPermissionDenied(false);
+      setPermissionErrorMessage(null);
       // Immediately stop temporary permission tracks
       stream.getTracks().forEach((track) => track.stop());
       await refreshDevices();
@@ -190,9 +225,15 @@ export function useMediaDevices(options: UseMediaDevicesOptions = {}) {
         const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
         audioStream.getTracks().forEach((t) => t.stop());
         setHasPermission(true);
+        setPermissionDenied(false);
+        setPermissionErrorMessage(null);
         await refreshDevices();
         return true;
-      } catch {
+      } catch (audioErr: any) {
+        if (isPermissionDeniedError(err) || isPermissionDeniedError(audioErr)) {
+          setPermissionDenied(true);
+          setPermissionErrorMessage(PERMISSION_DENIED_MESSAGE);
+        }
         return false;
       }
     }
@@ -309,6 +350,10 @@ export function useMediaDevices(options: UseMediaDevicesOptions = {}) {
             }
           } catch (err: any) {
             console.warn('[useMediaDevices] Failed to acquire new audio track:', err);
+            if (isPermissionDeniedError(err)) {
+              setPermissionDenied(true);
+              setPermissionErrorMessage(PERMISSION_DENIED_MESSAGE);
+            }
             // Non-fatal: do not disconnect call
             setDeviceError('Could not switch microphone hardware: ' + (err.message || 'Access error'));
           }
@@ -373,6 +418,10 @@ export function useMediaDevices(options: UseMediaDevicesOptions = {}) {
             }
           } catch (err: any) {
             console.warn('[useMediaDevices] Failed to acquire new camera track:', err);
+            if (isPermissionDeniedError(err)) {
+              setPermissionDenied(true);
+              setPermissionErrorMessage(PERMISSION_DENIED_MESSAGE);
+            }
             setDeviceError('Could not switch camera hardware: ' + (err.message || 'Access error'));
           }
         }
@@ -468,8 +517,12 @@ export function useMediaDevices(options: UseMediaDevicesOptions = {}) {
       };
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       setPreviewStream(stream);
-    } catch (err) {
+    } catch (err: any) {
       console.warn('[useMediaDevices] startCameraPreview error:', err);
+      if (isPermissionDeniedError(err)) {
+        setPermissionDenied(true);
+        setPermissionErrorMessage(PERMISSION_DENIED_MESSAGE);
+      }
     }
   }, [selectedVideoInput]);
 
@@ -504,12 +557,16 @@ export function useMediaDevices(options: UseMediaDevicesOptions = {}) {
     selectedVideoInput,
     selectedAudioOutput,
     hasPermission,
+    permissionDenied,
+    permissionErrorMessage,
+    clearPermissionDenied,
     isSwitchingDevice,
     deviceError,
     audioLevel,
     localStream,
     setLocalStream,
     previewStream,
+    setupAudioMeter,
     refreshDevices,
     requestPermissions,
     switchAudioInput,
