@@ -139,6 +139,17 @@ export const PlaygroundPage: React.FC = () => {
     setRunError(null);
   };
 
+  // US-ERR-06: Extract partial stderr excluding appended timeout string
+  const displayStderr = useMemo(() => {
+    if (!runResult?.stderr) return '';
+    if (runResult.timedOut) {
+      return runResult.stderr
+        .replace(/(\r?\n)?Time limit exceeded \(3 s\)\.?/g, '')
+        .trim();
+    }
+    return runResult.stderr;
+  }, [runResult?.stderr, runResult?.timedOut]);
+
   // AC 2: Code runs via POST /execute without a roomId; output is shown only to the user.
   // AC 3: No code or output is shared to any room.
   // AC 4: Same rate limits apply (10 runs/minute).
@@ -435,18 +446,6 @@ export const PlaygroundPage: React.FC = () => {
 
             {/* Output Panel Body */}
             <div className="flex-1 overflow-y-auto space-y-2.5 max-h-[500px]">
-              {/* Timeout banner */}
-              {(runResult?.timedOut || runResult?.stderr?.includes('Time limit exceeded (3 s).')) && (
-                <div
-                  id="playground-output-timeout"
-                  data-testid="playground-output-timeout"
-                  className="flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-semibold"
-                >
-                  <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span>Time limit exceeded (3 s).</span>
-                </div>
-              )}
-
               {/* Error banner (e.g. 429 RATE_LIMITED, 413, 502) */}
               {runError && (
                 <div
@@ -459,7 +458,7 @@ export const PlaygroundPage: React.FC = () => {
                 </div>
               )}
 
-              {/* Stdout display */}
+              {/* Stdout display (US-ERR-06: partial stdout shown above timeout banner) */}
               {runResult?.stdout && (
                 <div
                   id="playground-output-stdout"
@@ -470,14 +469,26 @@ export const PlaygroundPage: React.FC = () => {
                 </div>
               )}
 
-              {/* Stderr display */}
-              {runResult?.stderr && (
+              {/* Stderr display (US-ERR-06: partial stderr shown above timeout banner) */}
+              {displayStderr && (
                 <div
                   id="playground-output-stderr"
                   data-testid="playground-output-stderr"
                   className="text-rose-400 bg-rose-950/30 p-2.5 rounded-xl border border-rose-900/40 whitespace-pre-wrap leading-relaxed font-mono"
                 >
-                  {runResult.stderr}
+                  {displayStderr}
+                </div>
+              )}
+
+              {/* Timeout banner (US-ERR-06: shown below partial stdout/stderr when timedOut: true) */}
+              {(runResult?.timedOut || runResult?.stderr?.includes('Time limit exceeded (3 s)')) && (
+                <div
+                  id="playground-output-timeout"
+                  data-testid="playground-output-timeout"
+                  className="flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-semibold"
+                >
+                  <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span>Time limit exceeded (3 s)</span>
                 </div>
               )}
 

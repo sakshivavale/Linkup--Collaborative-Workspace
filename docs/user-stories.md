@@ -818,8 +818,8 @@
 > As a **room member**, if a code run exceeds the time limit, I want to see a clear timeout message in the output panel so that I know the run was cut short.
 
 **Acceptance Criteria:**
-- [ ] The output panel shows: *"Time limit exceeded (3 s)"* when `timedOut: true`.
-- [ ] Any partial stdout/stderr is still shown above the timeout message.
+- [x] The output panel shows: *"Time limit exceeded (3 s)"* when `timedOut: true`.
+- [x] Any partial stdout/stderr is still shown above the timeout message.
 
 ---
 
