@@ -1,0 +1,24 @@
+version: '3.8'
+
+# US-SEC-03 (NFR-1.3): Piston Sandbox Execution
+# In local development or standalone VPS setup, Piston runs inside Docker with --privileged.
+# Notice: Ports are bound to 127.0.0.1 ONLY (localhost) so Piston is NEVER exposed to the public internet.
+
+services:
+  piston:
+    image: ghcr.io/engineer-man/piston
+    container_name: linkup-piston
+    privileged: true
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:2000:2000"
+    tmpfs:
+      - /tmp:exec
+    environment:
+      - PISTON_BIND_ADDRESS=0.0.0.0:2000
+    networks:
+      - piston-net
+
+networks:
+  piston-net:
+    driver: bridge
