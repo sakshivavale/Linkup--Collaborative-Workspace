@@ -10,6 +10,7 @@ import {
   Play,
   Sliders,
   Sparkles,
+  ExternalLink,
 } from 'lucide-react';
 import { DeviceInfo } from './useMediaDevices';
 
@@ -29,6 +30,7 @@ interface DevicePickerModalProps {
   onRequestPermissions: () => Promise<boolean>;
   onPlayTestSound: () => Promise<void>;
   hasPermission: boolean;
+  permissionDenied?: boolean;
   audioLevel?: number;
   previewStream?: MediaStream | null;
   onStartPreview?: () => void;
@@ -59,6 +61,7 @@ export const DevicePickerModal: React.FC<DevicePickerModalProps> = ({
   onRequestPermissions,
   onPlayTestSound,
   hasPermission,
+  permissionDenied = false,
   audioLevel = 0,
   previewStream = null,
   onStartPreview,
@@ -228,23 +231,45 @@ export const DevicePickerModal: React.FC<DevicePickerModalProps> = ({
           </div>
         )}
 
-        {/* Permission warning banner if browser withheld labels */}
-        {!hasPermission && (
-          <div className="mx-6 mt-4 p-3 rounded-2xl bg-amber-950/40 border border-amber-800/50 flex items-start gap-3 text-xs text-amber-200">
-            <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-            <div className="flex-1">
-              <p className="font-semibold">Hardware device labels are hidden by browser</p>
-              <p className="text-[11px] text-amber-300/80 mt-0.5">
-                Grant camera and microphone permissions so your actual device names appear.
-              </p>
+        {/* Permission warning banner if browser denied or withheld labels (US-ERR-03) */}
+        {(!hasPermission || permissionDenied) && (
+          <div
+            id="modal-media-permission-alert"
+            data-testid="modal-media-permission-alert"
+            className="mx-6 mt-4 p-3.5 rounded-2xl bg-amber-950/40 border border-amber-800/50 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-amber-200"
+          >
+            <div className="flex items-start gap-3">
+              <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="font-semibold text-amber-200">
+                  Allow camera/mic access in your browser settings
+                </p>
+                <p className="text-[11px] text-amber-300/80 mt-0.5">
+                  Your browser blocked access to your camera or microphone. Grant permissions to view and select hardware devices.
+                </p>
+              </div>
             </div>
-            <button
-              type="button"
-              onClick={onRequestPermissions}
-              className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-200 transition-colors shrink-0"
-            >
-              Grant Access
-            </button>
+            <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+              <a
+                id="modal-media-permission-help-link"
+                data-testid="modal-media-permission-help-link"
+                href="https://support.google.com/chrome/answer/2693767"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-indigo-600 hover:bg-indigo-700 text-white inline-flex items-center gap-1 transition-colors"
+                title="Learn how to allow camera and mic permissions in your browser"
+              >
+                <span>Help</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
+              <button
+                type="button"
+                onClick={onRequestPermissions}
+                className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-200 transition-colors shrink-0"
+              >
+                Grant Access
+              </button>
+            </div>
           </div>
         )}
 

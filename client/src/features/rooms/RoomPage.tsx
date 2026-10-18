@@ -19,10 +19,13 @@ import {
   Info,
   X,
   ClipboardList,
+  ShieldAlert,
+  ExternalLink,
 } from 'lucide-react';
 import { Session, CodeState } from '@linkup/shared';
 import { useRoom } from './useRoom';
 import { LiveTab } from './LiveTab';
+import { BROWSER_PERMISSION_HELP_URL, PERMISSION_DENIED_MESSAGE } from './useMediaDevices';
 import { WhiteboardTab } from './WhiteboardTab';
 import { CodeTab } from './CodeTab';
 import { ChatPanel } from './ChatPanel';
@@ -83,6 +86,9 @@ export const RoomPage: React.FC = () => {
   const [sessionEnded, setSessionEnded] = useState(false);
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+  // US-ERR-03: Browser camera/mic permission denial state
+  const [mediaPermissionDenied, setMediaPermissionDenied] = useState(false);
 
   // Synchronize activeSession with room summary
   useEffect(() => {
@@ -817,6 +823,47 @@ export const RoomPage: React.FC = () => {
         </div>
       )}
 
+      {/* US-ERR-03: Camera and Mic Browser Permission Denied Banner (FRD Section 7) */}
+      {mediaPermissionDenied && (
+        <aside
+          id="room-media-permission-banner"
+          data-testid="room-media-permission-banner"
+          role="alert"
+          className="shrink-0 bg-amber-500/10 dark:bg-amber-950/40 border-b border-amber-500/30 text-amber-900 dark:text-amber-200 px-4 sm:px-6 py-2.5 text-xs font-medium flex items-center justify-between z-10 transition-all animate-fade-in"
+        >
+          <div className="flex items-center gap-2">
+            <ShieldAlert className="w-4 h-4 text-amber-500 shrink-0" />
+            <span className="font-bold">{PERMISSION_DENIED_MESSAGE}</span>
+            <span className="text-amber-700/80 dark:text-amber-300/80 hidden md:inline">
+              — You can still use chat, code, and whiteboard.
+            </span>
+            <a
+              id="room-media-permission-help-link"
+              data-testid="room-media-permission-help-link"
+              href={BROWSER_PERMISSION_HELP_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 font-semibold text-indigo-600 dark:text-indigo-400 underline hover:text-indigo-700 dark:hover:text-indigo-300 ml-1.5"
+              title="Learn how to allow camera and mic permissions in your browser"
+            >
+              <span>Help</span>
+              <ExternalLink className="w-3 h-3" />
+            </a>
+          </div>
+          <button
+            id="room-dismiss-permission-notice-btn"
+            data-testid="room-dismiss-permission-notice-btn"
+            type="button"
+            onClick={() => setMediaPermissionDenied(false)}
+            className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-300 hover:text-amber-900 dark:hover:text-amber-100 text-xs font-semibold px-2 py-0.5 rounded hover:bg-amber-500/20 transition-colors cursor-pointer"
+            aria-label="Dismiss banner"
+          >
+            <X className="w-3.5 h-3.5" />
+            <span>Dismiss</span>
+          </button>
+        </aside>
+      )}
+
       {/* ── Main tab bar ────────────────────────────────────────────────────── */}
       <nav
         id="room-main-tabs"
@@ -875,6 +922,7 @@ export const RoomPage: React.FC = () => {
               isHost={room.myRole === 'host'}
               disabled={isReconnecting}
               isReconnecting={isReconnecting}
+              onMediaPermissionError={setMediaPermissionDenied}
             />
           </div>
           {mainTab === 'whiteboard' && (

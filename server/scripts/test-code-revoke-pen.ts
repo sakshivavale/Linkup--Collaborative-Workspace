@@ -126,10 +126,6 @@ async function runTests() {
       email: 'teacher4@linkup.test',
       fullName: 'Prof. Dijkstra',
       role: 'teacher',
-      avatarUrl: null,
-      bio: null,
-      phone: null,
-      organization: 'Linkup University',
     };
 
     const studentPenHolder: Me = {
@@ -137,10 +133,6 @@ async function runTests() {
       email: 'alyssa4@linkup.test',
       fullName: 'Alyssa Hacker',
       role: 'student',
-      avatarUrl: null,
-      bio: null,
-      phone: null,
-      organization: 'Linkup University',
     };
 
     const studentObserver: Me = {
@@ -148,10 +140,6 @@ async function runTests() {
       email: 'ben4@linkup.test',
       fullName: 'Ben Bitdiddle',
       role: 'student',
-      avatarUrl: null,
-      bio: null,
-      phone: null,
-      organization: 'Linkup University',
     };
 
     const teacherToken = 'token-teacher-04';
