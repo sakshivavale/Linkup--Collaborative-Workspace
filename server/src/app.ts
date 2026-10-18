@@ -1,10 +1,10 @@
-import express, { Request, Response } from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import { Socket } from 'socket.io';
 import { RoomSummary } from '@linkup/shared';
 import { env } from './config/env';
-import { requireAuth } from './middleware/auth';
+import { requireAuth, requireMember, requireHost } from './middleware/auth';
 import { supabase, updateTokenCacheUserName } from './lib/supabase';
 import {
   getRoomsForUser,
@@ -77,8 +77,23 @@ app.get('/health', (_req: Request, res: Response) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Protect all /api/* routes with requireAuth
-app.use('/api', requireAuth);
+// requireAuth middleware is applied to every route except GET /health (US-SEC-01 AC-1, NFR-1.1)
+app.use((req: Request, res: Response, next: NextFunction) => {
+  if (req.method === 'GET' && (req.path === '/health' || req.path === '/health/')) {
+    return next();
+  }
+  return requireAuth(req, res, next);
+});
+
+// Normalize :id and :roomId params across routes
+app.param('id', (req, _res, next, id) => {
+  if (!req.params.roomId) req.params.roomId = id;
+  next();
+});
+app.param('roomId', (req, _res, next, roomId) => {
+  if (!req.params.id) req.params.id = roomId;
+  next();
+});
 
 // Authenticated current user endpoint (FR-1.5, US-AUTH-05)
 app.get('/api/me', (req: Request, res: Response) => {
@@ -354,97 +369,116 @@ app.post('/api/rooms/join', async (req: Request, res: Response) => {
   }
 });
 
-// Get single room endpoint — membership enforced (US-ROOM-01, FR-2.4)
-app.get('/api/rooms/:roomId', async (req: Request, res: Response) => {
-  const user = req.user;
-  if (!user) {
-    return res.status(401).json({
-      error: { code: 'UNAUTHENTICATED', message: 'Authentication required' },
-    });
-  }
+// ─── Room-Level Security & Membership Enforcement (US-SEC-01 AC-2, NFR-1.1) ───
+// requireMember is applied to every /rooms/:id/* and /api/rooms/:roomId/* route
+app.use(
+  ['/api/rooms/:roomId', '/rooms/:roomId', '/api/rooms/:id', '/rooms/:id'],
+  requireMember
+);
 
-  const { roomId } = req.params;
-
-  try {
-    const room = await getRoomForUser(user.id, roomId);
-    return res.status(200).json(room);
-  } catch (err: any) {
-    if (err instanceof NotAMemberError) {
-      return res.status(403).json({
-        error: { code: 'NOT_A_MEMBER', message: err.message },
+// Get single room endpoint — membership enforced (US-ROOM-01, FR-2.4, US-SEC-01)
+app.get(
+  ['/api/rooms/:roomId', '/rooms/:roomId', '/api/rooms/:id', '/rooms/:id'],
+  requireMember,
+  async (req: Request, res: Response) => {
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({
+        error: { code: 'UNAUTHENTICATED', message: 'Authentication required' },
       });
     }
-    if (err?.code === 'ROOM_NOT_FOUND') {
-      return res.status(404).json({
-        error: { code: 'ROOM_NOT_FOUND', message: 'Room not found' },
+
+    const roomId = req.params.roomId || req.params.id;
+
+    try {
+      const room = req.room || (await getRoomForUser(user.id, roomId));
+      return res.status(200).json(room);
+    } catch (err: any) {
+      if (err instanceof NotAMemberError) {
+        return res.status(403).json({
+          error: { code: 'NOT_A_MEMBER', message: err.message },
+        });
+      }
+      if (err?.code === 'ROOM_NOT_FOUND') {
+        return res.status(404).json({
+          error: { code: 'ROOM_NOT_FOUND', message: 'Room not found' },
+        });
+      }
+      console.error('[Room API] Error fetching room:', err);
+      return res.status(500).json({
+        error: { code: 'INTERNAL_SERVER_ERROR', message: 'Failed to retrieve room' },
       });
     }
-    console.error('[Room API] Error fetching room:', err);
-    return res.status(500).json({
-      error: { code: 'INTERNAL_SERVER_ERROR', message: 'Failed to retrieve room' },
-    });
   }
-});
+);
 
 /**
- * GET /api/rooms/:roomId/code — Fetch persisted code state and selected language (US-CODE-06, FR-5.7)
+ * GET /api/rooms/:roomId/code — Fetch persisted code state and selected language (US-CODE-06, FR-5.7, US-SEC-01)
  */
-app.get('/api/rooms/:roomId/code', async (req: Request, res: Response) => {
-  const user = req.user;
-  if (!user) {
-    return res.status(401).json({
-      error: { code: 'UNAUTHENTICATED', message: 'Authentication required' },
-    });
-  }
-
-  const { roomId } = req.params;
-  try {
-    const room = await getRoomForUser(user.id, roomId);
-    const hostMember = room.members?.find((m) => m.memberRole === 'host');
-    const defaultHostId = hostMember?.userId || (room as any).owner_id || (room.myRole === 'host' ? user.id : null);
-    const codeState = await getOrLoadCodeState(roomId, defaultHostId);
-    return res.status(200).json(codeState);
-  } catch (err: any) {
-    if (err instanceof NotAMemberError) {
-      return res.status(403).json({
-        error: { code: 'NOT_A_MEMBER', message: err.message },
+app.get(
+  ['/api/rooms/:roomId/code', '/rooms/:roomId/code', '/api/rooms/:id/code', '/rooms/:id/code'],
+  requireMember,
+  async (req: Request, res: Response) => {
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({
+        error: { code: 'UNAUTHENTICATED', message: 'Authentication required' },
       });
     }
-    console.error('[Code API] Error fetching code state:', err);
-    return res.status(500).json({
-      error: { code: 'INTERNAL_SERVER_ERROR', message: 'Failed to retrieve code state' },
-    });
+
+    const roomId = req.params.roomId || req.params.id;
+    try {
+      const room = req.room || (await getRoomForUser(user.id, roomId));
+      const hostMember = room.members?.find((m) => m.memberRole === 'host');
+      const defaultHostId = hostMember?.userId || (room as any).owner_id || (room.myRole === 'host' ? user.id : null);
+      const codeState = await getOrLoadCodeState(roomId, defaultHostId);
+      return res.status(200).json(codeState);
+    } catch (err: any) {
+      if (err instanceof NotAMemberError) {
+        return res.status(403).json({
+          error: { code: 'NOT_A_MEMBER', message: err.message },
+        });
+      }
+      console.error('[Code API] Error fetching code state:', err);
+      return res.status(500).json({
+        error: { code: 'INTERNAL_SERVER_ERROR', message: 'Failed to retrieve code state' },
+      });
+    }
   }
-});
+);
 
 /**
- * GET /api/rooms/:roomId/whiteboard — Fetch persisted whiteboard state (US-WB-03, FR-5.13)
+ * GET /api/rooms/:roomId/whiteboard — Fetch persisted whiteboard state (US-WB-03, FR-5.13, US-SEC-01)
  */
-app.get('/api/rooms/:roomId/whiteboard', async (req: Request, res: Response) => {
-  const user = req.user;
-  if (!user) {
-    return res.status(401).json({
-      error: { code: 'UNAUTHENTICATED', message: 'Authentication required' },
-    });
-  }
-
-  const { roomId } = req.params;
-  try {
-    await getRoomForUser(user.id, roomId);
-    const boardState = await getOrLoadWhiteboardState(roomId);
-    return res.status(200).json(boardState);
-  } catch (err: any) {
-    if (err instanceof NotAMemberError) {
-      return res.status(403).json({
-        error: { code: 'NOT_A_MEMBER', message: err.message },
+app.get(
+  ['/api/rooms/:roomId/whiteboard', '/rooms/:roomId/whiteboard', '/api/rooms/:id/whiteboard', '/rooms/:id/whiteboard'],
+  requireMember,
+  async (req: Request, res: Response) => {
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({
+        error: { code: 'UNAUTHENTICATED', message: 'Authentication required' },
       });
     }
-    console.error('[Whiteboard API] Error fetching whiteboard state:', err);
-    return res.status(500).json({
-      error: { code: 'INTERNAL_SERVER_ERROR', message: 'Failed to retrieve whiteboard state' },
-    });
+
+    const roomId = req.params.roomId || req.params.id;
+    try {
+      await (req.room || getRoomForUser(user.id, roomId));
+      const boardState = await getOrLoadWhiteboardState(roomId);
+      return res.status(200).json(boardState);
+    } catch (err: any) {
+      if (err instanceof NotAMemberError) {
+        return res.status(403).json({
+          error: { code: 'NOT_A_MEMBER', message: err.message },
+        });
+      }
+      console.error('[Whiteboard API] Error fetching whiteboard state:', err);
+      return res.status(500).json({
+        error: { code: 'INTERNAL_SERVER_ERROR', message: 'Failed to retrieve whiteboard state' },
+      });
+    }
   }
-});
+);
 
 export function kickUserFromRoom(io: any, roomId: string, targetUserId: string) {
   const roomKey = roomId?.trim();
@@ -486,8 +520,17 @@ export function kickUserFromRoom(io: any, roomId: string, targetUserId: string) 
   };
 }
 
-// Remove a room member (host-only) — US-ROOM-03, US-ERR-05, FR-2.5
-app.delete(['/api/rooms/:roomId/members/:userId', '/rooms/:roomId/members/:userId'], requireAuth, async (req: Request, res: Response) => {
+// Remove a room member (host-only) — US-ROOM-03, US-ERR-05, FR-2.5, US-SEC-01
+app.delete(
+  [
+    '/api/rooms/:roomId/members/:userId',
+    '/rooms/:roomId/members/:userId',
+    '/api/rooms/:id/members/:userId',
+    '/rooms/:id/members/:userId',
+  ],
+  requireMember,
+  requireHost,
+  async (req: Request, res: Response) => {
   const user = req.user;
   if (!user) {
     return res.status(401).json({
@@ -536,8 +579,17 @@ app.delete(['/api/rooms/:roomId/members/:userId', '/rooms/:roomId/members/:userI
   }
 });
 
-// Update member permissions (host-only) — US-LIVE-04, US-PERM-05, FR-3.5, FR-4.6, architecture doc 5.3
-app.patch(['/api/rooms/:roomId/members/:userId/permissions', '/rooms/:roomId/members/:userId/permissions'], requireAuth, async (req: Request, res: Response) => {
+// Update member permissions (host-only) — US-LIVE-04, US-PERM-05, FR-3.5, FR-4.6, US-SEC-01
+app.patch(
+  [
+    '/api/rooms/:roomId/members/:userId/permissions',
+    '/rooms/:roomId/members/:userId/permissions',
+    '/api/rooms/:id/members/:userId/permissions',
+    '/rooms/:id/members/:userId/permissions',
+  ],
+  requireMember,
+  requireHost,
+  async (req: Request, res: Response) => {
   const user = req.user;
   if (!user) {
     return res.status(401).json({
@@ -788,127 +840,167 @@ app.post(
     '/rooms/:roomId/permissions/bulk',
     '/api/rooms/:roomId/bulk-permissions',
     '/rooms/:roomId/bulk-permissions',
+    '/api/rooms/:id/permissions/bulk',
+    '/rooms/:id/permissions/bulk',
+    '/api/rooms/:id/bulk-permissions',
+    '/rooms/:id/bulk-permissions',
   ],
-  requireAuth,
+  requireMember,
+  requireHost,
   handleBulkPermissions
 );
 
-// Mint LiveKit access token enforcing permissions (US-PERM-05 AC-1, FR-4.6, api-contract §3.4)
-app.post(['/api/rooms/:roomId/livekit-token', '/rooms/:roomId/livekit-token'], requireAuth, async (req: Request, res: Response) => {
-  const user = req.user;
-  if (!user) {
-    return res.status(401).json({
-      error: { code: 'UNAUTHENTICATED', message: 'Authentication required' },
-    });
-  }
-
-  const { roomId } = req.params;
-
-  try {
-    const room = await getRoomForUser(user.id, roomId);
-    const activeSession = await getActiveSession(roomId);
-
-    if (!activeSession) {
-      return res.status(409).json({
-        error: { code: 'NO_ACTIVE_SESSION', message: 'Waiting for the teacher to start the session.' },
+// Mint LiveKit access token enforcing permissions (US-PERM-05 AC-1, FR-4.6, api-contract §3.4, US-SEC-01)
+app.post(
+  [
+    '/api/rooms/:roomId/livekit-token',
+    '/rooms/:roomId/livekit-token',
+    '/api/rooms/:id/livekit-token',
+    '/rooms/:id/livekit-token',
+  ],
+  requireMember,
+  async (req: Request, res: Response) => {
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({
+        error: { code: 'UNAUTHENTICATED', message: 'Authentication required' },
       });
     }
 
-    const isHost = room.myRole === 'host';
-    const member = room.members?.find((m) => m.userId === user.id);
-    const permissions = isHost
-      ? { canMic: true, canCamera: true, canScreen: true, canWhiteboard: true, canCode: true }
-      : member?.permissions || { canMic: false, canCamera: false, canScreen: false, canWhiteboard: false, canCode: false };
+    const roomId = req.params.roomId || req.params.id;
 
-    const livekitRoomName = activeSession.livekit_room || `linkup-${activeSession.id}`;
-    const tokenResult = await mintLivekitToken({
-      userId: user.id,
-      fullName: user.fullName,
-      memberRole: isHost ? 'host' : 'participant',
-      permissions,
-      livekitRoom: livekitRoomName,
-    });
+    try {
+      const room = req.room || (await getRoomForUser(user.id, roomId));
+      const activeSession = await getActiveSession(roomId);
 
-    return res.status(200).json({
-      token: tokenResult.token,
-      url: env.LIVEKIT_URL || 'wss://mock-livekit.local',
-      sessionId: activeSession.id,
-      canPublish: tokenResult.canPublish,
-      sources: tokenResult.sources,
-    });
-  } catch (err: any) {
-    if (err instanceof NotAMemberError) {
-      return res.status(403).json({
-        error: { code: 'NOT_A_MEMBER', message: err.message },
+      if (!activeSession) {
+        return res.status(409).json({
+          error: { code: 'NO_ACTIVE_SESSION', message: 'Waiting for the teacher to start the session.' },
+        });
+      }
+
+      const isHost = room.myRole === 'host';
+      const member = room.members?.find((m) => m.userId === user.id);
+      const permissions = isHost
+        ? { canMic: true, canCamera: true, canScreen: true, canWhiteboard: true, canCode: true }
+        : member?.permissions || { canMic: false, canCamera: false, canScreen: false, canWhiteboard: false, canCode: false };
+
+      const livekitRoomName = activeSession.livekit_room || `linkup-${activeSession.id}`;
+      const tokenResult = await mintLivekitToken({
+        userId: user.id,
+        fullName: user.fullName,
+        memberRole: isHost ? 'host' : 'participant',
+        permissions,
+        livekitRoom: livekitRoomName,
+      });
+
+      return res.status(200).json({
+        token: tokenResult.token,
+        url: env.LIVEKIT_URL || 'wss://mock-livekit.local',
+        sessionId: activeSession.id,
+        canPublish: tokenResult.canPublish,
+        sources: tokenResult.sources,
+      });
+    } catch (err: any) {
+      if (err instanceof NotAMemberError) {
+        return res.status(403).json({
+          error: { code: 'NOT_A_MEMBER', message: err.message },
+        });
+      }
+
+      console.error(`[LiveKit API] Error minting token for room ${roomId}:`, err);
+      return res.status(500).json({
+        error: { code: 'INTERNAL_SERVER_ERROR', message: 'Failed to mint LiveKit token' },
       });
     }
-
-    console.error(`[LiveKit API] Error minting token for room ${roomId}:`, err);
-    return res.status(500).json({
-      error: { code: 'INTERNAL_SERVER_ERROR', message: 'Failed to mint LiveKit token' },
-    });
   }
-});
+);
 
-// Get active screen share for a room
-app.get('/api/rooms/:roomId/screen-share', (req: Request, res: Response) => {
-  const { roomId } = req.params;
-  const screenShare = getActiveScreenShare(roomId);
-  return res.status(200).json({ screenShare });
-});
+// Get active screen share for a room (US-SEC-01)
+app.get(
+  [
+    '/api/rooms/:roomId/screen-share',
+    '/rooms/:roomId/screen-share',
+    '/api/rooms/:id/screen-share',
+    '/rooms/:id/screen-share',
+  ],
+  requireMember,
+  (req: Request, res: Response) => {
+    const roomId = req.params.roomId || req.params.id;
+    const screenShare = getActiveScreenShare(roomId);
+    return res.status(200).json({ screenShare });
+  }
+);
 
-// ─── Chat History & Messaging (US-CHAT-02, US-CHAT-01, FR-3.12, api-contract §3.5) ───
+// ─── Chat History & Messaging (US-CHAT-02, US-CHAT-01, FR-3.12, api-contract §3.5, US-SEC-01) ───
 
 // Get chat history with cursor pagination (US-CHAT-02)
-app.get('/api/rooms/:roomId/messages', async (req: Request, res: Response) => {
-  const user = req.user;
-  if (!user) {
-    return res.status(401).json({
-      error: { code: 'UNAUTHENTICATED', message: 'Authentication required' },
-    });
+app.get(
+  [
+    '/api/rooms/:roomId/messages',
+    '/rooms/:roomId/messages',
+    '/api/rooms/:id/messages',
+    '/rooms/:id/messages',
+  ],
+  requireMember,
+  async (req: Request, res: Response) => {
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({
+        error: { code: 'UNAUTHENTICATED', message: 'Authentication required' },
+      });
+    }
+
+    const roomId = req.params.roomId || req.params.id;
+    const before = typeof req.query.before === 'string' ? req.query.before : undefined;
+    const limitParam = req.query.limit !== undefined ? Number(req.query.limit) : 50;
+
+    try {
+      const result = await getChatMessages(user.id, roomId, {
+        before,
+        limit: limitParam,
+      });
+      return res.status(200).json(result);
+    } catch (err: any) {
+      if (err instanceof NotAMemberError || err?.code === 'NOT_A_MEMBER' || err?.status === 403) {
+        return res.status(403).json({
+          error: {
+            code: 'NOT_A_MEMBER',
+            message: err.message || 'You are not a member of this room',
+          },
+        });
+      }
+
+      if (err?.code === 'ROOM_NOT_FOUND' || err?.status === 404 || err?.code === 'NOT_FOUND') {
+        return res.status(404).json({
+          error: { code: 'ROOM_NOT_FOUND', message: err.message || 'Room not found' },
+        });
+      }
+
+      if (err?.code === 'VALIDATION' || err?.status === 400) {
+        return res.status(400).json({
+          error: { code: 'VALIDATION', message: err.message || 'Validation error' },
+        });
+      }
+
+      console.error('[Chat API] Error fetching room messages:', err);
+      return res.status(500).json({
+        error: { code: 'INTERNAL_SERVER_ERROR', message: 'Failed to retrieve messages' },
+      });
+    }
   }
+);
 
-  const { roomId } = req.params;
-  const before = typeof req.query.before === 'string' ? req.query.before : undefined;
-  const limitParam = req.query.limit !== undefined ? Number(req.query.limit) : 50;
-
-  try {
-    const result = await getChatMessages(user.id, roomId, {
-      before,
-      limit: limitParam,
-    });
-    return res.status(200).json(result);
-  } catch (err: any) {
-    if (err instanceof NotAMemberError || err?.code === 'NOT_A_MEMBER' || err?.status === 403) {
-      return res.status(403).json({
-        error: {
-          code: 'NOT_A_MEMBER',
-          message: err.message || 'You are not a member of this room',
-        },
-      });
-    }
-
-    if (err?.code === 'ROOM_NOT_FOUND' || err?.status === 404 || err?.code === 'NOT_FOUND') {
-      return res.status(404).json({
-        error: { code: 'ROOM_NOT_FOUND', message: err.message || 'Room not found' },
-      });
-    }
-
-    if (err?.code === 'VALIDATION' || err?.status === 400) {
-      return res.status(400).json({
-        error: { code: 'VALIDATION', message: err.message || 'Validation error' },
-      });
-    }
-
-    console.error('[Chat API] Error fetching room messages:', err);
-    return res.status(500).json({
-      error: { code: 'INTERNAL_SERVER_ERROR', message: 'Failed to retrieve messages' },
-    });
-  }
-});
-
-// Send a chat message via REST API (US-CHAT-01, FR-3.10)
-app.post('/api/rooms/:roomId/messages', async (req: Request, res: Response) => {
+// Send a chat message via REST API (US-CHAT-01, FR-3.10, US-SEC-01)
+app.post(
+  [
+    '/api/rooms/:roomId/messages',
+    '/rooms/:roomId/messages',
+    '/api/rooms/:id/messages',
+    '/rooms/:id/messages',
+  ],
+  requireMember,
+  async (req: Request, res: Response) => {
   const user = req.user;
   if (!user) {
     return res.status(401).json({
@@ -967,265 +1059,304 @@ app.post('/api/rooms/:roomId/messages', async (req: Request, res: Response) => {
   }
 });
 
-// Regenerate room join code (host only) — US-ROOM-04, FR-2.6
-app.post('/api/rooms/:roomId/join-code', async (req: Request, res: Response) => {
-  const user = req.user;
-  if (!user) {
-    return res.status(401).json({
-      error: { code: 'UNAUTHENTICATED', message: 'Authentication required' },
-    });
-  }
+// Regenerate room join code (host only) — US-ROOM-04, FR-2.6, US-SEC-01
+app.post(
+  [
+    '/api/rooms/:roomId/join-code',
+    '/rooms/:roomId/join-code',
+    '/api/rooms/:id/join-code',
+    '/rooms/:id/join-code',
+  ],
+  requireMember,
+  requireHost,
+  async (req: Request, res: Response) => {
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({
+        error: { code: 'UNAUTHENTICATED', message: 'Authentication required' },
+      });
+    }
 
-  const { roomId } = req.params;
+    const roomId = req.params.roomId || req.params.id;
 
-  try {
-    const newJoinCode = await regenerateRoomJoinCode(user.id, roomId);
-
-    // Broadcast new join code to room sockets if available
     try {
-      const io = req.app.get('io');
-      if (io) {
-        io.to(`room:${roomId}`).emit('room:join-code-updated', {
-          roomId,
-          joinCode: newJoinCode,
-        });
-      }
-    } catch (socketErr) {
-      console.warn('[Room API] Socket emit error on join code regeneration:', socketErr);
-    }
+      const newJoinCode = await regenerateRoomJoinCode(user.id, roomId);
 
-    return res.status(200).json({
-      joinCode: newJoinCode,
-    });
-  } catch (err: any) {
-    if (err?.code === 'HOST_ONLY' || err?.code === 'FORBIDDEN' || err?.status === 403) {
-      return res.status(403).json({
-        error: {
-          code: 'HOST_ONLY',
-          message: err.message || 'Only the room host can regenerate the join code',
-        },
-      });
-    }
-
-    if (err?.code === 'ROOM_NOT_FOUND' || err?.code === 'NOT_FOUND' || err?.status === 404) {
-      return res.status(404).json({
-        error: {
-          code: 'ROOM_NOT_FOUND',
-          message: err.message || 'Room not found',
-        },
-      });
-    }
-
-    if (err?.code === 'VALIDATION' || err?.status === 400) {
-      return res.status(400).json({
-        error: {
-          code: 'VALIDATION',
-          message: err.message || 'Invalid room ID',
-        },
-      });
-    }
-
-    console.error('[Room API] Error regenerating join code:', err);
-    return res.status(500).json({
-      error: {
-        code: 'INTERNAL_SERVER_ERROR',
-        message: 'Failed to regenerate join code',
-      },
-    });
-  }
-});
-
-// Edit room name/description or archive room (host only) — US-ROOM-05, FR-2.7
-app.patch('/api/rooms/:roomId', async (req: Request, res: Response) => {
-  const user = req.user;
-  if (!user) {
-    return res.status(401).json({
-      error: { code: 'UNAUTHENTICATED', message: 'Authentication required' },
-    });
-  }
-
-  const { roomId } = req.params;
-  const { name, description, archived } = req.body || {};
-
-  // Validation: ensure at least one field is provided
-  if (name === undefined && description === undefined && archived === undefined) {
-    return res.status(400).json({
-      error: {
-        code: 'VALIDATION',
-        message: 'At least one field (name, description, archived) must be provided',
-      },
-    });
-  }
-
-  // Validate name if provided
-  if (name !== undefined) {
-    if (typeof name !== 'string' || name.trim().length === 0) {
-      return res.status(400).json({
-        error: {
-          code: 'VALIDATION',
-          message: 'Room name cannot be empty or whitespace only',
-        },
-      });
-    }
-    if (name.trim().length > 80) {
-      return res.status(400).json({
-        error: {
-          code: 'VALIDATION',
-          message: 'Room name cannot exceed 80 characters',
-        },
-      });
-    }
-  }
-
-  // Validate description if provided
-  if (description !== undefined && description !== null) {
-    if (typeof description !== 'string') {
-      return res.status(400).json({
-        error: {
-          code: 'VALIDATION',
-          message: 'Description must be a string or null',
-        },
-      });
-    }
-    if (description.trim().length > 500) {
-      return res.status(400).json({
-        error: {
-          code: 'VALIDATION',
-          message: 'Description cannot exceed 500 characters',
-        },
-      });
-    }
-  }
-
-  // Validate archived flag if provided
-  if (archived !== undefined && typeof archived !== 'boolean') {
-    return res.status(400).json({
-      error: {
-        code: 'VALIDATION',
-        message: 'Archived must be a boolean',
-      },
-    });
-  }
-
-  try {
-    const result = await updateRoom(user.id, roomId, {
-      name: name !== undefined ? name.trim() : undefined,
-      description: description !== undefined ? (description === null ? null : description.trim()) : undefined,
-      archived,
-    });
-
-    // Broadcast socket event if io is available
-    try {
-      const io = req.app.get('io');
-      if (io) {
-        if (archived) {
-          io.to(`room:${roomId}`).emit('room:archived', { roomId });
-        } else {
-          io.to(`room:${roomId}`).emit('room:updated', {
+      // Broadcast new join code to room sockets if available
+      try {
+        const io = req.app.get('io');
+        if (io) {
+          io.to(`room:${roomId}`).emit('room:join-code-updated', {
             roomId,
-            name: (result as any).name,
-            description: (result as any).description,
+            joinCode: newJoinCode,
           });
         }
+      } catch (socketErr) {
+        console.warn('[Room API] Socket emit error on join code regeneration:', socketErr);
       }
-    } catch (socketErr) {
-      console.warn('[Room API] Socket emit error on room update:', socketErr);
-    }
 
-    return res.status(200).json(result);
-  } catch (err: any) {
-    if (err?.code === 'HOST_ONLY' || err?.code === 'FORBIDDEN' || err?.status === 403) {
-      return res.status(403).json({
+      return res.status(200).json({
+        joinCode: newJoinCode,
+      });
+    } catch (err: any) {
+      if (err?.code === 'HOST_ONLY' || err?.code === 'FORBIDDEN' || err?.status === 403) {
+        return res.status(403).json({
+          error: {
+            code: 'HOST_ONLY',
+            message: err.message || 'Only the room host can regenerate the join code',
+          },
+        });
+      }
+
+      if (err?.code === 'ROOM_NOT_FOUND' || err?.code === 'NOT_FOUND' || err?.status === 404) {
+        return res.status(404).json({
+          error: {
+            code: 'ROOM_NOT_FOUND',
+            message: err.message || 'Room not found',
+          },
+        });
+      }
+
+      if (err?.code === 'VALIDATION' || err?.status === 400) {
+        return res.status(400).json({
+          error: {
+            code: 'VALIDATION',
+            message: err.message || 'Invalid room ID',
+          },
+        });
+      }
+
+      console.error('[Room API] Error regenerating join code:', err);
+      return res.status(500).json({
         error: {
-          code: 'HOST_ONLY',
-          message: err.message || 'Only the room host can edit or archive the room',
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Failed to regenerate join code',
         },
       });
     }
+  }
+);
 
-    if (err?.code === 'ROOM_NOT_FOUND' || err?.code === 'NOT_FOUND' || err?.status === 404) {
-      return res.status(404).json({
-        error: {
-          code: 'ROOM_NOT_FOUND',
-          message: err.message || 'Room not found',
-        },
+// Edit room name/description or archive room (host only) — US-ROOM-05, FR-2.7, US-SEC-01
+app.patch(
+  [
+    '/api/rooms/:roomId',
+    '/rooms/:roomId',
+    '/api/rooms/:id',
+    '/rooms/:id',
+  ],
+  requireMember,
+  requireHost,
+  async (req: Request, res: Response) => {
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({
+        error: { code: 'UNAUTHENTICATED', message: 'Authentication required' },
       });
     }
 
-    if (err?.code === 'VALIDATION' || err?.status === 400) {
+    const roomId = req.params.roomId || req.params.id;
+    const { name, description, archived } = req.body || {};
+
+    // Validation: ensure at least one field is provided
+    if (name === undefined && description === undefined && archived === undefined) {
       return res.status(400).json({
         error: {
           code: 'VALIDATION',
-          message: err.message || 'Validation error',
+          message: 'At least one field (name, description, archived) must be provided',
         },
       });
     }
 
-    console.error('[Room API] Error updating room:', err);
-    return res.status(500).json({
-      error: {
-        code: 'INTERNAL_SERVER_ERROR',
-        message: 'Failed to update room',
-      },
-    });
-  }
-});
+    // Validate name if provided
+    if (name !== undefined) {
+      if (typeof name !== 'string' || name.trim().length === 0) {
+        return res.status(400).json({
+          error: {
+            code: 'VALIDATION',
+            message: 'Room name cannot be empty or whitespace only',
+          },
+        });
+      }
+      if (name.trim().length > 80) {
+        return res.status(400).json({
+          error: {
+            code: 'VALIDATION',
+            message: 'Room name cannot exceed 80 characters',
+          },
+        });
+      }
+    }
 
-// Explicit Archive room endpoint — US-ROOM-05, FR-2.7
-app.post('/api/rooms/:roomId/archive', async (req: Request, res: Response) => {
-  const user = req.user;
-  if (!user) {
-    return res.status(401).json({
-      error: { code: 'UNAUTHENTICATED', message: 'Authentication required' },
-    });
-  }
+    // Validate description if provided
+    if (description !== undefined && description !== null) {
+      if (typeof description !== 'string') {
+        return res.status(400).json({
+          error: {
+            code: 'VALIDATION',
+            message: 'Description must be a string or null',
+          },
+        });
+      }
+      if (description.trim().length > 500) {
+        return res.status(400).json({
+          error: {
+            code: 'VALIDATION',
+            message: 'Description cannot exceed 500 characters',
+          },
+        });
+      }
+    }
 
-  const { roomId } = req.params;
-
-  try {
-    const result = await updateRoom(user.id, roomId, { archived: true });
+    // Validate archived flag if provided
+    if (archived !== undefined && typeof archived !== 'boolean') {
+      return res.status(400).json({
+        error: {
+          code: 'VALIDATION',
+          message: 'Archived must be a boolean',
+        },
+      });
+    }
 
     try {
-      const io = req.app.get('io');
-      if (io) {
-        io.to(`room:${roomId}`).emit('room:archived', { roomId });
+      const result = await updateRoom(user.id, roomId, {
+        name: name !== undefined ? name.trim() : undefined,
+        description: description !== undefined ? (description === null ? null : description.trim()) : undefined,
+        archived,
+      });
+
+      // Broadcast socket event if io is available
+      try {
+        const io = req.app.get('io');
+        if (io) {
+          if (archived) {
+            io.to(`room:${roomId}`).emit('room:archived', { roomId });
+          } else {
+            io.to(`room:${roomId}`).emit('room:updated', {
+              roomId,
+              name: (result as any).name,
+              description: (result as any).description,
+            });
+          }
+        }
+      } catch (socketErr) {
+        console.warn('[Room API] Socket emit error on room update:', socketErr);
       }
-    } catch (socketErr) {
-      console.warn('[Room API] Socket emit error on room archive:', socketErr);
-    }
 
-    return res.status(200).json(result);
-  } catch (err: any) {
-    if (err?.code === 'HOST_ONLY' || err?.code === 'FORBIDDEN' || err?.status === 403) {
-      return res.status(403).json({
+      return res.status(200).json(result);
+    } catch (err: any) {
+      if (err?.code === 'HOST_ONLY' || err?.code === 'FORBIDDEN' || err?.status === 403) {
+        return res.status(403).json({
+          error: {
+            code: 'HOST_ONLY',
+            message: err.message || 'Only the room host can edit or archive the room',
+          },
+        });
+      }
+
+      if (err?.code === 'ROOM_NOT_FOUND' || err?.code === 'NOT_FOUND' || err?.status === 404) {
+        return res.status(404).json({
+          error: {
+            code: 'ROOM_NOT_FOUND',
+            message: err.message || 'Room not found',
+          },
+        });
+      }
+
+      if (err?.code === 'VALIDATION' || err?.status === 400) {
+        return res.status(400).json({
+          error: {
+            code: 'VALIDATION',
+            message: err.message || 'Validation error',
+          },
+        });
+      }
+
+      console.error('[Room API] Error updating room:', err);
+      return res.status(500).json({
         error: {
-          code: 'HOST_ONLY',
-          message: err.message || 'Only the room host can edit or archive the room',
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Failed to update room',
         },
       });
     }
-
-    if (err?.code === 'ROOM_NOT_FOUND' || err?.code === 'NOT_FOUND' || err?.status === 404) {
-      return res.status(404).json({
-        error: {
-          code: 'ROOM_NOT_FOUND',
-          message: err.message || 'Room not found',
-        },
-      });
-    }
-
-    console.error('[Room API] Error archiving room:', err);
-    return res.status(500).json({
-      error: {
-        code: 'INTERNAL_SERVER_ERROR',
-        message: 'Failed to archive room',
-      },
-    });
   }
-});
+);
 
-// Start live session (host only) — US-LIVE-01, FR-3.1
-app.post('/api/rooms/:roomId/sessions', async (req: Request, res: Response) => {
+// Explicit Archive room endpoint — US-ROOM-05, FR-2.7, US-SEC-01
+app.post(
+  [
+    '/api/rooms/:roomId/archive',
+    '/rooms/:roomId/archive',
+    '/api/rooms/:id/archive',
+    '/rooms/:id/archive',
+  ],
+  requireMember,
+  requireHost,
+  async (req: Request, res: Response) => {
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({
+        error: { code: 'UNAUTHENTICATED', message: 'Authentication required' },
+      });
+    }
+
+    const roomId = req.params.roomId || req.params.id;
+
+    try {
+      const result = await updateRoom(user.id, roomId, { archived: true });
+
+      try {
+        const io = req.app.get('io');
+        if (io) {
+          io.to(`room:${roomId}`).emit('room:archived', { roomId });
+        }
+      } catch (socketErr) {
+        console.warn('[Room API] Socket emit error on room archive:', socketErr);
+      }
+
+      return res.status(200).json(result);
+    } catch (err: any) {
+      if (err?.code === 'HOST_ONLY' || err?.code === 'FORBIDDEN' || err?.status === 403) {
+        return res.status(403).json({
+          error: {
+            code: 'HOST_ONLY',
+            message: err.message || 'Only the room host can edit or archive the room',
+          },
+        });
+      }
+
+      if (err?.code === 'ROOM_NOT_FOUND' || err?.code === 'NOT_FOUND' || err?.status === 404) {
+        return res.status(404).json({
+          error: {
+            code: 'ROOM_NOT_FOUND',
+            message: err.message || 'Room not found',
+          },
+        });
+      }
+
+      console.error('[Room API] Error archiving room:', err);
+      return res.status(500).json({
+        error: {
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Failed to archive room',
+        },
+      });
+    }
+  }
+);
+
+// Start live session (host only) — US-LIVE-01, FR-3.1, US-SEC-01
+app.post(
+  [
+    '/api/rooms/:roomId/sessions',
+    '/rooms/:roomId/sessions',
+    '/api/rooms/:id/sessions',
+    '/rooms/:id/sessions',
+  ],
+  requireMember,
+  requireHost,
+  async (req: Request, res: Response) => {
   const user = req.user;
   if (!user) {
     return res.status(401).json({
@@ -1383,13 +1514,32 @@ const handleEndSessionRoute = async (req: Request, res: Response) => {
   }
 };
 
-app.post('/api/rooms/:roomId/sessions/:sessionId/end', handleEndSessionRoute);
-app.post('/api/rooms/:roomId/sessions/end', handleEndSessionRoute);
-app.post('/rooms/:roomId/sessions/:sessionId/end', requireAuth, handleEndSessionRoute);
-app.post('/rooms/:roomId/sessions/end', requireAuth, handleEndSessionRoute);
+app.post(
+  [
+    '/api/rooms/:roomId/sessions/:sessionId/end',
+    '/api/rooms/:roomId/sessions/end',
+    '/rooms/:roomId/sessions/:sessionId/end',
+    '/rooms/:roomId/sessions/end',
+    '/api/rooms/:id/sessions/:sessionId/end',
+    '/api/rooms/:id/sessions/end',
+    '/rooms/:id/sessions/:sessionId/end',
+    '/rooms/:id/sessions/end',
+  ],
+  requireMember,
+  requireHost,
+  handleEndSessionRoute
+);
 
-// Get active session for a room
-app.get('/api/rooms/:roomId/sessions/active', async (req: Request, res: Response) => {
+// Get active session for a room (US-SEC-01)
+app.get(
+  [
+    '/api/rooms/:roomId/sessions/active',
+    '/rooms/:roomId/sessions/active',
+    '/api/rooms/:id/sessions/active',
+    '/rooms/:id/sessions/active',
+  ],
+  requireMember,
+  async (req: Request, res: Response) => {
   const user = req.user;
   if (!user) {
     return res.status(401).json({
@@ -1456,10 +1606,19 @@ const handleGetRoomSessions = async (req: Request, res: Response) => {
   }
 };
 
-app.get('/api/rooms/:roomId/sessions', handleGetRoomSessions);
-app.get('/rooms/:roomId/sessions', requireAuth, handleGetRoomSessions);
+app.get(
+  [
+    '/api/rooms/:roomId/sessions',
+    '/rooms/:roomId/sessions',
+    '/api/rooms/:id/sessions',
+    '/rooms/:id/sessions',
+  ],
+  requireMember,
+  requireHost,
+  handleGetRoomSessions
+);
 
-// US-ATT-06: Export attendance CSV endpoint (FR-6.6, api-contract §3.6)
+// US-ATT-06: Export attendance CSV endpoint (FR-6.6, api-contract §3.6, US-SEC-01)
 const handleAttendanceCsv = async (req: Request, res: Response) => {
   const user = req.user;
   if (!user) {
@@ -1513,7 +1672,7 @@ const handleAttendanceCsv = async (req: Request, res: Response) => {
   }
 };
 
-// US-ATT-04: Session attendance summary endpoint (FR-6.4, api-contract §3.6)
+// US-ATT-04: Session attendance summary endpoint (FR-6.4, api-contract §3.6, US-SEC-01)
 const handleAttendanceSummary = async (req: Request, res: Response) => {
   const user = req.user;
   if (!user) {
@@ -1565,11 +1724,29 @@ const handleAttendanceSummary = async (req: Request, res: Response) => {
   }
 };
 
-app.get('/api/rooms/:roomId/sessions/:sessionId/attendance.csv', handleAttendanceCsv);
-app.get('/rooms/:roomId/sessions/:sessionId/attendance.csv', requireAuth, handleAttendanceCsv);
+app.get(
+  [
+    '/api/rooms/:roomId/sessions/:sessionId/attendance.csv',
+    '/rooms/:roomId/sessions/:sessionId/attendance.csv',
+    '/api/rooms/:id/sessions/:sessionId/attendance.csv',
+    '/rooms/:id/sessions/:sessionId/attendance.csv',
+  ],
+  requireMember,
+  requireHost,
+  handleAttendanceCsv
+);
 
-app.get('/api/rooms/:roomId/sessions/:sessionId/attendance', handleAttendanceSummary);
-app.get('/rooms/:roomId/sessions/:sessionId/attendance', requireAuth, handleAttendanceSummary);
+app.get(
+  [
+    '/api/rooms/:roomId/sessions/:sessionId/attendance',
+    '/rooms/:roomId/sessions/:sessionId/attendance',
+    '/api/rooms/:id/sessions/:sessionId/attendance',
+    '/rooms/:id/sessions/:sessionId/attendance',
+  ],
+  requireMember,
+  requireHost,
+  handleAttendanceSummary
+);
 
 // US-CODE-05: Code execution endpoint (FR-5.5, FR-5.6, api-contract §3.7)
 const handleExecuteCode = async (req: Request, res: Response) => {

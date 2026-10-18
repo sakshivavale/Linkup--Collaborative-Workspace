@@ -1,20 +1,21 @@
 import { Request, Response, NextFunction, RequestHandler } from 'express';
-import { Me, ApiErrorResponse } from '@linkup/shared';
+import { Me, ApiErrorResponse, RoomSummary } from '@linkup/shared';
 import { verifyToken } from '../lib/supabase';
+import { getRoomForUser, NotAMemberError } from '../lib/rooms';
 
 // Augment Express Request type
 declare global {
   namespace Express {
     interface Request {
       user?: Me;
+      room?: RoomSummary;
     }
   }
 }
 
 /**
- * Express middleware to enforce valid Supabase access token on API routes.
- * Acceptance criteria: Any GET/POST/PATCH/DELETE to /api/* without a valid
- * Authorization: Bearer <token> header returns 401 UNAUTHENTICATED.
+ * Express middleware to enforce valid Supabase access token on API routes (US-AUTH-05, US-SEC-01).
+ * Acceptance criteria: requireAuth middleware is applied to every route except GET /health.
  */
 export const requireAuth: RequestHandler = async (
   req: Request,
@@ -64,4 +65,157 @@ export const requireAuth: RequestHandler = async (
 
   req.user = user;
   next();
+};
+
+/**
+ * Express middleware to verify room membership (US-SEC-01, FR-2.4, architecture doc §5.1).
+ * Acceptance criteria: requireMember is applied to every /rooms/:id/* route.
+ */
+export const requireMember: RequestHandler = async (
+  req: Request,
+  res: Response<ApiErrorResponse>,
+  next: NextFunction
+) => {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({
+      error: {
+        code: 'UNAUTHENTICATED',
+        message: 'Authentication required',
+      },
+    });
+  }
+
+  const roomId = req.params.roomId || req.params.id;
+  // If no room ID is present or path is join endpoint, pass through
+  if (!roomId || roomId === 'join') {
+    return next();
+  }
+
+  // If this is a host-only endpoint, defer authorization to requireHost
+  // so the canonical HOST_ONLY / FORBIDDEN response code is returned
+  const isHostOnlyEndpoint =
+    (req.method === 'DELETE' && req.path.includes('/members/')) ||
+    (req.method === 'PATCH' && req.path.includes('/permissions')) ||
+    (req.method === 'POST' && (
+      req.path.includes('/sessions') ||
+      req.path.includes('/permissions') ||
+      req.path.includes('/join-code') ||
+      req.path.includes('/archive')
+    )) ||
+    (req.method === 'GET' && (
+      (req.path.endsWith('/sessions') || req.path.endsWith('/sessions/')) ||
+      req.path.includes('/attendance')
+    ));
+
+  if (isHostOnlyEndpoint) {
+    return next();
+  }
+
+  try {
+    const room = await getRoomForUser(user.id, roomId);
+    req.room = room;
+    return next();
+  } catch (err: any) {
+    if (err instanceof NotAMemberError || err?.code === 'NOT_A_MEMBER' || err?.status === 403) {
+      return res.status(403).json({
+        error: {
+          code: 'NOT_A_MEMBER',
+          message: err.message || 'You are not a member of this room',
+        },
+      });
+    }
+
+    if (err?.code === 'ROOM_NOT_FOUND' || err?.status === 404) {
+      return res.status(404).json({
+        error: {
+          code: 'ROOM_NOT_FOUND',
+          message: err.message || 'Room not found',
+        },
+      });
+    }
+
+    console.error('[requireMember] Error verifying room membership:', err);
+    return res.status(500).json({
+      error: {
+        code: 'INTERNAL_SERVER_ERROR',
+        message: 'Failed to verify room membership',
+      },
+    });
+  }
+};
+
+/**
+ * Express middleware to verify host permissions (US-SEC-01, FR-2.5, FR-3.1, architecture doc §5.1).
+ * Acceptance criteria: requireHost is applied to host-only routes (start/end session, permission changes, remove member).
+ */
+export const requireHost: RequestHandler = async (
+  req: Request,
+  res: Response<ApiErrorResponse>,
+  next: NextFunction
+) => {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({
+      error: {
+        code: 'UNAUTHENTICATED',
+        message: 'Authentication required',
+      },
+    });
+  }
+
+  const roomId = req.params.roomId || req.params.id;
+  if (!roomId) {
+    return res.status(400).json({
+      error: {
+        code: 'VALIDATION',
+        message: 'Room ID is required',
+      },
+    });
+  }
+
+  const errorCode =
+    req.method === 'DELETE' && req.path.includes('/members/') ? 'FORBIDDEN' : 'HOST_ONLY';
+
+  try {
+    const room = req.room || (await getRoomForUser(user.id, roomId));
+    req.room = room;
+
+    if (room.myRole !== 'host') {
+      return res.status(403).json({
+        error: {
+          code: errorCode,
+          message: 'Only the room host can perform this action',
+        },
+      });
+    }
+
+    return next();
+  } catch (err: any) {
+    if (err?.code === 'ROOM_NOT_FOUND' || err?.status === 404) {
+      return res.status(404).json({
+        error: {
+          code: 'ROOM_NOT_FOUND',
+          message: err.message || 'Room not found',
+        },
+      });
+    }
+
+    if (err instanceof NotAMemberError || err?.code === 'NOT_A_MEMBER' || err?.status === 403) {
+      return res.status(403).json({
+        error: {
+          code: errorCode,
+          message: 'Only the room host can perform this action',
+        },
+      });
+    }
+
+    console.error('[requireHost] Error verifying host permissions:', err);
+    return res.status(500).json({
+      error: {
+        code: 'INTERNAL_SERVER_ERROR',
+        message: 'Failed to verify host permissions',
+      },
+    });
+  }
 };
