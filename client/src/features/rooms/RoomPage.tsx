@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -81,6 +81,8 @@ export const RoomPage: React.FC = () => {
   // US-LIVE-01 & US-LIVE-05 & US-LIVE-06: Session state, inCall state & timer
   const [activeSession, setActiveSession] = useState<Session | null>(null);
   const [isInCall, setIsInCall] = useState(false);
+  // Ref so the socket effect can always read the latest isInCall without re-subscribing
+  const isInCallRef = useRef(false);
   const [isStartingSession, setIsStartingSession] = useState(false);
   const [isEndingSession, setIsEndingSession] = useState(false);
   const [sessionEnded, setSessionEnded] = useState(false);
@@ -171,6 +173,7 @@ export const RoomPage: React.FC = () => {
       const session = await api.post<Session>(`/api/rooms/${roomId}/sessions`);
       setActiveSession(session);
       setSessionEnded(false);
+      isInCallRef.current = true;
       setIsInCall(true);
       if (room) {
         room.activeSessionId = session.id;
@@ -201,6 +204,7 @@ export const RoomPage: React.FC = () => {
       await api.post<Session>(url);
       setActiveSession(null);
       setSessionEnded(true);
+      isInCallRef.current = false;
       setIsInCall(false);
       if (room) {
         room.activeSessionId = null;
@@ -278,7 +282,7 @@ export const RoomPage: React.FC = () => {
         syncRoomSnapshot(snapshot);
 
         // US-LIVE-07 AC-4: If in live call, re-emit live:joined to cancel grace timer & reuse open attendance record
-        if (isInCall) {
+        if (isInCallRef.current) {
           socket.emit('live:joined', { roomId });
         }
       });
@@ -334,7 +338,8 @@ export const RoomPage: React.FC = () => {
       window.removeEventListener('online', handleOnline);
       socket.emit('room:leave', roomId);
     };
-  }, [roomId, isInCall, room, setRoom]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roomId]);
 
   useEffect(() => {
     const handleJoinCodeUpdated = (data: { roomId: string; joinCode: string }) => {
@@ -373,6 +378,7 @@ export const RoomPage: React.FC = () => {
       if (data.roomId === roomId) {
         setActiveSession(null);
         setSessionEnded(true);
+        isInCallRef.current = false;
         setIsInCall(false);
         if (room) {
           room.activeSessionId = null;
@@ -700,6 +706,7 @@ export const RoomPage: React.FC = () => {
               type="button"
               disabled={isReconnecting}
               onClick={() => {
+                isInCallRef.current = true;
                 setIsInCall(true);
                 setMainTab('live');
               }}
@@ -946,8 +953,8 @@ export const RoomPage: React.FC = () => {
               roomId={roomId!}
               sessionId={activeSession?.id ?? null}
               inCall={isInCall}
-              onJoinCall={() => setIsInCall(true)}
-              onLeaveCall={() => setIsInCall(false)}
+              onJoinCall={() => { isInCallRef.current = true; setIsInCall(true); }}
+              onLeaveCall={() => { isInCallRef.current = false; setIsInCall(false); }}
               isHost={room.myRole === 'host'}
               disabled={isReconnecting}
               isReconnecting={isReconnecting}
