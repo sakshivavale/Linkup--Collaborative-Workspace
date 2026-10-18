@@ -91,9 +91,9 @@ export const PermissionToastContainer: React.FC<PermissionToastContainerProps> =
   const [toasts, setToasts] = useState<PermissionToastItem[]>([]);
   const prevPermissionsRef = useRef<Permissions | null>(initialPermissions || null);
 
-  // Sync initial permissions if provided later
+  // Sync initial permissions whenever provided or updated
   useEffect(() => {
-    if (initialPermissions && !prevPermissionsRef.current) {
+    if (initialPermissions) {
       prevPermissionsRef.current = { ...initialPermissions };
     }
   }, [initialPermissions]);
@@ -139,7 +139,7 @@ export const PermissionToastContainer: React.FC<PermissionToastContainerProps> =
       // Must match current room
       if (data.roomId !== roomId) return;
 
-      // Only notify if this change targets the current user (US-PERM-03 / FR-4.4 / US-PERM-06)
+      // Only notify if this change targets the current user (US-PERM-03 / FR-4.4 / US-PERM-06 / US-ERR-04)
       if (currentUserId && data.userId !== currentUserId) {
         return;
       }
@@ -148,15 +148,29 @@ export const PermissionToastContainer: React.FC<PermissionToastContainerProps> =
       const next = data.permissions;
 
       if (!prev) {
-        // First time seeing permissions, store and toast if mute all target
-        if ((data.reason === 'MUTE_ALL' || data.isBulk) && next.canMic === false) {
-          addToast({
-            permission: 'canMic',
-            granted: false,
-            message: 'Teacher muted everyone.',
-          });
-        }
+        // If previous state not yet captured, assume default true permissions to catch any revocation
+        const assumedPrev: Permissions = {
+          canMic: true,
+          canCamera: true,
+          canScreen: true,
+          canWhiteboard: true,
+          canCode: true,
+        };
+        const diffs = diffPermissions(assumedPrev, next, data.reason);
         prevPermissionsRef.current = { ...next };
+
+        diffs.forEach((diff) => {
+          if (!diff.granted) {
+            const isMuteAll =
+              (data.reason === 'MUTE_ALL' || data.isBulk) &&
+              diff.key === 'canMic';
+            addToast({
+              permission: diff.key,
+              granted: false,
+              message: isMuteAll ? 'Teacher muted everyone.' : diff.message,
+            });
+          }
+        });
         return;
       }
 
@@ -176,7 +190,7 @@ export const PermissionToastContainer: React.FC<PermissionToastContainerProps> =
       });
     };
 
-    // US-PERM-06: Listen to bulk permission events
+    // US-PERM-06 & US-ERR-04: Listen to bulk permission events
     const onPermBulk = (data: {
       roomId: string;
       by: string;
@@ -185,18 +199,40 @@ export const PermissionToastContainer: React.FC<PermissionToastContainerProps> =
       reason?: string;
     }) => {
       if (data.roomId !== roomId) return;
-      if (data.patch.canMic === false && currentUserId && data.by !== currentUserId) {
+      if (currentUserId && data.by !== currentUserId) {
         const prev = prevPermissionsRef.current;
-        const hadMic = prev ? Boolean(prev.canMic) : true;
-        if (hadMic) {
-          addToast({
-            permission: 'canMic',
-            granted: false,
-            message: 'Teacher muted everyone.',
-          });
-          if (prev) {
-            prevPermissionsRef.current = { ...prev, canMic: false };
+        if (data.patch.canMic === false) {
+          const hadMic = prev ? Boolean(prev.canMic) : true;
+          if (hadMic) {
+            addToast({
+              permission: 'canMic',
+              granted: false,
+              message: 'Teacher muted everyone.',
+            });
           }
+        }
+        if (data.patch.canCamera === false) {
+          const hadCam = prev ? Boolean(prev.canCamera) : true;
+          if (hadCam) {
+            addToast({
+              permission: 'canCamera',
+              granted: false,
+              message: 'Teacher turned off your camera.',
+            });
+          }
+        }
+        if (data.patch.canScreen === false) {
+          const hadScreen = prev ? Boolean(prev.canScreen) : true;
+          if (hadScreen) {
+            addToast({
+              permission: 'canScreen',
+              granted: false,
+              message: 'Teacher turned off your screen sharing.',
+            });
+          }
+        }
+        if (prev) {
+          prevPermissionsRef.current = { ...prev, ...data.patch };
         }
       }
     };

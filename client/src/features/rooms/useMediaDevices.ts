@@ -536,6 +536,47 @@ export function useMediaDevices(options: UseMediaDevicesOptions = {}) {
     }
   }, [previewStream]);
 
+  /**
+   * Immediately stops all active audio tracks and cleans up audio meters (US-ERR-04)
+   * The media track stops within 1 second.
+   */
+  const stopAudioTracks = useCallback(() => {
+    stopAudioMeter();
+    setLocalStream((prev) => {
+      if (!prev) return null;
+      prev.getAudioTracks().forEach((track) => {
+        track.enabled = false;
+        try {
+          track.stop();
+        } catch {
+          // Ignore
+        }
+      });
+      const remainingVideo = prev.getVideoTracks();
+      return remainingVideo.length > 0 ? new MediaStream(remainingVideo) : null;
+    });
+  }, [stopAudioMeter]);
+
+  /**
+   * Immediately stops all active video tracks and cleans up previews (US-ERR-04)
+   * The media track stops within 1 second.
+   */
+  const stopVideoTracks = useCallback(() => {
+    stopCameraPreview();
+    setLocalStream((prev) => {
+      if (!prev) return null;
+      prev.getVideoTracks().forEach((track) => {
+        try {
+          track.stop();
+        } catch {
+          // Ignore
+        }
+      });
+      const remainingAudio = prev.getAudioTracks();
+      return remainingAudio.length > 0 ? new MediaStream(remainingAudio) : null;
+    });
+  }, [stopCameraPreview]);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -575,5 +616,7 @@ export function useMediaDevices(options: UseMediaDevicesOptions = {}) {
     playTestSound,
     startCameraPreview,
     stopCameraPreview,
+    stopAudioTracks,
+    stopVideoTracks,
   };
 }

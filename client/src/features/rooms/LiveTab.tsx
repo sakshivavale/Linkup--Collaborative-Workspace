@@ -190,8 +190,21 @@ export const LiveTab: React.FC<LiveTabProps> = ({
     const updateCameraStream = async () => {
       if (!camOn || !inCall) {
         if (localVideoRef.current) {
+          if (localVideoRef.current.srcObject) {
+            const stream = localVideoRef.current.srcObject as MediaStream;
+            if (stream.getVideoTracks) {
+              stream.getVideoTracks().forEach((t) => {
+                try {
+                  t.stop();
+                } catch {
+                  // Ignore
+                }
+              });
+            }
+          }
           localVideoRef.current.srcObject = null;
         }
+        mediaDevices.stopVideoTracks();
         return;
       }
 
@@ -241,6 +254,7 @@ export const LiveTab: React.FC<LiveTabProps> = ({
     let active = true;
     const updateAudioStream = async () => {
       if (!micOn || !inCall) {
+        mediaDevices.stopAudioTracks();
         return;
       }
 
@@ -427,44 +441,118 @@ export const LiveTab: React.FC<LiveTabProps> = ({
       }
     };
 
-    // US-LIVE-04 Acceptance Criteria 4 & US-PERM-06 Acceptance Criteria 4:
-    // If can_screen revoked, stops screen share; if can_mic revoked, stops audio publishing within 1 second
+    // US-LIVE-04 Acceptance Criteria 4, US-PERM-06 AC-4, & US-ERR-04 Acceptance Criteria 1, 2:
+    // When student's mic/camera/screen permission is revoked while active:
+    // - The relevant control is immediately disabled.
+    // - The media track stops within 1 second.
+    // - No crash or error screen is shown.
     const onPermChanged = (data: { roomId: string; userId: string; permissions: Permissions; reason?: string }) => {
       if (data.roomId !== roomId) return;
       if (data.userId === user?.id) {
         setMyPermissions(data.permissions);
         if (!isHost) {
           if (data.permissions.canScreen === false) {
-            if (activeScreenShare?.userId === user?.id) {
+            if (activeScreenShare?.userId === user?.id || screenStream) {
               handleStopScreenShare();
               socket.emit('screen:stop', { roomId });
             }
           }
           if (data.permissions.canMic === false) {
             setMicOn(false);
+            mediaDevices.stopAudioTracks();
             if (mediaDevices.localStream) {
               mediaDevices.localStream.getAudioTracks().forEach((track) => {
                 track.enabled = false;
+                try {
+                  track.stop();
+                } catch {
+                  // Ignore
+                }
               });
             }
           }
           if (data.permissions.canCamera === false) {
             setCamOn(false);
+            if (localVideoRef.current?.srcObject) {
+              const src = localVideoRef.current.srcObject as MediaStream;
+              if (src.getVideoTracks) {
+                src.getVideoTracks().forEach((track) => {
+                  try {
+                    track.stop();
+                  } catch {
+                    // Ignore
+                  }
+                });
+              }
+              localVideoRef.current.srcObject = null;
+            }
+            mediaDevices.stopVideoTracks();
+            if (mediaDevices.localStream) {
+              mediaDevices.localStream.getVideoTracks().forEach((track) => {
+                try {
+                  track.stop();
+                } catch {
+                  // Ignore
+                }
+              });
+            }
           }
         }
       }
     };
 
-    // US-PERM-06: Bulk permission change handler
+    // US-PERM-06 & US-ERR-04: Bulk permission change handler
     const onPermBulk = (data: { roomId: string; by: string; patch: Partial<Permissions> }) => {
       if (data.roomId !== roomId) return;
-      if (!isHost && data.patch.canMic === false) {
-        setMicOn(false);
-        setMyPermissions((prev) => (prev ? { ...prev, canMic: false } : null));
-        if (mediaDevices.localStream) {
-          mediaDevices.localStream.getAudioTracks().forEach((track) => {
-            track.enabled = false;
-          });
+      if (!isHost) {
+        if (data.patch.canMic === false) {
+          setMicOn(false);
+          setMyPermissions((prev) => (prev ? { ...prev, canMic: false } : null));
+          mediaDevices.stopAudioTracks();
+          if (mediaDevices.localStream) {
+            mediaDevices.localStream.getAudioTracks().forEach((track) => {
+              track.enabled = false;
+              try {
+                track.stop();
+              } catch {
+                // Ignore
+              }
+            });
+          }
+        }
+        if (data.patch.canCamera === false) {
+          setCamOn(false);
+          setMyPermissions((prev) => (prev ? { ...prev, canCamera: false } : null));
+          if (localVideoRef.current?.srcObject) {
+            const src = localVideoRef.current.srcObject as MediaStream;
+            if (src.getVideoTracks) {
+              src.getVideoTracks().forEach((track) => {
+                try {
+                  track.stop();
+                } catch {
+                  // Ignore
+                }
+              });
+            }
+            localVideoRef.current.srcObject = null;
+          }
+          mediaDevices.stopVideoTracks();
+          if (mediaDevices.localStream) {
+            mediaDevices.localStream.getVideoTracks().forEach((track) => {
+              try {
+                track.stop();
+              } catch {
+                // Ignore
+              }
+            });
+          }
+        }
+        if (data.patch.canScreen === false) {
+          setMyPermissions((prev) => (prev ? { ...prev, canScreen: false } : null));
+          if (activeScreenShare?.userId === user?.id || screenStream) {
+            handleStopScreenShare();
+            socket.emit('screen:stop', { roomId });
+          }
         }
       }
     };
@@ -486,7 +574,18 @@ export const LiveTab: React.FC<LiveTabProps> = ({
       socket.off('perm:changed', onPermChanged);
       socket.off('perm:bulk', onPermBulk);
     };
-  }, [activeScreenShare?.userId, activeSpeakerId, isHost, mediaDevices.localStream, roomId, room, screenStream, user?.id]);
+  }, [
+    activeScreenShare?.userId,
+    activeSpeakerId,
+    isHost,
+    mediaDevices.localStream,
+    mediaDevices.stopAudioTracks,
+    mediaDevices.stopVideoTracks,
+    roomId,
+    room,
+    screenStream,
+    user?.id,
+  ]);
 
   // US-PERM-06 AC-4: Ensure actively publishing audio track is instantly muted within 1s
   useEffect(() => {
@@ -810,7 +909,11 @@ export const LiveTab: React.FC<LiveTabProps> = ({
             id="room-mic-toggle"
             data-testid="room-mic-toggle"
             disabled={isControlsDisabled || (!isHost && myPermissions?.canMic === false)}
-            onClick={() => setMicOn((v) => !v)}
+            aria-disabled={isControlsDisabled || (!isHost && myPermissions?.canMic === false)}
+            onClick={() => {
+              if (isControlsDisabled || (!isHost && myPermissions?.canMic === false)) return;
+              setMicOn((v) => !v);
+            }}
             title={
               isControlsDisabled
                 ? 'Reconnecting...'
@@ -835,6 +938,7 @@ export const LiveTab: React.FC<LiveTabProps> = ({
             data-testid="room-mic-device-menu-btn"
             type="button"
             disabled={isControlsDisabled || (!isHost && myPermissions?.canMic === false)}
+            aria-disabled={isControlsDisabled || (!isHost && myPermissions?.canMic === false)}
             onClick={() => setIsDevicePickerOpen(true)}
             title="Switch microphone"
             aria-label="Switch microphone"
@@ -850,7 +954,11 @@ export const LiveTab: React.FC<LiveTabProps> = ({
             id="room-cam-toggle"
             data-testid="room-cam-toggle"
             disabled={isControlsDisabled || (!isHost && myPermissions?.canCamera === false)}
-            onClick={() => setCamOn((v) => !v)}
+            aria-disabled={isControlsDisabled || (!isHost && myPermissions?.canCamera === false)}
+            onClick={() => {
+              if (isControlsDisabled || (!isHost && myPermissions?.canCamera === false)) return;
+              setCamOn((v) => !v);
+            }}
             title={
               isControlsDisabled
                 ? 'Reconnecting...'
@@ -875,6 +983,7 @@ export const LiveTab: React.FC<LiveTabProps> = ({
             data-testid="room-cam-device-menu-btn"
             type="button"
             disabled={isControlsDisabled || (!isHost && myPermissions?.canCamera === false)}
+            aria-disabled={isControlsDisabled || (!isHost && myPermissions?.canCamera === false)}
             onClick={() => setIsDevicePickerOpen(true)}
             title="Switch camera"
             aria-label="Switch camera"
