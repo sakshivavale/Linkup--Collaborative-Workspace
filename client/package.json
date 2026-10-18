@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:sec-secrets": "tsx ../server/scripts/test-secrets-never-exposed.ts"
   },
   "dependencies": {
     "@excalidraw/excalidraw": "^0.18.1",
