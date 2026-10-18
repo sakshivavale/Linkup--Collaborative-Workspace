@@ -867,8 +867,8 @@
 > As the **system**, Supabase service-role key and LiveKit API secret must never be included in the client bundle so that they cannot be extracted by users.
 
 **Acceptance Criteria:**
-- [ ] `SUPABASE_SERVICE_ROLE_KEY` and `LIVEKIT_API_SECRET` are only in server environment variables.
-- [ ] No server-only secret appears in any `VITE_*` variable.
+- [x] `SUPABASE_SERVICE_ROLE_KEY` and `LIVEKIT_API_SECRET` are only in server environment variables.
+- [x] No server-only secret appears in any `VITE_*` variable.
 
 ---
 

@@ -52,7 +52,8 @@
     "test:camera-mic-permission": "tsx scripts/test-camera-mic-permission-denied.ts",
     "test:removed-from-room": "tsx scripts/test-removed-from-room.ts",
     "test:socket-disconnect": "tsx scripts/test-socket-disconnected-banner.ts",
-    "test:sec-routes": "tsx scripts/test-all-api-routes-authenticated.ts"
+    "test:sec-routes": "tsx scripts/test-all-api-routes-authenticated.ts",
+    "test:sec-secrets": "tsx scripts/test-secrets-never-exposed.ts"
   },
   "dependencies": {
     "@linkup/shared": "*",
