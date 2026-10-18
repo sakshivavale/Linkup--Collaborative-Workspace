@@ -53,7 +53,8 @@
     "test:removed-from-room": "tsx scripts/test-removed-from-room.ts",
     "test:socket-disconnect": "tsx scripts/test-socket-disconnected-banner.ts",
     "test:sec-routes": "tsx scripts/test-all-api-routes-authenticated.ts",
-    "test:sec-secrets": "tsx scripts/test-secrets-never-exposed.ts"
+    "test:sec-secrets": "tsx scripts/test-secrets-never-exposed.ts",
+    "test:sec-sandbox": "tsx scripts/test-sandboxed-code-execution.ts"
   },
   "dependencies": {
     "@linkup/shared": "*",

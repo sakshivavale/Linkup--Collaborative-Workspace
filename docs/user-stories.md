@@ -878,9 +878,9 @@
 > As the **system**, code must run in the Piston sandbox with enforced time, memory, and output limits so that malicious code cannot harm the server.
 
 **Acceptance Criteria:**
-- [ ] Piston is called with `run_timeout: 3000 ms`, `compile_timeout: 10000 ms`, `run_memory_limit: 256 MB`.
-- [ ] Stdout and stderr are each truncated to 64 KB; `truncated: true` is set in the response.
-- [ ] Piston is not reachable from the public internet (internal Docker network only).
+- [x] Piston is called with `run_timeout: 3000 ms`, `compile_timeout: 10000 ms`, `run_memory_limit: 256 MB`.
+- [x] Stdout and stderr are each truncated to 64 KB; `truncated: true` is set in the response.
+- [x] Piston is not reachable from the public internet (internal Docker network only).
 
 ---
 

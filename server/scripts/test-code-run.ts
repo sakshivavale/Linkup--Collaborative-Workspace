@@ -452,7 +452,9 @@ async function runTests() {
     // TEST 8: GET /runtimes endpoint
     // ─────────────────────────────────────────────────────────────────────────────
     console.log('\n[Test 8] Verifying GET /runtimes endpoint...');
-    const runtimesRes = await fetch(`${BASE_URL}/runtimes`);
+    const runtimesRes = await fetch(`${BASE_URL}/runtimes`, {
+      headers: { Authorization: 'Bearer token-host' },
+    });
     assert(runtimesRes.status === 200, 'GET /runtimes returns HTTP 200');
     const runtimesData = await runtimesRes.json();
     assert(
