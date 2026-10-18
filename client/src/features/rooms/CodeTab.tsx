@@ -61,6 +61,7 @@ export interface CodeTabProps {
   initialCodeState?: CodeState | null;
   onCodeStateChange?: (state: CodeState) => void;
   isHost?: boolean;
+  disabled?: boolean;
 }
 
 /**
@@ -80,6 +81,7 @@ export const CodeTab: React.FC<CodeTabProps> = ({
   initialCodeState = null,
   onCodeStateChange,
   isHost,
+  disabled = false,
 }) => {
   const { user, fullName } = useAuth();
 
@@ -214,16 +216,17 @@ export const CodeTab: React.FC<CodeTabProps> = ({
     return Boolean(canCode);
   }, [isUserHost, localMembers, user?.id, canCode]);
 
-  const canEdit = Boolean(isPenHolder && userHasCodePermission);
+  // US-ERR-08 AC-2: Code updates are disabled while disconnected
+  const canEdit = Boolean(isPenHolder && userHasCodePermission && !disabled);
   const isReadOnly = !canEdit;
 
-  // US-CODE-04 AC-3: Cancel pending debounced edits immediately when canEdit is lost
+  // US-CODE-04 AC-3 & US-ERR-08 AC-2: Cancel pending debounced edits immediately when canEdit is lost or disconnected
   useEffect(() => {
-    if (!canEdit && debounceTimerRef.current) {
+    if ((!canEdit || disabled) && debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
       debounceTimerRef.current = null;
     }
-  }, [canEdit]);
+  }, [canEdit, disabled]);
 
   // US-CODE-08: Reset penRequested if user becomes pen holder or loses canCode
   useEffect(() => {
@@ -234,8 +237,8 @@ export const CodeTab: React.FC<CodeTabProps> = ({
 
   // AC 1: "A 'Run' button is visible in the Code tab for the pen holder and the host."
   const canRun = useMemo(() => {
-    return Boolean(isPenHolder || isUserHost);
-  }, [isPenHolder, isUserHost]);
+    return Boolean((isPenHolder || isUserHost) && !disabled);
+  }, [isPenHolder, isUserHost, disabled]);
 
   // Acceptance Criterion 3: "The editor header shows who is currently editing (e.g., 'Priya is editing')"
   const editorDisplayName = useMemo(() => {
@@ -263,7 +266,7 @@ export const CodeTab: React.FC<CodeTabProps> = ({
 
   // US-CODE-02: Host assigns pen to student
   const handleAssignPen = (targetHolderId: string) => {
-    if (!targetHolderId || !isUserHost) return;
+    if (disabled || !targetHolderId || !isUserHost) return;
     socket.emit(
       'code:pen',
       {
@@ -286,7 +289,7 @@ export const CodeTab: React.FC<CodeTabProps> = ({
 
   // US-CODE-02: Host takes back pen from student
   const handleTakeBackPen = () => {
-    if (!isUserHost || !user?.id) return;
+    if (disabled || !isUserHost || !user?.id) return;
     const targetId = hostUserId || user.id;
     socket.emit(
       'code:pen',
@@ -310,7 +313,7 @@ export const CodeTab: React.FC<CodeTabProps> = ({
 
   // US-CODE-08 AC-2: Participant emits code:request-pen
   const handleRequestPen = () => {
-    if (isUserHost || !userHasCodePermission || isPenHolder || requestingPen) return;
+    if (disabled || isUserHost || !userHasCodePermission || isPenHolder || requestingPen) return;
     setRequestingPen(true);
     setPenRequested(true);
     socket.emit(
@@ -464,7 +467,7 @@ export const CodeTab: React.FC<CodeTabProps> = ({
       holderId: holderIdRef.current,
     });
 
-    if (!canEdit) return;
+    if (disabled || !canEdit) return;
 
     // US-CODE-03 AC-4: Source size must be max 64 KB
     const encoder = new TextEncoder();
@@ -513,7 +516,7 @@ export const CodeTab: React.FC<CodeTabProps> = ({
   const handleLanguageChange = (newLang: Language) => {
     setLanguage(newLang);
 
-    if (!canEdit) return;
+    if (disabled || !canEdit) return;
 
     socket.emit(
       'code:update',
@@ -544,7 +547,7 @@ export const CodeTab: React.FC<CodeTabProps> = ({
     return () => {
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);
-        if (canEdit) {
+        if (canEdit && !disabled) {
           socket.emit('code:update', {
             roomId,
             content: contentRef.current,
@@ -553,11 +556,11 @@ export const CodeTab: React.FC<CodeTabProps> = ({
         }
       }
     };
-  }, [canEdit, roomId]);
+  }, [canEdit, disabled, roomId]);
 
   // AC 3: Clicking Run emits code:run-started to the room and calls POST /execute via Piston
   const handleRun = async () => {
-    if (!canRun || running) return;
+    if (disabled || !canRun || running) return;
     setRunning(true);
     setRunError(null);
 
@@ -643,13 +646,13 @@ export const CodeTab: React.FC<CodeTabProps> = ({
             data-testid="code-request-edit-btn"
             type="button"
             onClick={handleRequestPen}
-            disabled={requestingPen || penRequested}
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-purple-500 cursor-pointer active:scale-95 ${
+            disabled={disabled || requestingPen || penRequested}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-purple-500 cursor-pointer active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed ${
               penRequested
                 ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 cursor-default'
                 : 'text-white bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500'
             }`}
-            title={penRequested ? 'Edit request sent to teacher' : 'Request edit pen from teacher'}
+            title={disabled ? 'Reconnecting... editing disabled' : penRequested ? 'Edit request sent to teacher' : 'Request edit pen from teacher'}
             aria-label="Request Edit"
           >
             {penRequested ? (
@@ -689,8 +692,9 @@ export const CodeTab: React.FC<CodeTabProps> = ({
               data-testid="code-grant-request-btn"
               type="button"
               onClick={() => handleAssignPen(activePenRequests[0].userId)}
-              className="ml-1.5 px-2 py-0.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-bold shadow-xs transition-all cursor-pointer"
-              title={`Grant edit pen to ${activePenRequests[0].userName}`}
+              disabled={disabled}
+              className="ml-1.5 px-2 py-0.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-bold shadow-xs transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              title={disabled ? 'Reconnecting... controls disabled' : `Grant edit pen to ${activePenRequests[0].userName}`}
               aria-label={`Grant pen to ${activePenRequests[0].userName}`}
             >
               Grant
@@ -712,8 +716,9 @@ export const CodeTab: React.FC<CodeTabProps> = ({
                 data-testid="code-take-back-btn"
                 type="button"
                 onClick={handleTakeBackPen}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 active:scale-95 transition-all shadow-sm focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer"
-                title="Take back edit pen from student"
+                disabled={disabled}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 active:scale-95 transition-all shadow-sm focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                title={disabled ? 'Reconnecting... controls disabled' : 'Take back edit pen from student'}
                 aria-label="Take Back"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
@@ -738,7 +743,7 @@ export const CodeTab: React.FC<CodeTabProps> = ({
                     handleAssignPen(val);
                   }
                 }}
-                disabled={eligibleStudents.length === 0}
+                disabled={disabled || eligibleStudents.length === 0}
                 className="appearance-none pl-3 pr-8 py-1.5 rounded-xl text-xs font-semibold bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/40 dark:hover:bg-purple-900/50 border border-purple-200 dark:border-purple-800 text-purple-700 dark:text-purple-300 transition-all focus:outline-none focus:ring-2 focus:ring-purple-500 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed shadow-sm"
               >
                 <option value="" disabled={studentHoldsPen}>
@@ -769,10 +774,10 @@ export const CodeTab: React.FC<CodeTabProps> = ({
             id="room-code-language"
             data-testid="room-code-language"
             value={language}
-            disabled={!canEdit}
+            disabled={disabled || !canEdit}
             onChange={(e) => handleLanguageChange(e.target.value as Language)}
             aria-label="Code language selector"
-            title={!canEdit ? 'Only current pen holder can change language' : 'Select programming language'}
+            title={disabled ? 'Reconnecting... editing disabled' : !canEdit ? 'Only current pen holder can change language' : 'Select programming language'}
             className="appearance-none pl-3 pr-8 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 transition-all focus:outline-none focus:ring-2 focus:ring-purple-500 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed shadow-sm"
           >
             <option value="python">Python</option>
@@ -783,20 +788,34 @@ export const CodeTab: React.FC<CodeTabProps> = ({
           <ChevronDown className="w-3.5 h-3.5 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400" />
         </div>
 
-        {/* Live sync pulse badge and rev indicator (AC-2) */}
-        <div
-          id="room-code-sync-badge"
-          data-testid="room-code-sync-badge"
-          className="inline-flex items-center gap-1.5 px-2 py-1 text-[11px] text-slate-500 dark:text-slate-400 font-medium select-none"
-        >
-          <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-          </span>
-          <span id="room-code-rev" data-testid="room-code-rev" className="hidden sm:inline">
-            Live Sync (rev {rev})
-          </span>
-        </div>
+        {/* Live sync pulse badge and rev indicator (AC-2) or Reconnecting badge (US-ERR-08) */}
+        {disabled ? (
+          <div
+            id="room-code-reconnecting-badge"
+            data-testid="room-code-reconnecting-badge"
+            className="inline-flex items-center gap-1.5 px-2 py-1 text-[11px] text-amber-600 dark:text-amber-400 font-medium select-none"
+          >
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+            </span>
+            <span id="room-code-reconnecting-text">Reconnecting...</span>
+          </div>
+        ) : (
+          <div
+            id="room-code-sync-badge"
+            data-testid="room-code-sync-badge"
+            className="inline-flex items-center gap-1.5 px-2 py-1 text-[11px] text-slate-500 dark:text-slate-400 font-medium select-none"
+          >
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+            </span>
+            <span id="room-code-rev" data-testid="room-code-rev" className="hidden sm:inline">
+              Live Sync (rev {rev})
+            </span>
+          </div>
+        )}
 
         {/* AC-4: Error notification badge for sync / 64 KB limit */}
         {(sizeError || syncError) && (
@@ -819,7 +838,7 @@ export const CodeTab: React.FC<CodeTabProps> = ({
             data-testid="room-code-run"
             type="button"
             onClick={handleRun}
-            disabled={running || !canCode}
+            disabled={disabled || running || !canCode}
             className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 active:scale-95 cursor-pointer"
           >
             {running ? (

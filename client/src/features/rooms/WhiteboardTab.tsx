@@ -15,6 +15,7 @@ export interface WhiteboardTabProps {
   isHost?: boolean;
   initialElements?: any[];
   onElementsChange?: (elements: any[]) => void;
+  disabled?: boolean;
 }
 
 /**
@@ -53,6 +54,7 @@ export const WhiteboardTab: React.FC<WhiteboardTabProps> = ({
   isHost = false,
   initialElements = [],
   onElementsChange,
+  disabled = false,
 }) => {
   const { user } = useAuth();
   const { theme } = useTheme();
@@ -97,10 +99,10 @@ export const WhiteboardTab: React.FC<WhiteboardTabProps> = ({
     };
   }, [roomId, user?.id, isHost]);
 
-  // View-only mode for members where can_whiteboard = false and who are not the host:
-  // Effective permission combines host role and live can_whiteboard flag
+  // View-only mode for members where can_whiteboard = false and who are not the host, or when disconnected:
+  // US-ERR-08 AC-2: Whiteboard edits are disabled while disconnected
   const effectiveCanWhiteboard = isHost || liveCanWhiteboard;
-  const isReadOnly = !isHost && !effectiveCanWhiteboard;
+  const isReadOnly = disabled || (!isHost && !effectiveCanWhiteboard);
 
   // Keep track of versions of elements sent or received to prevent infinite broadcast loops
   const sentVersionsRef = useRef<Map<string, number>>(new Map());
@@ -108,16 +110,16 @@ export const WhiteboardTab: React.FC<WhiteboardTabProps> = ({
   const throttleTimerRef = useRef<NodeJS.Timeout | null>(null);
   const isInitializedRef = useRef<boolean>(false);
 
-  // US-WB-04 AC-3: Immediately cancel scheduled flush timer and clear pending updates when revoked
+  // US-WB-04 AC-3 & US-ERR-08 AC-2: Immediately cancel scheduled flush timer and clear pending updates when revoked or disconnected
   useEffect(() => {
-    if (isReadOnly) {
+    if (isReadOnly || disabled) {
       if (throttleTimerRef.current) {
         clearTimeout(throttleTimerRef.current);
         throttleTimerRef.current = null;
       }
       pendingUpdatesRef.current.clear();
     }
-  }, [isReadOnly]);
+  }, [isReadOnly, disabled]);
 
   // Keep Excalidraw imperative API appState.viewModeEnabled in sync live when isReadOnly changes
   useEffect(() => {
@@ -183,7 +185,7 @@ export const WhiteboardTab: React.FC<WhiteboardTabProps> = ({
 
   // Broadcast throttled pending changes to room members
   const flushUpdates = useCallback(() => {
-    if (isReadOnly || pendingUpdatesRef.current.size === 0) return;
+    if (disabled || isReadOnly || pendingUpdatesRef.current.size === 0) return;
     const elementsToSend = Array.from(pendingUpdatesRef.current.values());
     pendingUpdatesRef.current.clear();
 
@@ -197,16 +199,16 @@ export const WhiteboardTab: React.FC<WhiteboardTabProps> = ({
       roomId,
       elements: elementsToSend,
     });
-  }, [roomId, isReadOnly]);
+  }, [roomId, isReadOnly, disabled]);
 
   // Schedule throttled broadcast at 100 ms (US-WB-02 AC-2)
   const scheduleFlush = useCallback(() => {
-    if (throttleTimerRef.current) return;
+    if (disabled || isReadOnly || throttleTimerRef.current) return;
     throttleTimerRef.current = setTimeout(() => {
       throttleTimerRef.current = null;
       flushUpdates();
     }, WB_THROTTLE_MS);
-  }, [flushUpdates]);
+  }, [flushUpdates, disabled, isReadOnly]);
 
   // Cleanup pending timer on unmount and send any remaining updates
   useEffect(() => {
@@ -214,10 +216,12 @@ export const WhiteboardTab: React.FC<WhiteboardTabProps> = ({
       if (throttleTimerRef.current) {
         clearTimeout(throttleTimerRef.current);
         throttleTimerRef.current = null;
-        flushUpdates();
+        if (!disabled && !isReadOnly) {
+          flushUpdates();
+        }
       }
     };
-  }, [flushUpdates]);
+  }, [flushUpdates, disabled, isReadOnly]);
 
   // Handle local drawing / modifications
   const handleChange = useCallback(
@@ -376,7 +380,18 @@ export const WhiteboardTab: React.FC<WhiteboardTabProps> = ({
         </div>
 
         {/* Status badges */}
-        {isReadOnly ? (
+        {disabled ? (
+          <span
+            id="whiteboard-disabled-badge"
+            data-testid="whiteboard-disabled-badge"
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 text-[11px] font-semibold"
+          >
+            <Eye className="w-3.5 h-3.5" />
+            <span id="whiteboard-view-only-badge" data-testid="whiteboard-view-only-badge">
+              Reconnecting... whiteboard editing disabled
+            </span>
+          </span>
+        ) : isReadOnly ? (
           <span
             id="whiteboard-disabled-badge"
             data-testid="whiteboard-disabled-badge"
@@ -417,8 +432,9 @@ export const WhiteboardTab: React.FC<WhiteboardTabProps> = ({
             id="whiteboard-clear-board"
             data-testid="whiteboard-clear-board"
             onClick={() => setShowClearConfirm(true)}
-            title="Clear the entire whiteboard for all participants"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-rose-700 dark:text-rose-300 hover:text-rose-800 dark:hover:text-rose-200 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/50 border border-rose-200 dark:border-rose-800 transition-all shadow-sm cursor-pointer"
+            disabled={disabled}
+            title={disabled ? 'Reconnecting... whiteboard editing disabled' : 'Clear the entire whiteboard for all participants'}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-rose-700 dark:text-rose-300 hover:text-rose-800 dark:hover:text-rose-200 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/50 border border-rose-200 dark:border-rose-800 transition-all shadow-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Trash2 className="w-3.5 h-3.5" />
             <span>Clear Board</span>
@@ -444,13 +460,13 @@ export const WhiteboardTab: React.FC<WhiteboardTabProps> = ({
         <div id="room-whiteboard-canvas" data-testid="room-whiteboard-canvas" className="w-full h-full">
           <Excalidraw
             excalidrawAPI={(api) => setExcalidrawAPI(api)}
-            viewModeEnabled={isReadOnly} /* viewModeEnabled={!canWhiteboard} */
+            viewModeEnabled={isReadOnly} /* viewModeEnabled={!canWhiteboard || disabled} */
             theme={theme === 'dark' ? 'dark' : 'light'}
             onChange={handleChange}
             UIOptions={{
               canvasActions: {
-                changeViewBackgroundColor: !isReadOnly,
-                clearCanvas: !isReadOnly,
+                changeViewBackgroundColor: !isReadOnly && !disabled,
+                clearCanvas: !isReadOnly && !disabled,
                 export: { saveFileToDisk: true },
                 saveAsImage: true,
               },
@@ -469,7 +485,9 @@ export const WhiteboardTab: React.FC<WhiteboardTabProps> = ({
       </div>
 
       <p className="text-xs text-center text-slate-400 dark:text-slate-500">
-        {isReadOnly
+        {disabled
+          ? 'Reconnecting... whiteboard editing is temporarily disabled.'
+          : isReadOnly
           ? 'You are viewing the shared whiteboard in view-only mode.'
           : 'Interactive collaborative whiteboard powered by Excalidraw.'}
       </p>

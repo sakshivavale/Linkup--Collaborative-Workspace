@@ -840,9 +840,9 @@
 > As a **user**, if my socket connection drops, I want a persistent banner at the top of the page so that I know my real-time features are temporarily unavailable.
 
 **Acceptance Criteria:**
-- [ ] A **"Reconnecting..."** banner appears at the top of the screen on socket disconnect.
-- [ ] Chat send, code updates, and whiteboard edits are disabled while disconnected.
-- [ ] The banner disappears and controls re-enable within 1 second of reconnection.
+- [x] A **"Reconnecting..."** banner appears at the top of the screen on socket disconnect.
+- [x] Chat send, code updates, and whiteboard edits are disabled while disconnected.
+- [x] The banner disappears and controls re-enable within 1 second of reconnection.
 
 ---
 
