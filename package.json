@@ -13,6 +13,7 @@
     "dev:server": "npm run dev --workspace=server",
     "build": "npm run build --workspace=client",
     "test:auth": "npm run test:auth --workspace=server",
+    "test:password-reset": "npm run test:password-reset --workspace=server",
     "test:profile": "npm run test:profile --workspace=server",
     "test:rooms": "npm run test:rooms --workspace=server",
     "test:dash": "npm run test:dash --workspace=server",
