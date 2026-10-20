@@ -203,11 +203,13 @@ app.post('/api/rooms', async (req: Request, res: Response) => {
     });
   }
 
-  if (user.role !== 'teacher') {
+  if (user.role !== 'teacher' || user.status === 'PENDING_TEACHER') {
     return res.status(403).json({
       error: {
         code: 'TEACHER_ONLY',
-        message: 'Only teachers can create rooms',
+        message: user.status === 'PENDING_TEACHER'
+          ? 'Teacher account is pending review and approval'
+          : 'Only teachers can create rooms',
       },
     });
   }

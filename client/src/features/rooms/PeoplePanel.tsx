@@ -18,7 +18,7 @@ import {
   Hand,
   MicOff,
 } from 'lucide-react';
-import { RoomSummary, PresenceEntry, Member, PermissionKey } from '@linkup/shared';
+import { RoomSummary, PresenceEntry, Member, PermissionKey, UserRole } from '@linkup/shared';
 import { useAuth } from '../../context/AuthContext';
 import { socket } from '../../lib/socket';
 import { api, HttpError } from '../../lib/api';
@@ -64,7 +64,7 @@ type PanelMember = {
   id: string;
   userId?: string;
   name: string;
-  role: 'teacher' | 'student';
+  role: UserRole;
   memberRole: 'host' | 'participant';
   isSelf: boolean;
 };

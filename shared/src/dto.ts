@@ -1,6 +1,8 @@
 export type UserRole = 'teacher' | 'student';
 export type MemberRole = 'host' | 'participant';
 
+export type TeacherApprovalStatus = 'PENDING_TEACHER' | 'APPROVED' | 'REJECTED' | 'NONE';
+
 export const PERMISSION_KEYS = [
   'canMic',
   'canCamera',
@@ -18,6 +20,8 @@ export interface Me {
   fullName: string;
   role: UserRole;
   email: string;
+  status?: TeacherApprovalStatus;
+  requestedRole?: UserRole;
 }
 
 export interface UpdateProfileDto {

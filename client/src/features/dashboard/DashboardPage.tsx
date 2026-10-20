@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import {
   GraduationCap,
@@ -19,6 +19,8 @@ import {
   ArrowRight,
   AlertCircle,
   ShieldAlert,
+  Clock,
+  Shield,
 } from 'lucide-react';
 import { ProfileSettingsModal } from '../../components/profile/ProfileSettingsModal';
 import { RoomCard } from './RoomCard';
@@ -65,8 +67,9 @@ const DEFAULT_SAMPLE_ROOMS: RoomSummary[] = [
 
 export const DashboardPage: React.FC = () => {
   const location = useLocation();
-  const { fullName, role, session } = useAuth();
-  const isTeacher = role === 'teacher';
+  const { fullName, role, status, refreshProfile, session } = useAuth();
+  const isPendingTeacher = status === 'PENDING_TEACHER';
+  const isTeacher = role === 'teacher' && !isPendingTeacher;
 
   const [testStatus, setTestStatus] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string; details?: string } | null>(null);
@@ -389,6 +392,52 @@ export const DashboardPage: React.FC = () => {
 
   return (
     <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-8">
+      {/* Teacher Pending Approval Banner */}
+      {isPendingTeacher && (
+        <div
+          id="teacher-pending-banner"
+          data-testid="teacher-pending-banner"
+          className="glass-panel p-6 sm:p-7 rounded-3xl mb-8 border border-amber-300 dark:border-amber-500/30 bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent relative overflow-hidden shadow-lg animate-in fade-in duration-300"
+        >
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex items-start gap-3.5">
+              <div className="w-12 h-12 rounded-2xl bg-amber-100 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0 shadow-sm">
+                <Clock className="w-6 h-6 animate-pulse" />
+              </div>
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white">
+                    Teacher Application Under Review
+                  </h2>
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-300/60 dark:border-amber-500/30">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping" />
+                    STATUS: PENDING_TEACHER
+                  </span>
+                </div>
+                <p className="text-xs text-slate-600 dark:text-slate-300 mt-1 max-w-2xl leading-relaxed">
+                  You signed up requesting <strong>Teacher</strong> access. Your application is currently pending review. While pending, you have full student access to join and collaborate in rooms. Room Creation and Host Controls will automatically unlock once approved.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2.5 self-end sm:self-auto shrink-0">
+              <button
+                type="button"
+                id="check-teacher-approval-btn"
+                onClick={async () => {
+                  await refreshProfile();
+                  fetchRooms();
+                }}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 shadow-sm hover:bg-slate-50 dark:hover:bg-slate-700 transition-all active:scale-95"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Check Status</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Welcome Banner */}
       <div className="glass-panel rounded-3xl p-6 sm:p-8 mb-8 relative overflow-hidden">
         <div className="relative z-10 max-w-2xl">
@@ -672,7 +721,7 @@ export const DashboardPage: React.FC = () => {
       </div>
 
       {/* Action Cards */}
-      <div className={`grid grid-cols-1 ${isTeacher ? 'lg:grid-cols-2' : ''} gap-6 mb-8`}>
+      <div className={`grid grid-cols-1 ${isTeacher || isPendingTeacher ? 'lg:grid-cols-2' : ''} gap-6 mb-8`}>
         {isTeacher ? (
           <div
             id="create-room-action-card"
@@ -692,6 +741,32 @@ export const DashboardPage: React.FC = () => {
             <div className="mt-5 pt-4 border-t border-slate-100 dark:border-slate-800/80">
               <span className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 group-hover:translate-x-1 inline-flex items-center gap-1 transition-transform">
                 Create new classroom &rarr;
+              </span>
+            </div>
+          </div>
+        ) : isPendingTeacher ? (
+          <div
+            id="create-room-action-card-locked"
+            data-testid="create-room-action-card-locked"
+            className="glass-panel p-6 sm:p-7 rounded-3xl border border-amber-300/60 dark:border-amber-500/30 bg-amber-50/20 dark:bg-amber-500/5 transition-all flex flex-col justify-between relative"
+          >
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <div className="w-11 h-11 rounded-2xl bg-amber-100 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center shadow-sm">
+                  <Lock className="w-5 h-5" />
+                </div>
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-300/60 dark:border-amber-500/30">
+                  Verification Pending
+                </span>
+              </div>
+              <h2 className="text-lg font-bold text-slate-900 dark:text-white mb-1">Create a Room (Locked)</h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                Room creation and host controls unlock once your teacher application is approved.
+              </p>
+            </div>
+            <div className="mt-5 pt-4 border-t border-amber-200/60 dark:border-amber-500/20 flex items-center justify-between">
+              <span className="text-xs text-amber-700 dark:text-amber-300 font-semibold">
+                Status: PENDING_TEACHER
               </span>
             </div>
           </div>
@@ -814,7 +889,7 @@ export const DashboardPage: React.FC = () => {
           </div>
 
           <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
-            {isTeacher && (
+            {isTeacher ? (
               <button
                 id="create-room-btn"
                 data-testid="create-room-btn"
@@ -826,7 +901,17 @@ export const DashboardPage: React.FC = () => {
                 <PlusCircle className="w-4 h-4" />
                 <span>Create Room</span>
               </button>
-            )}
+            ) : isPendingTeacher ? (
+              <button
+                type="button"
+                disabled
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 cursor-not-allowed opacity-80"
+                title="Room creation locked until teacher application is approved"
+              >
+                <Lock className="w-3.5 h-3.5 text-amber-500" />
+                <span>Create Room (Pending)</span>
+              </button>
+            ) : null}
 
             <button
               id="refresh-rooms-btn"

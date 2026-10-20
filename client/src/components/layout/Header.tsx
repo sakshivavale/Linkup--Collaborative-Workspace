@@ -9,12 +9,13 @@ import {
   BookOpen, 
   ChevronDown,
   UserCog,
-  Code2
+  Code2,
+  Clock
 } from 'lucide-react';
 import { ProfileSettingsModal } from '../profile/ProfileSettingsModal';
 
 export const Header: React.FC = () => {
-  const { user, fullName, role, logout } = useAuth();
+  const { user, fullName, role, status, logout } = useAuth();
   const navigate = useNavigate();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -22,6 +23,7 @@ export const Header: React.FC = () => {
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const isTeacher = role === 'teacher';
+  const isPendingTeacher = status === 'PENDING_TEACHER';
 
   // Get initials for avatar fallback (e.g., "SV" or "U")
   const getInitials = (name: string) => {
@@ -110,9 +112,11 @@ export const Header: React.FC = () => {
               <div 
                 className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs shadow-sm ${
                   isTeacher
-                    ? 'bg-gradient-to-tr from-indigo-600 to-indigo-500 text-white'
-                    : 'bg-gradient-to-tr from-emerald-600 to-teal-500 text-white'
-                }`}
+                  ? 'bg-gradient-to-tr from-indigo-600 to-indigo-500 text-white'
+                  : isPendingTeacher
+                  ? 'bg-gradient-to-tr from-amber-600 to-amber-500 text-white'
+                  : 'bg-gradient-to-tr from-emerald-600 to-teal-500 text-white'
+              }`}
               >
                 {initials}
               </div>
@@ -125,11 +129,13 @@ export const Header: React.FC = () => {
                 <span 
                   className={`text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full ${
                     isTeacher 
-                      ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300' 
-                      : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300'
+                    ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300' 
+                    : isPendingTeacher
+                    ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300'
+                    : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300'
                   }`}
                 >
-                  {role}
+                  {isPendingTeacher ? 'Pending Teacher' : role}
                 </span>
               </div>
 
@@ -157,8 +163,16 @@ export const Header: React.FC = () => {
                     {user?.email}
                   </p>
                   <div className="mt-2 inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300">
-                    {isTeacher ? <GraduationCap className="w-3.5 h-3.5 text-indigo-500" /> : <BookOpen className="w-3.5 h-3.5 text-emerald-500" />}
-                    <span className="capitalize">{role} Account</span>
+                    {isPendingTeacher ? (
+                      <Clock className="w-3.5 h-3.5 text-amber-500" />
+                    ) : isTeacher ? (
+                      <GraduationCap className="w-3.5 h-3.5 text-indigo-500" />
+                    ) : (
+                      <BookOpen className="w-3.5 h-3.5 text-emerald-500" />
+                    )}
+                    <span className="capitalize">
+                      {isPendingTeacher ? 'Teacher (Approval Pending)' : `${role} Account`}
+                    </span>
                   </div>
                 </div>
 

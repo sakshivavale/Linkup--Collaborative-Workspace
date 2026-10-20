@@ -57,11 +57,27 @@ export async function verifyToken(token: string): Promise<Me | null> {
       // Profile table might not have row yet, fallback to user_metadata is safe
     }
 
+    // Extract status
+    const rawStatus = user.user_metadata?.status || user.user_metadata?.teacher_status;
+    let status: 'PENDING_TEACHER' | 'APPROVED' | 'REJECTED' | 'NONE' = 'NONE';
+    if (rawStatus === 'PENDING_TEACHER' || rawStatus === 'pending') {
+      status = 'PENDING_TEACHER';
+    } else if (rawStatus === 'APPROVED' || rawStatus === 'approved') {
+      status = 'APPROVED';
+    } else if (rawStatus === 'REJECTED' || rawStatus === 'rejected') {
+      status = 'REJECTED';
+    }
+
+    // If teacher approval is pending, effective operational role remains student
+    const effectiveRole = (status === 'PENDING_TEACHER' ? 'student' : role) as 'teacher' | 'student';
+
     const authUser: Me = {
       id: user.id,
       email: user.email || '',
       fullName,
-      role,
+      role: effectiveRole,
+      status,
+      requestedRole: (user.user_metadata?.requested_role || user.user_metadata?.requestedRole) as any,
     };
 
     tokenCache.set(token, {
