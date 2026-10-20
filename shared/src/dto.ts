@@ -103,6 +103,7 @@ export interface GridParticipant {
   isSpeaking: boolean;
   handRaised?: boolean;
   stream?: unknown | null;
+  isSelf?: boolean;
 }
 
 export function buildParticipantTiles(
@@ -119,6 +120,7 @@ export function buildParticipantTiles(
       isSpeaking: activeSpeakerUserId !== null && entry.userId === activeSpeakerUserId,
       handRaised: Boolean(entry.handRaised),
       stream: null,
+      isSelf: false,
     }));
 }
 

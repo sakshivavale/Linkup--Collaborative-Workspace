@@ -40,18 +40,20 @@ import {
 import { RunResult, Language } from '@linkup/shared';
 
 
-// Dynamic CORS origin: accepts localhost, any 192.168.x.x LAN IP, AND the production
-// CORS_ORIGIN env var (set on Render to the frontend URL).
+// Dynamic CORS origin: accepts localhost, LAN IPs, production CORS_ORIGIN env var, and Render HTTPS.
 function isCorsAllowed(origin: string | undefined): boolean {
   if (!origin) return true; // same-origin / server-to-server
   // Allow production frontend URL from env (Render deployment)
-  if (env.CORS_ORIGIN && origin === env.CORS_ORIGIN) return true;
+  if ((env.CORS_ORIGIN && origin === env.CORS_ORIGIN) || (process.env.CORS_ORIGIN && origin === process.env.CORS_ORIGIN)) {
+    return true;
+  }
   const allowedPatterns = [
-    /^https?:\/\/localhost:\d+$/,
-    /^http:\/\/127\.0\.0\.1:\d+$/,
-    /^http:\/\/192\.168\.\d{1,3}\.\d{1,3}:\d+$/,
-    /^http:\/\/10\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+$/,
-    /^http:\/\/172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}:\d+$/,
+    /^https?:\/\/localhost(:\d+)?$/,
+    /^https?:\/\/127\.0\.0\.1(:\d+)?$/,
+    /^https?:\/\/192\.168\.\d{1,3}\.\d{1,3}(:\d+)?$/,
+    /^https?:\/\/10\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?$/,
+    /^https?:\/\/172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}(:\d+)?$/,
+    /^https:\/\/.*\.onrender\.com$/,
   ];
   return allowedPatterns.some((re) => re.test(origin));
 }

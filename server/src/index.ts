@@ -55,13 +55,16 @@ export const io = new SocketIOServer(server, {
     origin: (origin, callback) => {
       if (!origin) return callback(null, true); // server-to-server
       // Allow production frontend URL from env (Render deployment)
-      if (env.CORS_ORIGIN && origin === env.CORS_ORIGIN) return callback(null, true);
+      if ((env.CORS_ORIGIN && origin === env.CORS_ORIGIN) || (process.env.CORS_ORIGIN && origin === process.env.CORS_ORIGIN)) {
+        return callback(null, true);
+      }
       const allowed = [
-        /^https?:\/\/localhost:\d+$/,
-        /^http:\/\/127\.0\.0\.1:\d+$/,
-        /^http:\/\/192\.168\.\d{1,3}\.\d{1,3}:\d+$/,
-        /^http:\/\/10\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+$/,
-        /^http:\/\/172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}:\d+$/,
+        /^https?:\/\/localhost(:\d+)?$/,
+        /^https?:\/\/127\.0\.0\.1(:\d+)?$/,
+        /^https?:\/\/192\.168\.\d{1,3}\.\d{1,3}(:\d+)?$/,
+        /^https?:\/\/10\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?$/,
+        /^https?:\/\/172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}(:\d+)?$/,
+        /^https:\/\/.*\.onrender\.com$/,
       ];
       if (allowed.some((re) => re.test(origin))) {
         callback(null, true);
@@ -94,12 +97,12 @@ io.on('connection', (socket) => {
     if (payload && typeof payload === 'object' && typeof payload.roomId === 'string') {
       return payload.roomId.trim();
     }
-    // Fallback: search rooms that socket is currently in
+    // Fallback: search rooms that socket is currently in (ignoring user private rooms)
     for (const room of socket.rooms) {
-      if (room !== socket.id && !room.startsWith('room:')) {
+      if (room !== socket.id && !room.startsWith('room:') && !room.startsWith('user:')) {
         return room;
       }
-      if (room.startsWith('room:')) {
+      if (room.startsWith('room:') && !room.startsWith('room:user:')) {
         return room.replace('room:', '');
       }
     }
@@ -433,8 +436,9 @@ io.on('connection', (socket) => {
   });
 
   /**
-   * webrtc:offer — student requests the screen-share stream from the host (relay only, no state stored).
-   * Relayed to the host room so the current sharer's socket can answer.
+   * webrtc:offer — relays SDP offer for screen-share or peer video.
+   * If targetSocketId or targetUserId is specified, relays directly to that peer.
+   * If neither is specified, relays to room host (screen-share default).
    */
   socket.on('webrtc:offer', async (payload: any, ack?: (res: any) => void) => {
     const roomId = extractRoomId(payload);
@@ -445,12 +449,26 @@ io.on('connection', (socket) => {
 
     try {
       await getRoomForUser(user.id, roomId);
-      io.to(`room:${roomId}:host`).emit('webrtc:offer', {
+      const targetUserId = payload?.targetUserId;
+      const targetSocketId = payload?.targetSocketId;
+      const streamType = payload?.streamType || (targetUserId || targetSocketId ? 'video' : 'screen');
+
+      const relayData = {
         roomId,
         sdp: payload.sdp,
         fromSocketId: socket.id,
         fromUserId: user.id,
-      });
+        streamType,
+      };
+
+      if (targetSocketId) {
+        io.to(targetSocketId).emit('webrtc:offer', relayData);
+      } else if (targetUserId) {
+        io.to(`user:${targetUserId}`).emit('webrtc:offer', relayData);
+      } else {
+        io.to(`room:${roomId}:host`).emit('webrtc:offer', relayData);
+      }
+
       if (typeof ack === 'function') ack({ ok: true });
     } catch (err: any) {
       const code = err instanceof NotAMemberError || err?.code === 'NOT_A_MEMBER' ? 'NOT_A_MEMBER' : 'INTERNAL_SERVER_ERROR';
@@ -459,23 +477,34 @@ io.on('connection', (socket) => {
   });
 
   /**
-   * webrtc:answer — host answers a specific student's offer (relay only, no state stored).
+   * webrtc:answer — answers a specific peer's offer (relay only).
    */
   socket.on('webrtc:answer', async (payload: any, ack?: (res: any) => void) => {
     const roomId = extractRoomId(payload);
     const targetSocketId = payload?.targetSocketId;
-    if (!roomId || !user?.id || !payload?.sdp || !targetSocketId) {
-      if (typeof ack === 'function') ack({ ok: false, error: { code: 'VALIDATION', message: 'Room ID, sdp, and targetSocketId required' } });
+    const targetUserId = payload?.targetUserId;
+    if (!roomId || !user?.id || !payload?.sdp || (!targetSocketId && !targetUserId)) {
+      if (typeof ack === 'function') ack({ ok: false, error: { code: 'VALIDATION', message: 'Room ID, sdp, and target destination required' } });
       return;
     }
 
     try {
       await getRoomForUser(user.id, roomId);
-      io.to(targetSocketId).emit('webrtc:answer', {
+      const streamType = payload?.streamType || 'video';
+      const relayData = {
         roomId,
         sdp: payload.sdp,
         fromSocketId: socket.id,
-      });
+        fromUserId: user.id,
+        streamType,
+      };
+
+      if (targetSocketId) {
+        io.to(targetSocketId).emit('webrtc:answer', relayData);
+      } else if (targetUserId) {
+        io.to(`user:${targetUserId}`).emit('webrtc:answer', relayData);
+      }
+
       if (typeof ack === 'function') ack({ ok: true });
     } catch (err: any) {
       const code = err instanceof NotAMemberError || err?.code === 'NOT_A_MEMBER' ? 'NOT_A_MEMBER' : 'INTERNAL_SERVER_ERROR';
@@ -484,23 +513,34 @@ io.on('connection', (socket) => {
   });
 
   /**
-   * webrtc:ice-candidate — bidirectional ICE candidate relay between a student and the host (relay only).
+   * webrtc:ice-candidate — bidirectional ICE candidate relay between peers (relay only).
    */
   socket.on('webrtc:ice-candidate', async (payload: any, ack?: (res: any) => void) => {
     const roomId = extractRoomId(payload);
     const targetSocketId = payload?.targetSocketId;
-    if (!roomId || !user?.id || !payload?.candidate || !targetSocketId) {
-      if (typeof ack === 'function') ack({ ok: false, error: { code: 'VALIDATION', message: 'Room ID, candidate, and targetSocketId required' } });
+    const targetUserId = payload?.targetUserId;
+    if (!roomId || !user?.id || !payload?.candidate || (!targetSocketId && !targetUserId)) {
+      if (typeof ack === 'function') ack({ ok: false, error: { code: 'VALIDATION', message: 'Room ID, candidate, and target destination required' } });
       return;
     }
 
     try {
       await getRoomForUser(user.id, roomId);
-      io.to(targetSocketId).emit('webrtc:ice-candidate', {
+      const streamType = payload?.streamType || 'video';
+      const relayData = {
         roomId,
         candidate: payload.candidate,
         fromSocketId: socket.id,
-      });
+        fromUserId: user.id,
+        streamType,
+      };
+
+      if (targetSocketId) {
+        io.to(targetSocketId).emit('webrtc:ice-candidate', relayData);
+      } else if (targetUserId) {
+        io.to(`user:${targetUserId}`).emit('webrtc:ice-candidate', relayData);
+      }
+
       if (typeof ack === 'function') ack({ ok: true });
     } catch (err: any) {
       const code = err instanceof NotAMemberError || err?.code === 'NOT_A_MEMBER' ? 'NOT_A_MEMBER' : 'INTERNAL_SERVER_ERROR';

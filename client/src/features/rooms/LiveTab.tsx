@@ -26,6 +26,7 @@ import { useAuth } from '../../context/AuthContext';
 import { ActiveScreenShare, Permissions } from '@linkup/shared';
 import { useMediaDevices, isPermissionDeniedError, PERMISSION_DENIED_MESSAGE, BROWSER_PERMISSION_HELP_URL } from './useMediaDevices';
 import { DevicePickerModal } from './DevicePickerModal';
+import { usePeerConnections } from './usePeerConnections';
 
 interface LiveTabProps {
   roomId: string;
@@ -117,6 +118,31 @@ export const LiveTab: React.FC<LiveTabProps> = ({
   const [participants, setParticipants] = useState<Participant[]>(() =>
     mapParticipantsFromPresence(room?.presence, activeSpeakerId)
   );
+
+  // WebRTC peer connections for two-way live camera and audio streaming
+  const { remoteStreams } = usePeerConnections({
+    roomId,
+    currentUserId: user?.id,
+    inCall: Boolean(inCall),
+    participants,
+    localStream: mediaDevices.localStream,
+    camOn,
+    micOn,
+  });
+
+  // Attach local and remote media streams to participant tiles
+  const participantsWithStreams = React.useMemo(() => {
+    return participants.map((p) => {
+      const isSelf = p.id === user?.id;
+      return {
+        ...p,
+        isSelf,
+        stream: isSelf
+          ? (camOn && mediaDevices.localStream ? mediaDevices.localStream : null)
+          : (remoteStreams.get(p.id) || null),
+      };
+    });
+  }, [participants, user?.id, camOn, mediaDevices.localStream, remoteStreams]);
 
   // US-PERM-07: Track whether current user has hand raised (FR-4.8)
   const [isHandRaised, setIsHandRaised] = useState<boolean>(() => {
@@ -615,8 +641,9 @@ export const LiveTab: React.FC<LiveTabProps> = ({
       return;
     }
 
-    const onOffer = async (data: { roomId: string; sdp: RTCSessionDescriptionInit; fromSocketId: string }) => {
+    const onOffer = async (data: { roomId: string; sdp: RTCSessionDescriptionInit; fromSocketId: string; streamType?: string }) => {
       if (data.roomId !== roomId) return;
+      if (data.streamType && data.streamType !== 'screen') return;
       const pc = new RTCPeerConnection(ICE_SERVERS);
       hostPeerConnectionsRef.current.set(data.fromSocketId, pc);
 
@@ -624,7 +651,7 @@ export const LiveTab: React.FC<LiveTabProps> = ({
 
       pc.onicecandidate = (e) => {
         if (e.candidate) {
-          socket.emit('webrtc:ice-candidate', { roomId, candidate: e.candidate, targetSocketId: data.fromSocketId });
+          socket.emit('webrtc:ice-candidate', { roomId, candidate: e.candidate, targetSocketId: data.fromSocketId, streamType: 'screen' });
         }
       };
 
@@ -632,7 +659,7 @@ export const LiveTab: React.FC<LiveTabProps> = ({
         await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
-        socket.emit('webrtc:answer', { roomId, sdp: answer, targetSocketId: data.fromSocketId });
+        socket.emit('webrtc:answer', { roomId, sdp: answer, targetSocketId: data.fromSocketId, streamType: 'screen' });
       } catch (err) {
         console.warn('[LiveTab] WebRTC answer creation failed:', err);
         pc.close();
@@ -640,8 +667,9 @@ export const LiveTab: React.FC<LiveTabProps> = ({
       }
     };
 
-    const onIceCandidate = (data: { roomId: string; candidate: RTCIceCandidateInit; fromSocketId: string }) => {
+    const onIceCandidate = (data: { roomId: string; candidate: RTCIceCandidateInit; fromSocketId: string; streamType?: string }) => {
       if (data.roomId !== roomId) return;
+      if (data.streamType && data.streamType !== 'screen') return;
       const pc = hostPeerConnectionsRef.current.get(data.fromSocketId);
       if (pc) pc.addIceCandidate(new RTCIceCandidate(data.candidate)).catch(() => {});
     };
@@ -687,20 +715,21 @@ export const LiveTab: React.FC<LiveTabProps> = ({
     pc.onicecandidate = (e) => {
       if (!e.candidate) return;
       if (viewerHostSocketIdRef.current) {
-        socket.emit('webrtc:ice-candidate', { roomId, candidate: e.candidate, targetSocketId: viewerHostSocketIdRef.current });
+        socket.emit('webrtc:ice-candidate', { roomId, candidate: e.candidate, targetSocketId: viewerHostSocketIdRef.current, streamType: 'screen' });
       } else {
         // Host's socket id isn't known yet (no answer received) - flush once it arrives
         viewerPendingIceRef.current.push(e.candidate.toJSON());
       }
     };
 
-    const onAnswer = async (data: { roomId: string; sdp: RTCSessionDescriptionInit; fromSocketId: string }) => {
+    const onAnswer = async (data: { roomId: string; sdp: RTCSessionDescriptionInit; fromSocketId: string; streamType?: string }) => {
       if (data.roomId !== roomId || viewerPeerConnectionRef.current !== pc) return;
+      if (data.streamType && data.streamType !== 'screen') return;
       try {
         await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
         viewerHostSocketIdRef.current = data.fromSocketId;
         viewerPendingIceRef.current.forEach((candidate) => {
-          socket.emit('webrtc:ice-candidate', { roomId, candidate, targetSocketId: data.fromSocketId });
+          socket.emit('webrtc:ice-candidate', { roomId, candidate, targetSocketId: data.fromSocketId, streamType: 'screen' });
         });
         viewerPendingIceRef.current = [];
       } catch (err) {
@@ -708,8 +737,9 @@ export const LiveTab: React.FC<LiveTabProps> = ({
       }
     };
 
-    const onIceCandidate = (data: { roomId: string; candidate: RTCIceCandidateInit; fromSocketId: string }) => {
+    const onIceCandidate = (data: { roomId: string; candidate: RTCIceCandidateInit; fromSocketId: string; streamType?: string }) => {
       if (data.roomId !== roomId || viewerPeerConnectionRef.current !== pc) return;
+      if (data.streamType && data.streamType !== 'screen') return;
       pc.addIceCandidate(new RTCIceCandidate(data.candidate)).catch(() => {});
     };
 
@@ -720,7 +750,7 @@ export const LiveTab: React.FC<LiveTabProps> = ({
       try {
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
-        socket.emit('webrtc:offer', { roomId, sdp: offer });
+        socket.emit('webrtc:offer', { roomId, sdp: offer, streamType: 'screen' });
       } catch (err) {
         console.warn('[LiveTab] Failed to create WebRTC offer:', err);
       }
@@ -975,7 +1005,7 @@ export const LiveTab: React.FC<LiveTabProps> = ({
       <div className="w-full max-w-5xl px-4 flex flex-col items-center">
         {activeScreenShare ? (
           <VideoGrid
-            participants={participants}
+            participants={participantsWithStreams}
             activeScreenShare={activeScreenShare}
             isSelfSharing={isSelfSharing}
             canStopSharing={isSelfSharing || isHost}
@@ -984,7 +1014,7 @@ export const LiveTab: React.FC<LiveTabProps> = ({
           />
         ) : (
           <div className="w-full flex flex-col items-center gap-6">
-            {participants.length > 0 && <VideoGrid participants={participants} />}
+            {participantsWithStreams.length > 0 && <VideoGrid participants={participantsWithStreams} />}
 
             {/* Video preview & active device indicators (shown when in call and no screen share is focused) */}
             {inCall && (
