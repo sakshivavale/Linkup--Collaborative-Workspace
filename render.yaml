@@ -12,7 +12,7 @@ services:
     region: oregon
     rootDir: .
     buildCommand: npm install && npm run build --workspace=server
-    startCommand: node server/dist/index.js
+    startCommand: node server/dist/server/src/index.js
     healthCheckPath: /health
     envVars:
       - key: NODE_ENV
