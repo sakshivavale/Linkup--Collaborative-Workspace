@@ -279,6 +279,8 @@ export const PeoplePanel: React.FC<PeoplePanelProps> = ({
             fullName: memberObj?.name || 'Participant',
             inLive: false,
             handRaised: data.raised,
+            micOn: true,
+            cameraOn: false,
           },
         ];
       });

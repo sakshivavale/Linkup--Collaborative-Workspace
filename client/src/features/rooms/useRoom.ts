@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { RoomSummary } from '@linkup/shared';
+import { RoomSummary, Member } from '@linkup/shared';
 import { api, HttpError } from '../../lib/api';
 import { socket } from '../../lib/socket';
 
@@ -49,8 +49,8 @@ const SAMPLE_ROOMS: Record<string, RoomSummary> = {
       },
     ],
     presence: [
-      { userId: 'user-turing', fullName: 'Prof. Alan Turing', inLive: true, handRaised: false },
-      { userId: 'user-grace', fullName: 'Grace Hopper', inLive: true, handRaised: false },
+      { userId: 'user-turing', fullName: 'Prof. Alan Turing', inLive: true, handRaised: false, micOn: true, cameraOn: false },
+      { userId: 'user-grace', fullName: 'Grace Hopper', inLive: true, handRaised: false, micOn: true, cameraOn: false },
     ],
   },
   'room-math201-inactive': {
@@ -82,7 +82,7 @@ const SAMPLE_ROOMS: Record<string, RoomSummary> = {
       },
     ],
     presence: [
-      { userId: 'user-lovelace', fullName: 'Dr. Ada Lovelace', inLive: false, handRaised: false },
+      { userId: 'user-lovelace', fullName: 'Dr. Ada Lovelace', inLive: false, handRaised: false, micOn: true, cameraOn: false },
     ],
   },
   'room-phys301-active': {
@@ -114,8 +114,8 @@ const SAMPLE_ROOMS: Record<string, RoomSummary> = {
       },
     ],
     presence: [
-      { userId: 'user-feynman', fullName: 'Dr. Richard Feynman', inLive: true, handRaised: false },
-      { userId: 'user-curie', fullName: 'Marie Curie', inLive: true, handRaised: false },
+      { userId: 'user-feynman', fullName: 'Dr. Richard Feynman', inLive: true, handRaised: false, micOn: true, cameraOn: false },
+      { userId: 'user-curie', fullName: 'Marie Curie', inLive: true, handRaised: false, micOn: true, cameraOn: false },
     ],
   },
 };
@@ -208,15 +208,41 @@ export function useRoom(roomId: string | undefined): UseRoomResult {
       setRoom((prev) => (prev ? { ...prev, activeScreenShare: null } : prev));
     };
 
+    const onMemberJoined = (data: { roomId: string; member: Member }) => {
+      if (data.roomId !== roomId || !data.member) return;
+      setRoom((prev) => {
+        if (!prev) return prev;
+        if (prev.members?.some((m) => m.userId === data.member.userId)) return prev;
+        return {
+          ...prev,
+          members: [...(prev.members || []), data.member],
+          memberCount: prev.memberCount + 1,
+        };
+      });
+    };
+
+    const onMemberRemoved = (data: { roomId: string; userId: string }) => {
+      if (data.roomId !== roomId) return;
+      setRoom((prev) => {
+        if (!prev) return prev;
+        const members = prev.members?.filter((m) => m.userId !== data.userId);
+        return { ...prev, members, memberCount: Math.max(0, prev.memberCount - 1) };
+      });
+    };
+
     socket.on('perm:changed', onPermChanged);
     socket.on('screen:started', onScreenStarted);
     socket.on('screen:stopped', onScreenStopped);
+    socket.on('member:joined', onMemberJoined);
+    socket.on('member:removed', onMemberRemoved);
 
     return () => {
       cancelled = true;
       socket.off('perm:changed', onPermChanged);
       socket.off('screen:started', onScreenStarted);
       socket.off('screen:stopped', onScreenStopped);
+      socket.off('member:joined', onMemberJoined);
+      socket.off('member:removed', onMemberRemoved);
     };
   }, [roomId]);
 

@@ -11,6 +11,7 @@ import {
   handleSocketDisconnect,
   setUserLiveStatus,
   setUserHandStatus,
+  setUserMediaStatus,
 } from './realtime/presence';
 import {
   getActiveScreenShare,
@@ -430,6 +431,82 @@ io.on('connection', (socket) => {
   });
 
   /**
+   * webrtc:offer — student requests the screen-share stream from the host (relay only, no state stored).
+   * Relayed to the host room so the current sharer's socket can answer.
+   */
+  socket.on('webrtc:offer', async (payload: any, ack?: (res: any) => void) => {
+    const roomId = extractRoomId(payload);
+    if (!roomId || !user?.id || !payload?.sdp) {
+      if (typeof ack === 'function') ack({ ok: false, error: { code: 'VALIDATION', message: 'Room ID and sdp required' } });
+      return;
+    }
+
+    try {
+      await getRoomForUser(user.id, roomId);
+      io.to(`room:${roomId}:host`).emit('webrtc:offer', {
+        roomId,
+        sdp: payload.sdp,
+        fromSocketId: socket.id,
+        fromUserId: user.id,
+      });
+      if (typeof ack === 'function') ack({ ok: true });
+    } catch (err: any) {
+      const code = err instanceof NotAMemberError || err?.code === 'NOT_A_MEMBER' ? 'NOT_A_MEMBER' : 'INTERNAL_SERVER_ERROR';
+      if (typeof ack === 'function') ack({ ok: false, error: { code, message: err.message || 'Failed to relay offer' } });
+    }
+  });
+
+  /**
+   * webrtc:answer — host answers a specific student's offer (relay only, no state stored).
+   */
+  socket.on('webrtc:answer', async (payload: any, ack?: (res: any) => void) => {
+    const roomId = extractRoomId(payload);
+    const targetSocketId = payload?.targetSocketId;
+    if (!roomId || !user?.id || !payload?.sdp || !targetSocketId) {
+      if (typeof ack === 'function') ack({ ok: false, error: { code: 'VALIDATION', message: 'Room ID, sdp, and targetSocketId required' } });
+      return;
+    }
+
+    try {
+      await getRoomForUser(user.id, roomId);
+      io.to(targetSocketId).emit('webrtc:answer', {
+        roomId,
+        sdp: payload.sdp,
+        fromSocketId: socket.id,
+      });
+      if (typeof ack === 'function') ack({ ok: true });
+    } catch (err: any) {
+      const code = err instanceof NotAMemberError || err?.code === 'NOT_A_MEMBER' ? 'NOT_A_MEMBER' : 'INTERNAL_SERVER_ERROR';
+      if (typeof ack === 'function') ack({ ok: false, error: { code, message: err.message || 'Failed to relay answer' } });
+    }
+  });
+
+  /**
+   * webrtc:ice-candidate — bidirectional ICE candidate relay between a student and the host (relay only).
+   */
+  socket.on('webrtc:ice-candidate', async (payload: any, ack?: (res: any) => void) => {
+    const roomId = extractRoomId(payload);
+    const targetSocketId = payload?.targetSocketId;
+    if (!roomId || !user?.id || !payload?.candidate || !targetSocketId) {
+      if (typeof ack === 'function') ack({ ok: false, error: { code: 'VALIDATION', message: 'Room ID, candidate, and targetSocketId required' } });
+      return;
+    }
+
+    try {
+      await getRoomForUser(user.id, roomId);
+      io.to(targetSocketId).emit('webrtc:ice-candidate', {
+        roomId,
+        candidate: payload.candidate,
+        fromSocketId: socket.id,
+      });
+      if (typeof ack === 'function') ack({ ok: true });
+    } catch (err: any) {
+      const code = err instanceof NotAMemberError || err?.code === 'NOT_A_MEMBER' ? 'NOT_A_MEMBER' : 'INTERNAL_SERVER_ERROR';
+      if (typeof ack === 'function') ack({ ok: false, error: { code, message: err.message || 'Failed to relay ICE candidate' } });
+    }
+  });
+
+  /**
    * hand:raise — raise or lower hand in live session (US-PERM-07, FR-4.8, US-SEC-01)
    */
   socket.on('hand:raise', async (payload: any, ack?: (res: any) => void) => {
@@ -474,6 +551,38 @@ io.on('connection', (socket) => {
       socket.emit('room:error', notMemberErr);
       socket.emit('error', notMemberErr);
       if (typeof ack === 'function') ack({ ok: false, error: notMemberErr });
+    }
+  });
+
+  /**
+   * live:media-state — broadcast a user's mic/camera on-off toggle to the room (presence sync)
+   */
+  socket.on('live:media-state', async (payload: any, ack?: (res: any) => void) => {
+    const roomId = extractRoomId(payload);
+    if (!roomId || !user?.id) {
+      if (typeof ack === 'function') ack({ ok: false, error: { code: 'VALIDATION', message: 'Room ID required' } });
+      return;
+    }
+
+    const patch: { micOn?: boolean; cameraOn?: boolean } = {};
+    if (typeof payload?.micOn === 'boolean') patch.micOn = payload.micOn;
+    if (typeof payload?.cameraOn === 'boolean') patch.cameraOn = payload.cameraOn;
+
+    try {
+      await getRoomForUser(user.id, roomId);
+
+      const presence = setUserMediaStatus(roomId, user.id, patch);
+      if (presence) {
+        io.to(`room:${roomId}`).to(roomId).emit('presence:update', {
+          roomId,
+          presence,
+        });
+      }
+
+      if (typeof ack === 'function') ack({ ok: true });
+    } catch (err: any) {
+      const code = err instanceof NotAMemberError || err?.code === 'NOT_A_MEMBER' ? 'NOT_A_MEMBER' : 'INTERNAL_SERVER_ERROR';
+      if (typeof ack === 'function') ack({ ok: false, error: { code, message: err.message || 'Failed to update media state' } });
     }
   });
 

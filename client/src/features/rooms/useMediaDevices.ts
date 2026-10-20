@@ -78,6 +78,19 @@ export function useMediaDevices(options: UseMediaDevicesOptions = {}) {
     return localStorage.getItem(STORAGE_KEYS.AUDIO_OUTPUT) || 'default';
   });
 
+  const selectedAudioInputRef = useRef(selectedAudioInput);
+  const selectedVideoInputRef = useRef(selectedVideoInput);
+  const selectedAudioOutputRef = useRef(selectedAudioOutput);
+  useEffect(() => {
+    selectedAudioInputRef.current = selectedAudioInput;
+  }, [selectedAudioInput]);
+  useEffect(() => {
+    selectedVideoInputRef.current = selectedVideoInput;
+  }, [selectedVideoInput]);
+  useEffect(() => {
+    selectedAudioOutputRef.current = selectedAudioOutput;
+  }, [selectedAudioOutput]);
+
   const [hasPermission, setHasPermission] = useState(false);
   const [permissionDenied, setPermissionDenied] = useState(false);
   const [permissionErrorMessage, setPermissionErrorMessage] = useState<string | null>(null);
@@ -171,17 +184,17 @@ export function useMediaDevices(options: UseMediaDevicesOptions = {}) {
       setAudioOutputs(aOut);
 
       // Validate selected devices still exist in list
-      if (!aIn.some((d) => d.deviceId === selectedAudioInput)) {
+      if (!aIn.some((d) => d.deviceId === selectedAudioInputRef.current)) {
         const nextId = aIn[0]?.deviceId || 'default';
         setSelectedAudioInput(nextId);
         localStorage.setItem(STORAGE_KEYS.AUDIO_INPUT, nextId);
       }
-      if (!vIn.some((d) => d.deviceId === selectedVideoInput)) {
+      if (!vIn.some((d) => d.deviceId === selectedVideoInputRef.current)) {
         const nextId = vIn[0]?.deviceId || 'default';
         setSelectedVideoInput(nextId);
         localStorage.setItem(STORAGE_KEYS.VIDEO_INPUT, nextId);
       }
-      if (!aOut.some((d) => d.deviceId === selectedAudioOutput)) {
+      if (!aOut.some((d) => d.deviceId === selectedAudioOutputRef.current)) {
         const nextId = aOut[0]?.deviceId || 'default';
         setSelectedAudioOutput(nextId);
         localStorage.setItem(STORAGE_KEYS.AUDIO_OUTPUT, nextId);
@@ -198,7 +211,7 @@ export function useMediaDevices(options: UseMediaDevicesOptions = {}) {
       setAudioOutputs(audioOut);
       return { audioIn, videoIn, audioOut };
     }
-  }, [selectedAudioInput, selectedVideoInput, selectedAudioOutput]);
+  }, []);
 
   /**
    * Explicitly request device permissions to reveal device labels

@@ -94,11 +94,17 @@ export const LiveTab: React.FC<LiveTabProps> = ({
     }
   }, [mediaPermissionDenied, onMediaPermissionError]);
 
-  // Screen share state
-  const [activeScreenShare, setActiveScreenShare] = useState<ActiveScreenShare | null>(
-    () => room?.activeScreenShare || null
-  );
+  // Screen share state - derived from useRoom's socket-synced room.activeScreenShare (single source of truth)
+  const activeScreenShare: ActiveScreenShare | null = room?.activeScreenShare || null;
   const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
+  // Remote screen-share video received over WebRTC (viewer side only; sharer uses `screenStream` above)
+  const [remoteScreenStream, setRemoteScreenStream] = useState<MediaStream | null>(null);
+  // Sharer side: one RTCPeerConnection per viewing student, keyed by their socket id
+  const hostPeerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
+  // Viewer side: single RTCPeerConnection to the current sharer
+  const viewerPeerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const viewerHostSocketIdRef = useRef<string | null>(null);
+  const viewerPendingIceRef = useRef<RTCIceCandidateInit[]>([]);
 
   // Current user's role and permission flags
   const isHost = propIsHost ?? (room?.myRole === 'host');
@@ -205,6 +211,17 @@ export const LiveTab: React.FC<LiveTabProps> = ({
           localVideoRef.current.srcObject = null;
         }
         mediaDevices.stopVideoTracks();
+        return;
+      }
+
+      // Already have a live track for this device (e.g. switchVideoInput just handled it) - skip redundant getUserMedia
+      const existingVideoTrack = mediaDevices.localStream?.getVideoTracks()[0];
+      if (existingVideoTrack && existingVideoTrack.readyState === 'live') {
+        existingVideoTrack.enabled = true;
+        if (localVideoRef.current && localVideoRef.current.srcObject !== mediaDevices.localStream) {
+          localVideoRef.current.srcObject = mediaDevices.localStream;
+          localVideoRef.current.play().catch(() => {});
+        }
         return;
       }
 
@@ -391,6 +408,13 @@ export const LiveTab: React.FC<LiveTabProps> = ({
     }
   }, [inCall, roomId]);
 
+  // Keep other participants' mute/camera-off tile icons in sync with our real mic/cam state
+  useEffect(() => {
+    if (inCall && roomId) {
+      socket.emit('live:media-state', { roomId, micOn, cameraOn: camOn });
+    }
+  }, [inCall, roomId, micOn, camOn]);
+
   // Real-time presence, active speaker, and screen share socket listeners
   useEffect(() => {
     const mapPresenceToParticipants = () => {
@@ -427,14 +451,10 @@ export const LiveTab: React.FC<LiveTabProps> = ({
       setParticipants(mapParticipantsFromPresence(room?.presence, data.userId ?? null));
     };
 
-    const onScreenStarted = (data: { roomId: string; screenShare: ActiveScreenShare }) => {
-      if (data.roomId !== roomId) return;
-      setActiveScreenShare(data.screenShare);
-    };
-
+    // activeScreenShare itself comes from useRoom (room.activeScreenShare); this listener only
+    // cleans up our own local capture if we were the one stopped (e.g. host force-stopped us).
     const onScreenStopped = (data: { roomId: string }) => {
       if (data.roomId !== roomId) return;
-      setActiveScreenShare(null);
       if (screenStream) {
         screenStream.getTracks().forEach((t) => t.stop());
         setScreenStream(null);
@@ -560,7 +580,6 @@ export const LiveTab: React.FC<LiveTabProps> = ({
     socket.on('presence:update', onPresenceUpdate);
     socket.on('hand:changed', onHandChanged);
     socket.on('live:active-speaker', onActiveSpeaker);
-    socket.on('screen:started', onScreenStarted);
     socket.on('screen:stopped', onScreenStopped);
     socket.on('perm:changed', onPermChanged);
     socket.on('perm:bulk', onPermBulk);
@@ -569,7 +588,6 @@ export const LiveTab: React.FC<LiveTabProps> = ({
       socket.off('presence:update', onPresenceUpdate);
       socket.off('hand:changed', onHandChanged);
       socket.off('live:active-speaker', onActiveSpeaker);
-      socket.off('screen:started', onScreenStarted);
       socket.off('screen:stopped', onScreenStopped);
       socket.off('perm:changed', onPermChanged);
       socket.off('perm:bulk', onPermBulk);
@@ -586,6 +604,140 @@ export const LiveTab: React.FC<LiveTabProps> = ({
     screenStream,
     user?.id,
   ]);
+
+  const ICE_SERVERS: RTCConfiguration = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+
+  // Sharer side: answer each viewing student's offer with our own screen-capture tracks
+  useEffect(() => {
+    if (!isSelfSharing || !screenStream) {
+      hostPeerConnectionsRef.current.forEach((pc) => pc.close());
+      hostPeerConnectionsRef.current.clear();
+      return;
+    }
+
+    const onOffer = async (data: { roomId: string; sdp: RTCSessionDescriptionInit; fromSocketId: string }) => {
+      if (data.roomId !== roomId) return;
+      const pc = new RTCPeerConnection(ICE_SERVERS);
+      hostPeerConnectionsRef.current.set(data.fromSocketId, pc);
+
+      screenStream.getTracks().forEach((track) => pc.addTrack(track, screenStream));
+
+      pc.onicecandidate = (e) => {
+        if (e.candidate) {
+          socket.emit('webrtc:ice-candidate', { roomId, candidate: e.candidate, targetSocketId: data.fromSocketId });
+        }
+      };
+
+      try {
+        await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        socket.emit('webrtc:answer', { roomId, sdp: answer, targetSocketId: data.fromSocketId });
+      } catch (err) {
+        console.warn('[LiveTab] WebRTC answer creation failed:', err);
+        pc.close();
+        hostPeerConnectionsRef.current.delete(data.fromSocketId);
+      }
+    };
+
+    const onIceCandidate = (data: { roomId: string; candidate: RTCIceCandidateInit; fromSocketId: string }) => {
+      if (data.roomId !== roomId) return;
+      const pc = hostPeerConnectionsRef.current.get(data.fromSocketId);
+      if (pc) pc.addIceCandidate(new RTCIceCandidate(data.candidate)).catch(() => {});
+    };
+
+    socket.on('webrtc:offer', onOffer);
+    socket.on('webrtc:ice-candidate', onIceCandidate);
+
+    return () => {
+      socket.off('webrtc:offer', onOffer);
+      socket.off('webrtc:ice-candidate', onIceCandidate);
+      hostPeerConnectionsRef.current.forEach((pc) => pc.close());
+      hostPeerConnectionsRef.current.clear();
+    };
+  }, [isSelfSharing, screenStream, roomId]);
+
+  // Viewer side: request the active share from the host over WebRTC (handles joining mid-share too)
+  useEffect(() => {
+    if (!activeScreenShare || isSelfSharing) {
+      if (viewerPeerConnectionRef.current) {
+        viewerPeerConnectionRef.current.close();
+        viewerPeerConnectionRef.current = null;
+      }
+      viewerHostSocketIdRef.current = null;
+      viewerPendingIceRef.current = [];
+      setRemoteScreenStream(null);
+      return;
+    }
+
+    const pc = new RTCPeerConnection(ICE_SERVERS);
+    viewerPeerConnectionRef.current = pc;
+
+    // We have no local tracks to send - without this, createOffer() below produces an SDP
+    // with no media sections at all, so the host's screen tracks have nothing to bind to in
+    // the answer and ontrack never fires. Explicitly requesting recv-only transceivers gives
+    // the offer the video/audio m= lines the host's addTrack() can negotiate against.
+    pc.addTransceiver('video', { direction: 'recvonly' });
+    pc.addTransceiver('audio', { direction: 'recvonly' });
+
+    pc.ontrack = (e) => {
+      setRemoteScreenStream(e.streams[0] ?? null);
+    };
+
+    pc.onicecandidate = (e) => {
+      if (!e.candidate) return;
+      if (viewerHostSocketIdRef.current) {
+        socket.emit('webrtc:ice-candidate', { roomId, candidate: e.candidate, targetSocketId: viewerHostSocketIdRef.current });
+      } else {
+        // Host's socket id isn't known yet (no answer received) - flush once it arrives
+        viewerPendingIceRef.current.push(e.candidate.toJSON());
+      }
+    };
+
+    const onAnswer = async (data: { roomId: string; sdp: RTCSessionDescriptionInit; fromSocketId: string }) => {
+      if (data.roomId !== roomId || viewerPeerConnectionRef.current !== pc) return;
+      try {
+        await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+        viewerHostSocketIdRef.current = data.fromSocketId;
+        viewerPendingIceRef.current.forEach((candidate) => {
+          socket.emit('webrtc:ice-candidate', { roomId, candidate, targetSocketId: data.fromSocketId });
+        });
+        viewerPendingIceRef.current = [];
+      } catch (err) {
+        console.warn('[LiveTab] Failed to apply WebRTC answer:', err);
+      }
+    };
+
+    const onIceCandidate = (data: { roomId: string; candidate: RTCIceCandidateInit; fromSocketId: string }) => {
+      if (data.roomId !== roomId || viewerPeerConnectionRef.current !== pc) return;
+      pc.addIceCandidate(new RTCIceCandidate(data.candidate)).catch(() => {});
+    };
+
+    socket.on('webrtc:answer', onAnswer);
+    socket.on('webrtc:ice-candidate', onIceCandidate);
+
+    (async () => {
+      try {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        socket.emit('webrtc:offer', { roomId, sdp: offer });
+      } catch (err) {
+        console.warn('[LiveTab] Failed to create WebRTC offer:', err);
+      }
+    })();
+
+    return () => {
+      socket.off('webrtc:answer', onAnswer);
+      socket.off('webrtc:ice-candidate', onIceCandidate);
+      pc.close();
+      if (viewerPeerConnectionRef.current === pc) {
+        viewerPeerConnectionRef.current = null;
+      }
+      viewerHostSocketIdRef.current = null;
+      viewerPendingIceRef.current = [];
+    };
+    // activeScreenShare?.userId (not the whole object) so we don't tear down/recreate the connection on unrelated screen-share field changes
+  }, [activeScreenShare?.userId, isSelfSharing, roomId]);
 
   // US-PERM-06 AC-4: Ensure actively publishing audio track is instantly muted within 1s
   useEffect(() => {
@@ -827,7 +979,7 @@ export const LiveTab: React.FC<LiveTabProps> = ({
             activeScreenShare={activeScreenShare}
             isSelfSharing={isSelfSharing}
             canStopSharing={isSelfSharing || isHost}
-            screenStream={screenStream}
+            screenStream={isSelfSharing ? screenStream : remoteScreenStream}
             onStopSharing={handleStopScreenShare}
           />
         ) : (

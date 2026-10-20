@@ -56,8 +56,17 @@ function isCorsAllowed(origin: string | undefined): boolean {
 
 export const app = express();
 
+// Disable Express's automatic ETag generation - it was causing the browser to serve stale,
+// cached 304 responses for dynamic/authenticated API data (e.g. GET /api/rooms/:id returning
+// a membership list from before a user had joined, even after a hard refresh).
+app.set('etag', false);
+
 // Security and middleware
 app.use(helmet());
+app.use('/api', (_req: Request, res: Response, next: NextFunction) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  next();
+});
 app.use(
   cors({
     origin: (origin, callback) => {
@@ -327,9 +336,21 @@ app.post('/api/rooms/join', async (req: Request, res: Response) => {
         const io = req.app.get('io');
         if (io) {
           io.to(`room:${result.roomId}`).emit('member:joined', {
-            userId: user.id,
-            fullName: user.fullName,
-            role: user.role,
+            roomId: result.roomId,
+            member: {
+              userId: user.id,
+              fullName: user.fullName,
+              userRole: user.role,
+              memberRole: 'participant',
+              permissions: result.permissions || {
+                canMic: false,
+                canCamera: false,
+                canScreen: false,
+                canWhiteboard: false,
+                canCode: false,
+              },
+              joinedAt: new Date().toISOString(),
+            },
           });
         }
       } catch (socketErr) {
