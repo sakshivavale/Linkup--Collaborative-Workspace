@@ -1151,8 +1151,11 @@ io.on('connection', (socket) => {
 });
 
 const isDirectExecution =
-  process.argv[1] &&
-  (/src[\\/]index\.ts$/.test(process.argv[1]) || /dist[\\/]index\.js$/.test(process.argv[1]));
+  require.main === module ||
+  (Boolean(process.argv[1]) &&
+    (/(?:src|dist)[\\/](?:.*[\\/])?index\.[jt]s$/.test(process.argv[1]) ||
+      process.argv[1].endsWith('index.js') ||
+      process.argv[1].endsWith('index.ts')));
 
 server.on('error', (err: any) => {
   if (err.code === 'EADDRINUSE') {
@@ -1162,11 +1165,13 @@ server.on('error', (err: any) => {
   }
 });
 
+const HOST = '0.0.0.0';
+
 if (isDirectExecution && process.env.NODE_ENV !== 'test') {
-  server.listen(env.PORT, () => {
-    console.log(`[Server] LinkUp API server running on port ${env.PORT}`);
-    console.log(`[Server] Health check available at http://localhost:${env.PORT}/health`);
-    console.log(`[Server] Protected API routes mounted at http://localhost:${env.PORT}/api/*`);
+  server.listen(env.PORT, HOST, () => {
+    console.log(`[Server] LinkUp API server running on http://${HOST}:${env.PORT}`);
+    console.log(`[Server] Health check available at http://${HOST}:${env.PORT}/health`);
+    console.log(`[Server] Protected API routes mounted at http://${HOST}:${env.PORT}/api/*`);
     closeDanglingAttendanceRecords().catch(() => {});
   });
 }
