@@ -854,10 +854,10 @@
 > As the **system**, every API route and socket event must require authentication and verify room membership and permissions server-side so that no action can be performed without authorisation.
 
 **Acceptance Criteria:**
-- [ ] `requireAuth` middleware is applied to every route except `GET /health`.
-- [ ] `requireMember` is applied to every `/rooms/:id/*` route.
-- [ ] `requireHost` is applied to host-only routes (start/end session, permission changes, remove member).
-- [ ] Socket handlers re-check membership and flags from DB/cache on every event, not just on `room:join`.
+- [x] `requireAuth` middleware is applied to every route except `GET /health`.
+- [x] `requireMember` is applied to every `/rooms/:id/*` route.
+- [x] `requireHost` is applied to host-only routes (start/end session, permission changes, remove member).
+- [x] Socket handlers re-check membership and flags from DB/cache on every event, not just on `room:join`.
 
 ---
 
@@ -867,8 +867,8 @@
 > As the **system**, Supabase service-role key and LiveKit API secret must never be included in the client bundle so that they cannot be extracted by users.
 
 **Acceptance Criteria:**
-- [ ] `SUPABASE_SERVICE_ROLE_KEY` and `LIVEKIT_API_SECRET` are only in server environment variables.
-- [ ] No server-only secret appears in any `VITE_*` variable.
+- [x] `SUPABASE_SERVICE_ROLE_KEY` and `LIVEKIT_API_SECRET` are only in server environment variables.
+- [x] No server-only secret appears in any `VITE_*` variable.
 
 ---
 
@@ -878,9 +878,9 @@
 > As the **system**, code must run in the Piston sandbox with enforced time, memory, and output limits so that malicious code cannot harm the server.
 
 **Acceptance Criteria:**
-- [ ] Piston is called with `run_timeout: 3000 ms`, `compile_timeout: 10000 ms`, `run_memory_limit: 256 MB`.
-- [ ] Stdout and stderr are each truncated to 64 KB; `truncated: true` is set in the response.
-- [ ] Piston is not reachable from the public internet (internal Docker network only).
+- [x] Piston is called with `run_timeout: 3000 ms`, `compile_timeout: 10000 ms`, `run_memory_limit: 256 MB`.
+- [x] Stdout and stderr are each truncated to 64 KB; `truncated: true` is set in the response.
+- [x] Piston is not reachable from the public internet (internal Docker network only).
 
 ---
 
@@ -890,10 +890,10 @@
 > As a **user**, I want the platform to be fast and responsive so that it feels professional.
 
 **Acceptance Criteria:**
-- [ ] Permission change is reflected on the target client in under 1 second.
-- [ ] Chat messages appear for all online members in under 500 ms.
-- [ ] Code syncs to viewers in under 300 ms after the debounce fires.
-- [ ] The dashboard loads in under 2 seconds on broadband.
+- [x] Permission change is reflected on the target client in under 1 second.
+- [x] Chat messages appear for all online members in under 500 ms.
+- [x] Code syncs to viewers in under 300 ms after the debounce fires.
+- [x] The dashboard loads in under 2 seconds on broadband.
 
 ---
 
@@ -903,8 +903,8 @@
 > As the **system**, the MVP must support up to 15 participants per room and 3 concurrent rooms on a single backend instance so that the demo can run without performance issues.
 
 **Acceptance Criteria:**
-- [ ] A 15-participant room with all features active (video, chat, code, whiteboard) runs without errors.
-- [ ] 3 concurrent rooms do not degrade each other's performance.
+- [x] A 15-participant room with all features active (video, chat, code, whiteboard) runs without errors.
+- [x] 3 concurrent rooms do not degrade each other's performance.
 
 ---
 

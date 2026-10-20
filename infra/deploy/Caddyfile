@@ -1,0 +1,12 @@
+# US-SEC-03: Sandboxed Code Execution
+# Caddy routes public web and websocket traffic to linkup-server.
+# Piston (port 2000) is NOT routed or proxied by Caddy, ensuring it cannot be reached from the public internet.
+
+{
+    email admin@linkup.internal
+}
+
+:80 {
+    # Reverse proxy public traffic to the Express + Socket.IO backend
+    reverse_proxy server:3001
+}

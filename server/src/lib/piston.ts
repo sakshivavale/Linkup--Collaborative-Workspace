@@ -96,7 +96,7 @@ export async function getAvailableRuntimes(): Promise<PistonRuntime[]> {
 /**
  * Truncate string to maxBytes in UTF-8.
  */
-function truncateToBytes(str: string, maxBytes: number): { text: string; truncated: boolean } {
+export function truncateToBytes(str: string, maxBytes: number = MAX_OUTPUT_BYTES): { text: string; truncated: boolean } {
   if (Buffer.byteLength(str, 'utf8') <= maxBytes) {
     return { text: str, truncated: false };
   }
@@ -104,6 +104,39 @@ function truncateToBytes(str: string, maxBytes: number): { text: string; truncat
   let buf = Buffer.from(str, 'utf8').subarray(0, maxBytes);
   // Ensure valid UTF-8 boundary
   return { text: buf.toString('utf8'), truncated: true };
+}
+
+/**
+ * Builds the payload sent to Piston with all sandboxing limits enforced (US-SEC-03 / NFR-1.3):
+ * - run_timeout: 3000 ms
+ * - compile_timeout: 10000 ms
+ * - run_memory_limit: 256 MB (268,435,456 bytes)
+ */
+export function buildPistonPayload(options: {
+  language: Language;
+  code: string;
+  stdin?: string;
+}) {
+  const langConfig = LANGUAGE_PISTON_MAP[options.language];
+  if (!langConfig) {
+    throw Object.assign(new Error(`Unsupported language: ${options.language}`), { status: 400, code: 'VALIDATION' });
+  }
+
+  return {
+    language: langConfig.pistonLang,
+    version: '*',
+    files: [
+      {
+        name: langConfig.file,
+        content: options.code,
+      },
+    ],
+    stdin: options.stdin || '',
+    run_timeout: RUN_TIMEOUT_MS,
+    compile_timeout: COMPILE_TIMEOUT_MS,
+    run_memory_limit: RUN_MEMORY_LIMIT,
+    compile_memory_limit: RUN_MEMORY_LIMIT,
+  };
 }
 
 /**
@@ -125,30 +158,19 @@ export async function executeCode(options: {
   const { language, code, stdin } = options;
 
   if (mockExecutor) {
-    return mockExecutor(options);
-  }
-
-  const langConfig = LANGUAGE_PISTON_MAP[language];
-  if (!langConfig) {
-    throw Object.assign(new Error(`Unsupported language: ${language}`), { status: 400, code: 'VALIDATION' });
+    const res = await mockExecutor(options);
+    const stdoutTrunc = truncateToBytes(res.stdout || '', MAX_OUTPUT_BYTES);
+    const stderrTrunc = truncateToBytes(res.stderr || '', MAX_OUTPUT_BYTES);
+    return {
+      ...res,
+      stdout: stdoutTrunc.text,
+      stderr: stderrTrunc.text,
+      truncated: res.truncated || stdoutTrunc.truncated || stderrTrunc.truncated,
+    };
   }
 
   const startTime = Date.now();
-
-  const payload = {
-    language: langConfig.pistonLang,
-    version: '*',
-    files: [
-      {
-        name: langConfig.file,
-        content: code,
-      },
-    ],
-    stdin: stdin || '',
-    run_timeout: RUN_TIMEOUT_MS,
-    compile_timeout: COMPILE_TIMEOUT_MS,
-    run_memory_limit: RUN_MEMORY_LIMIT,
-  };
+  const payload = buildPistonPayload(options);
 
   let response: Response;
   try {
@@ -188,12 +210,21 @@ export async function executeCode(options: {
   let exitCode: number | null = 0;
   let timedOut = false;
 
-  // Handle compile step error if any (e.g. C++ or Java compilation error)
+  // Handle compile step error or timeout if any (e.g. C++ or Java compilation)
   if (data.compile) {
     if (data.compile.stdout) rawStdout += data.compile.stdout;
     if (data.compile.stderr) rawStderr += data.compile.stderr;
     if (data.compile.code !== 0 && data.compile.code !== null) {
       exitCode = data.compile.code;
+    }
+    if (
+      data.compile.signal === 'SIGKILL' ||
+      data.compile.signal === 'SIGTERM' ||
+      data.compile.signal === 'SIGXCPU' ||
+      data.compile.output?.includes('Time limit exceeded') ||
+      elapsedMs >= COMPILE_TIMEOUT_MS
+    ) {
+      timedOut = true;
     }
   }
 

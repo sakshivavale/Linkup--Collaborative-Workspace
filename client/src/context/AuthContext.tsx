@@ -15,7 +15,7 @@ interface AuthContextType {
   signIn: (email: string, password: string) => Promise<{ error: AuthError | null }>;
   signOut: () => Promise<void>;
   logout: () => Promise<void>;
-  resetPasswordForEmail: (email: string) => Promise<{ error: AuthError | null }>;
+  resetPasswordForEmail: (email: string, customRedirectTo?: string) => Promise<{ error: AuthError | null }>;
   updatePassword: (newPassword: string) => Promise<{ error: AuthError | null }>;
   updateProfileName: (newName: string) => Promise<{ success: boolean; error?: string }>;
 }
@@ -116,8 +116,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const resetPasswordForEmail = async (email: string) => {
-    const redirectTo = `${window.location.origin}/reset-password`;
+  const resetPasswordForEmail = async (email: string, customRedirectTo?: string) => {
+    // Determine the frontend base URL (respects VITE_APP_URL, VITE_SITE_URL, or window.location.origin)
+    const rawBaseUrl =
+      import.meta.env.VITE_APP_URL ||
+      import.meta.env.VITE_SITE_URL ||
+      (typeof window !== 'undefined' && window.location.origin ? window.location.origin : 'http://localhost:5173');
+    const baseUrl = rawBaseUrl.replace(/\/+$/, '');
+    const redirectTo = customRedirectTo || `${baseUrl}/reset-password`;
+
     const { error } = await supabase.auth.resetPasswordForEmail(
       email.trim().toLowerCase(),
       { redirectTo }

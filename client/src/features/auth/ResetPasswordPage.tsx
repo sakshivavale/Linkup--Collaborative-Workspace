@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useLocation, Link } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { ThemeToggle } from '../../components/ui/ThemeToggle';
@@ -16,10 +16,51 @@ import {
   Check,
 } from 'lucide-react';
 
+// Module-level cache to preserve tokens across React 18 StrictMode mount/unmount cycles
+let initialUrlCapture: {
+  hash: string;
+  search: string;
+  errorDesc: string | null;
+  code: string | null;
+  hasTokens: boolean;
+} | null = null;
+
+function getOrCaptureInitialUrl() {
+  if (typeof window === 'undefined') {
+    return { hash: '', search: '', errorDesc: null, code: null, hasTokens: false };
+  }
+  if (!initialUrlCapture) {
+    const hash = window.location.hash || '';
+    const search = window.location.search || '';
+    const searchParams = new URLSearchParams(search);
+    const hashParams = new URLSearchParams(hash.startsWith('#') ? hash.substring(1) : hash);
+
+    const errorDesc =
+      hashParams.get('error_description') ||
+      searchParams.get('error_description') ||
+      hashParams.get('error') ||
+      searchParams.get('error');
+
+    const code = searchParams.get('code');
+    const hasTokens =
+      Boolean(code) ||
+      hash.includes('access_token') ||
+      hash.includes('type=recovery');
+
+    initialUrlCapture = {
+      hash,
+      search,
+      errorDesc: errorDesc ? decodeURIComponent(errorDesc.replace(/\+/g, ' ')) : null,
+      code,
+      hasTokens,
+    };
+  }
+  return initialUrlCapture;
+}
+
 export const ResetPasswordPage: React.FC = () => {
   const navigate = useNavigate();
-  const location = useLocation();
-  const { updatePassword } = useAuth();
+  const { session: contextSession, updatePassword } = useAuth();
 
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -33,68 +74,133 @@ export const ResetPasswordPage: React.FC = () => {
   const [invalidLinkMessage, setInvalidLinkMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    // 1. Check if the URL contains error fragments from Supabase (e.g. expired or invalid OTP)
-    const hash = window.location.hash;
-    const searchParams = new URLSearchParams(window.location.search);
-    const hashParams = new URLSearchParams(hash.startsWith('#') ? hash.substring(1) : hash);
+    let isCancelled = false;
+    const captured = getOrCaptureInitialUrl();
 
-    const errorDesc =
-      hashParams.get('error_description') ||
-      searchParams.get('error_description') ||
-      hashParams.get('error') ||
-      searchParams.get('error');
+    // Helper to safely strip sensitive tokens/code from browser URL once session is verified
+    const sanitizeUrl = () => {
+      try {
+        if (typeof window !== 'undefined' && (window.location.hash || window.location.search)) {
+          window.history.replaceState(null, '', window.location.pathname);
+        }
+      } catch {
+        // Ignore if history state cannot be replaced
+      }
+    };
 
-    if (errorDesc) {
+    // Helper to confirm session and unlock form
+    const confirmValidSession = () => {
+      if (isCancelled) return;
+      setHasValidSession(true);
+      setInvalidLinkMessage(null);
+      setSessionChecking(false);
+      sanitizeUrl();
+    };
+
+    // 1. Check if the URL came with an explicit error from Supabase (e.g. expired or invalid OTP)
+    if (captured.errorDesc) {
       setInvalidLinkMessage(
-        decodeURIComponent(errorDesc.replace(/\+/g, ' ')) ||
-          'Your password reset link is invalid or has expired.'
+        captured.errorDesc || 'Your password reset link is invalid or has expired. Please request a new one.'
       );
       setSessionChecking(false);
+      sanitizeUrl();
       return;
     }
 
-    // 2. Check current session or recovery state
-    const checkRecoverySession = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session) {
-          setHasValidSession(true);
-        } else {
-          // If hash contains access_token or type=recovery, Supabase might still be setting up the session
-          const hasRecoveryToken =
-            hash.includes('access_token') ||
-            hash.includes('type=recovery') ||
-            searchParams.has('code');
+    // 2. If AuthContext already has an active authenticated session, confirm immediately
+    if (contextSession) {
+      confirmValidSession();
+      return;
+    }
 
-          if (!hasRecoveryToken) {
-            setInvalidLinkMessage(
-              'No active password reset session was found. Please request a new password reset link.'
-            );
+    // 3. Handle PKCE code exchange if ?code= was present in the incoming URL
+    if (captured.code) {
+      (async () => {
+        try {
+          const { data, error: exchangeErr } = await supabase.auth.exchangeCodeForSession(captured.code!);
+          if (isCancelled) return;
+
+          if (data?.session) {
+            confirmValidSession();
+            return;
+          }
+
+          if (exchangeErr) {
+            // Check if Supabase client auto-exchange already resolved the session
+            const { data: { session: existingSession } } = await supabase.auth.getSession();
+            if (existingSession) {
+              confirmValidSession();
+              return;
+            }
+          }
+        } catch {
+          const { data: { session: existingSession } } = await supabase.auth.getSession();
+          if (existingSession) {
+            confirmValidSession();
+            return;
           }
         }
-      } catch (err) {
-        console.error('[LinkUp Auth] Error checking recovery session:', err);
-      } finally {
-        setSessionChecking(false);
-      }
-    };
+      })();
+    }
 
-    checkRecoverySession();
-
-    // 3. Listen for Supabase PASSWORD_RECOVERY event
+    // 4. Real-time auth listener for recovery, initial session, or sign in events
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === 'PASSWORD_RECOVERY' || (session && event === 'SIGNED_IN')) {
-        setHasValidSession(true);
-        setInvalidLinkMessage(null);
+    } = supabase.auth.onAuthStateChange((event, currentSession) => {
+      if (isCancelled) return;
+      if (
+        event === 'PASSWORD_RECOVERY' ||
+        (currentSession && (event === 'SIGNED_IN' || event === 'INITIAL_SESSION'))
+      ) {
+        confirmValidSession();
       }
     });
 
+    // 5. Polling check to handle asynchronous token extraction from hash or background exchange
+    let attempts = 0;
+    const maxAttempts = 20; // 20 attempts * 200ms = 4 seconds total
+    const pollInterval = setInterval(async () => {
+      attempts++;
+      if (isCancelled) {
+        clearInterval(pollInterval);
+        return;
+      }
+
+      try {
+        const { data: { session: polledSession } } = await supabase.auth.getSession();
+        if (polledSession) {
+          clearInterval(pollInterval);
+          confirmValidSession();
+          return;
+        }
+      } catch {
+        // Continue polling until maxAttempts
+      }
+
+      if (attempts >= maxAttempts) {
+        clearInterval(pollInterval);
+        if (isCancelled) return;
+
+        // If recovery tokens were present in URL but session failed to establish after 4s:
+        if (captured.hasTokens) {
+          setInvalidLinkMessage(
+            'Your password reset link is invalid or has expired. Please request a new link.'
+          );
+        } else {
+          setInvalidLinkMessage(
+            'No active password reset session was found. Please request a new password reset link.'
+          );
+        }
+        setSessionChecking(false);
+      }
+    }, 200);
+
     return () => {
+      isCancelled = true;
+      clearInterval(pollInterval);
       subscription.unsubscribe();
     };
-  }, [location]);
+  }, [contextSession]);
 
   // Validation rules
   const isLengthValid = password.length >= 8;
@@ -127,6 +233,15 @@ export const ResetPasswordPage: React.FC = () => {
     setError(null);
 
     try {
+      // Confirm we have a valid session before attempting updateUser
+      const { data: { session: activeSession } } = await supabase.auth.getSession();
+      if (!activeSession) {
+        setError('Your password reset session has expired or is invalid. Please request a new link.');
+        setHasValidSession(false);
+        setLoading(false);
+        return;
+      }
+
       const { error: updateError } = await updatePassword(password);
 
       if (updateError) {
@@ -135,7 +250,8 @@ export const ResetPasswordPage: React.FC = () => {
         return;
       }
 
-      // After updating password, sign out to ensure a fresh login with new credentials
+      // After updating password, reset initial URL capture and sign out of recovery session
+      initialUrlCapture = null;
       try {
         await supabase.auth.signOut();
       } catch (signOutErr) {
