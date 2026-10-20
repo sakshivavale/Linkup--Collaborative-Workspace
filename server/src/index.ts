@@ -50,12 +50,14 @@ const server = http.createServer(app);
 
 export const io = new SocketIOServer(server, {
   cors: {
-    // Accept any localhost or private-network (RFC 1918) origin.
+    // Accept env.CORS_ORIGIN (production Render URL), any localhost, or private-network (RFC 1918) origin.
     // Matches 192.168.x.x, 10.x.x.x, 172.16-31.x.x and localhost.
     origin: (origin, callback) => {
       if (!origin) return callback(null, true); // server-to-server
+      // Allow production frontend URL from env (Render deployment)
+      if (env.CORS_ORIGIN && origin === env.CORS_ORIGIN) return callback(null, true);
       const allowed = [
-        /^http:\/\/localhost:\d+$/,
+        /^https?:\/\/localhost:\d+$/,
         /^http:\/\/127\.0\.0\.1:\d+$/,
         /^http:\/\/192\.168\.\d{1,3}\.\d{1,3}:\d+$/,
         /^http:\/\/10\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+$/,

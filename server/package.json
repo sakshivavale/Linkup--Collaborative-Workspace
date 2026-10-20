@@ -4,8 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "ts-node-dev src/index.ts",
-    "build": "tsc && ls -la dist",
-    "start": "node dist/index.js""test:auth": "tsx scripts/test-auth-enforcement.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test:auth": "tsx scripts/test-auth-enforcement.ts",
     "test:password-reset": "tsx scripts/test-password-reset.ts",
     "test:profile": "tsx scripts/test-profile-update.ts",
     "test:rooms": "tsx scripts/test-dash-live-badge.ts",

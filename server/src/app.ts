@@ -40,12 +40,14 @@ import {
 import { RunResult, Language } from '@linkup/shared';
 
 
-// Dynamic CORS origin: accepts localhost AND any 192.168.x.x LAN IP on port 5173.
-// This permanently prevents CORS failures when the dev machine's IP changes.
+// Dynamic CORS origin: accepts localhost, any 192.168.x.x LAN IP, AND the production
+// CORS_ORIGIN env var (set on Render to the frontend URL).
 function isCorsAllowed(origin: string | undefined): boolean {
   if (!origin) return true; // same-origin / server-to-server
+  // Allow production frontend URL from env (Render deployment)
+  if (env.CORS_ORIGIN && origin === env.CORS_ORIGIN) return true;
   const allowedPatterns = [
-    /^http:\/\/localhost:\d+$/,
+    /^https?:\/\/localhost:\d+$/,
     /^http:\/\/127\.0\.0\.1:\d+$/,
     /^http:\/\/192\.168\.\d{1,3}\.\d{1,3}:\d+$/,
     /^http:\/\/10\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+$/,
