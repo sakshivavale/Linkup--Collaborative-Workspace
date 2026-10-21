@@ -26,8 +26,8 @@ export const EditRoomModal: React.FC<EditRoomModalProps> = ({
   onSuccess,
   onArchive,
 }) => {
-  const [name, setName] = useState(room.name);
-  const [description, setDescription] = useState(room.description || '');
+  const [name, setName] = useState(room?.name || '');
+  const [description, setDescription] = useState(room?.description || '');
   const [touchedName, setTouchedName] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isArchiving, setIsArchiving] = useState(false);
@@ -38,8 +38,8 @@ export const EditRoomModal: React.FC<EditRoomModalProps> = ({
 
   // Sync state when modal opens or room prop changes
   useEffect(() => {
-    if (isOpen) {
-      setName(room.name);
+    if (isOpen && room) {
+      setName(room.name || '');
       setDescription(room.description || '');
       setTouchedName(false);
       setIsSubmitting(false);
@@ -53,7 +53,7 @@ export const EditRoomModal: React.FC<EditRoomModalProps> = ({
     }
   }, [isOpen, room]);
 
-  if (!isOpen) return null;
+  if (!isOpen || !room) return null;
 
   // Validation rules
   const trimmedName = name.trim();

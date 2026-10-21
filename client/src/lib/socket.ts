@@ -8,7 +8,9 @@ const RAW_SOCKET_URL = (
   import.meta.env.VITE_API_BASE_URL ||
   import.meta.env.VITE_API_URL ||
   import.meta.env.VITE_APL_URL ||
-  (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3001')
+  (typeof window !== 'undefined' && window.location.hostname.includes('linkup-collaborative-workspace')
+    ? 'https://linkup-collaborative-workspace-r74x.onrender.com'
+    : typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3001')
 ).trim();
 
 export const SOCKET_URL = RAW_SOCKET_URL.replace(/\/+$/, '');

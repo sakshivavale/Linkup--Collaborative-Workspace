@@ -36,8 +36,12 @@ export const RoomCard: React.FC<RoomCardProps> = ({
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
   useEffect(() => {
-    setCurrentJoinCode(room.joinCode);
-  }, [room.joinCode]);
+    setCurrentJoinCode(room?.joinCode || null);
+  }, [room?.joinCode]);
+
+  if (!room || !room.id) {
+    return null;
+  }
 
   const isLive = Boolean(room.activeSessionId);
   const isHost = room.myRole === 'host';
