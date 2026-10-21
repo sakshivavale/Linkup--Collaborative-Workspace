@@ -299,7 +299,9 @@ export function usePeerConnections({
     socket.on('webrtc:ice-candidate', onIceCandidate);
 
     // Identify all remote peers who are currently in the live call
-    const inLiveRemotePeers = participants.filter((p) => p.id !== currentUserId);
+    const inLiveRemotePeers = (participants || []).filter(
+      (p): p is Participant => Boolean(p && p.id && (!currentUserId || p.id !== currentUserId))
+    );
 
     // Clean up connections for participants who left
     const inLiveRemoteIds = new Set(inLiveRemotePeers.map((p) => p.id));
@@ -326,7 +328,7 @@ export function usePeerConnections({
 
         // Deterministic initiator tie-breaker:
         // Lexicographically greater user ID initiates the offer.
-        const shouldInitiate = currentUserId.localeCompare(peerId) > 0;
+        const shouldInitiate = currentUserId ? currentUserId.localeCompare(peerId) > 0 : false;
         if (shouldInitiate) {
           try {
             console.log(`[WebRTC] Initiating video offer to ${peerId}`);

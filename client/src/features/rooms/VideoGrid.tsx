@@ -18,13 +18,17 @@ interface VideoGridProps {
  * "A screen share appears as the focused tile for all participants; other tiles move to a strip below."
  */
 export default function VideoGrid({
-  participants,
+  participants = [],
   activeScreenShare,
   isSelfSharing = false,
   canStopSharing = false,
   screenStream = null,
   onStopSharing,
 }: VideoGridProps) {
+  const validParticipants = (participants ?? []).filter(
+    (p): p is Participant => Boolean(p && p.id)
+  );
+
   // If screen sharing is active -> focused tile + strip below layout
   if (activeScreenShare) {
     return (
@@ -39,11 +43,11 @@ export default function VideoGrid({
         />
 
         {/* Other tiles move to a strip below */}
-        {participants.length > 0 && (
+        {validParticipants.length > 0 && (
           <div className="w-full max-w-5xl">
             <div className="flex items-center justify-between mb-1.5 px-1">
               <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
-                Participants ({participants.length})
+                Participants ({validParticipants.length})
               </span>
             </div>
             <div
@@ -51,7 +55,7 @@ export default function VideoGrid({
               data-testid="participants-strip-below"
               className="flex items-center gap-3 overflow-x-auto py-2 px-1 scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-transparent"
             >
-              {participants.map((p) => (
+              {validParticipants.map((p) => (
                 <ParticipantTile key={p.id} participant={p} isStrip={true} />
               ))}
             </div>
@@ -69,7 +73,7 @@ export default function VideoGrid({
         data-testid="participants-video-grid"
         className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3"
       >
-        {participants.map((p) => (
+        {validParticipants.map((p) => (
           <ParticipantTile key={p.id} participant={p} isStrip={false} />
         ))}
       </div>

@@ -11,7 +11,7 @@ services:
     plan: free
     region: oregon
     rootDir: .
-    buildCommand: npm install && npm run build --workspace=server
+    buildCommand: npm install && npm run build:server
     startCommand: node server/dist/index.js
     healthCheckPath: /health
     envVars:
@@ -36,7 +36,7 @@ services:
     plan: free
     region: oregon
     rootDir: .
-    buildCommand: npm install && npm run build --workspace=client
+    buildCommand: npm install && npm run build:client
     staticPublishPath: ./client/dist
     # SPA routing: redirect all 404s back to index.html
     routes:
@@ -57,3 +57,6 @@ services:
         sync: false           # Set manually in Render dashboard
       - key: VITE_API_BASE_URL
         sync: false           # Set to your backend Render URL (linkup-api)
+      - key: VITE_API_URL
+        sync: false           # Supported alternative for backend Render URL
+
