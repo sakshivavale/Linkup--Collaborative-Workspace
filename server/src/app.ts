@@ -34,16 +34,18 @@ import {
   executeCode,
   checkRunRateLimit,
   getAvailableRuntimes,
+  getExecutionWorkerStatus,
   MAX_CODE_BYTES,
   MAX_STDIN_BYTES,
 } from './lib/piston';
 import { RunResult, Language } from '@linkup/shared';
 
 
-// Dynamic CORS origin: accepts localhost AND any 192.168.x.x LAN IP on port 5173.
+// Dynamic CORS origin: accepts configured CORS_ORIGIN, localhost AND any private LAN IP on port 5173.
 // This permanently prevents CORS failures when the dev machine's IP changes.
 function isCorsAllowed(origin: string | undefined): boolean {
   if (!origin) return true; // same-origin / server-to-server
+  if (env.CORS_ORIGIN && origin === env.CORS_ORIGIN) return true;
   const allowedPatterns = [
     /^http:\/\/localhost:\d+$/,
     /^http:\/\/127\.0\.0\.1:\d+$/,
@@ -75,6 +77,16 @@ app.use(express.json({ limit: '100kb' }));
 // Unauthenticated health check endpoint
 app.get('/health', (_req: Request, res: Response) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Unauthenticated execution worker health check endpoint
+app.get(['/health/execution', '/api/health/execution'], async (_req: Request, res: Response) => {
+  try {
+    const status = await getExecutionWorkerStatus();
+    res.status(200).json({ status: 'ok', ...status });
+  } catch (err: any) {
+    res.status(500).json({ status: 'error', error: err.message });
+  }
 });
 
 // Protect all /api/* routes with requireAuth
@@ -1726,7 +1738,7 @@ const handleExecuteCode = async (req: Request, res: Response) => {
       return res.status(502).json({
         error: {
           code: 'EXECUTION_UNAVAILABLE',
-          message: 'Code execution service is currently unavailable',
+          message: err.message || 'Code execution service is currently unavailable',
         },
       });
     }

@@ -247,8 +247,8 @@ async function runTests() {
 
     let hostReceivedRunStarted = false;
     let viewerReceivedRunStarted = false;
-    let hostReceivedRunResult: RunResult | null = null;
-    let viewerReceivedRunResult: RunResult | null = null;
+    let hostReceivedRunResult: any = null;
+    let viewerReceivedRunResult: any = null;
 
     hostSocket.on('code:run-started', (data) => {
       if (data.roomId === roomId) hostReceivedRunStarted = true;
@@ -279,7 +279,7 @@ async function runTests() {
     });
 
     assert(execResponse.status === 200, 'POST /api/execute returns HTTP 200 for pen holder');
-    const execData: RunResult = await execResponse.json();
+    const execData = (await execResponse.json()) as RunResult;
 
     assert(Boolean(execData?.stdout?.includes('Received stdin: World')), 'Execution output includes stdout with stdin processed');
     assert(execData?.exitCode === 0, 'Exit code is 0');
@@ -294,7 +294,7 @@ async function runTests() {
       'All room members received code:run-result with exact same output (AC-5)'
     );
     assert(
-      hostReceivedRunResult?.stdout === execData.stdout,
+      (hostReceivedRunResult as any)?.stdout === execData.stdout,
       'Broadcasted stdout matches HTTP response across all participants (AC-5)'
     );
 
@@ -335,7 +335,7 @@ async function runTests() {
     });
 
     assert(viewerExecResponse.status === 403, 'Non-pen-holder participant receives 403 NOT_PEN_HOLDER');
-    const viewerErr = await viewerExecResponse.json();
+    const viewerErr: any = await viewerExecResponse.json();
     assert(viewerErr.error.code === 'NOT_PEN_HOLDER', 'Error code is NOT_PEN_HOLDER');
 
     // ─────────────────────────────────────────────────────────────────────────────
@@ -358,7 +358,7 @@ async function runTests() {
     });
 
     assert(oversizedResponse.status === 413, 'Code over 64 KB returns HTTP 413 (AC-6)');
-    const oversizedJson = await oversizedResponse.json();
+    const oversizedJson: any = await oversizedResponse.json();
     assert(
       oversizedJson.error?.code === 'PAYLOAD_TOO_LARGE' &&
         oversizedJson.error?.message === 'Source code exceeds the 64 KB limit.',
@@ -394,7 +394,7 @@ async function runTests() {
     });
 
     assert(timeoutResponse.status === 200, 'Timed out run returns HTTP 200 with timeout metadata');
-    const timeoutJson: RunResult = await timeoutResponse.json();
+    const timeoutJson = (await timeoutResponse.json()) as RunResult;
     assert(timeoutJson.timedOut === true, 'RunResult timedOut is true (AC-7)');
     assert(
       timeoutJson.stderr.includes('Time limit exceeded (3 s).'),
