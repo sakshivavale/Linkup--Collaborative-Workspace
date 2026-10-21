@@ -80,7 +80,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ roomId, disabled = false }
         const data = await api.get<ChatHistoryResponse>(`/api/rooms/${roomId}/messages?limit=50`);
         if (!isMounted) return;
 
-        setMessages(data?.messages || []);
+        setMessages(Array.isArray(data?.messages) ? data.messages.filter((m): m is ChatMessage => Boolean(m && m.id != null)) : []);
         setHasMore(Boolean(data?.hasMore));
       } catch (err) {
         console.warn('[ChatPanel] Failed to fetch initial chat messages:', err);
@@ -115,13 +115,14 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ roomId, disabled = false }
 
       setMessages((prev) => {
         // Prevent duplicate if already confirmed
-        if (prev.some((m) => m.id === msg.id)) return prev;
+        if (prev.some((m) => m && m.id === msg.id)) return prev;
 
         // Replace optimistic message if matching clientId or pending temp message
         const optIndex = prev.findIndex(
           (m) =>
-            (incomingClientId && m.clientId === incomingClientId) ||
-            (m.id < 0 && m.senderId === msg.senderId && m.body === msg.body)
+            m &&
+            ((incomingClientId && m.clientId === incomingClientId) ||
+              (m.id < 0 && m.senderId === msg.senderId && m.body === msg.body))
         );
 
         if (optIndex !== -1) {
@@ -368,7 +369,9 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ roomId, disabled = false }
 
         {/* Messages */}
         {!loadingInitial &&
-          messages.map((msg) => {
+          messages
+            .filter((msg): msg is ChatMessage => Boolean(msg && msg.id != null))
+            .map((msg) => {
             const isOwn = user?.id ? msg.senderId === user.id : msg.senderName === fullName;
             const isTeacher = msg.senderRole === 'teacher';
             const isOptimistic = msg.id < 0 || msg.status === 'sending';
