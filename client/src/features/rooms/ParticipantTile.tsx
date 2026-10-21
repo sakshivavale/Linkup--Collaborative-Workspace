@@ -32,6 +32,9 @@ export default function ParticipantTile({
     if (!videoRef.current) return;
     if (participant.stream && !participant.cameraOff) {
       try {
+        if (participant.isSelf) {
+          videoRef.current.muted = true;
+        }
         if (videoRef.current.srcObject !== participant.stream) {
           videoRef.current.srcObject = participant.stream as any;
         }
@@ -42,7 +45,7 @@ export default function ParticipantTile({
     } else {
       videoRef.current.srcObject = null;
     }
-  }, [participant.stream, participant.cameraOff]);
+  }, [participant.stream, participant.cameraOff, participant.isSelf]);
 
   // For remote participants, play audio even if camera is off
   useEffect(() => {
@@ -122,8 +125,24 @@ export default function ParticipantTile({
           {participant.name} {participant.isSelf ? '(You)' : ''}
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
-          {participant.isMuted && <div className="text-white/80"><MuteIcon /></div>}
-          {participant.cameraOff && <div className="text-white/80"><CameraOffIcon /></div>}
+          {participant.isMuted && (
+            <div
+              className="text-white/80"
+              data-testid={`participant-muted-${participant.id}`}
+              title="Microphone muted"
+            >
+              <MuteIcon />
+            </div>
+          )}
+          {participant.cameraOff && (
+            <div
+              className="text-white/80"
+              data-testid={`participant-camera-off-${participant.id}`}
+              title="Camera off"
+            >
+              <CameraOffIcon />
+            </div>
+          )}
         </div>
       </div>
     </div>
