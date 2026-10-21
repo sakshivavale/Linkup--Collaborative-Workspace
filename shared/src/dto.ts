@@ -111,10 +111,10 @@ export function buildParticipantTiles(
   activeSpeakerUserId: string | null = null
 ): GridParticipant[] {
   return (presence ?? [])
-    .filter((entry) => entry.inLive)
+    .filter((entry): entry is PresenceEntry => Boolean(entry && entry.userId && entry.inLive))
     .map((entry) => ({
       id: entry.userId,
-      name: entry.fullName,
+      name: entry.fullName || 'Anonymous',
       isMuted: !entry.micOn,
       cameraOff: !entry.cameraOn,
       isSpeaking: activeSpeakerUserId !== null && entry.userId === activeSpeakerUserId,

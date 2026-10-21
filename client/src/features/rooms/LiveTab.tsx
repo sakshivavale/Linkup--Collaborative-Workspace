@@ -109,7 +109,7 @@ export const LiveTab: React.FC<LiveTabProps> = ({
 
   // Current user's role and permission flags
   const isHost = propIsHost ?? (room?.myRole === 'host');
-  const currentMember = room?.members?.find((m) => m.userId === user?.id);
+  const currentMember = room?.members?.find((m) => m && m.userId === user?.id);
   const [myPermissions, setMyPermissions] = useState<Permissions | null>(
     () => currentMember?.permissions || null
   );
@@ -132,28 +132,30 @@ export const LiveTab: React.FC<LiveTabProps> = ({
 
   // Attach local and remote media streams to participant tiles
   const participantsWithStreams = React.useMemo(() => {
-    return participants.map((p) => {
-      const isSelf = p.id === user?.id;
-      return {
-        ...p,
-        isSelf,
-        stream: isSelf
-          ? (camOn && mediaDevices.localStream ? mediaDevices.localStream : null)
-          : (remoteStreams.get(p.id) || null),
-      };
-    });
+    return (participants || [])
+      .filter((p): p is Participant => Boolean(p && p.id))
+      .map((p) => {
+        const isSelf = Boolean(user?.id && p.id === user.id);
+        return {
+          ...p,
+          isSelf,
+          stream: isSelf
+            ? (camOn && mediaDevices.localStream ? mediaDevices.localStream : null)
+            : (remoteStreams.get(p.id) || null),
+        };
+      });
   }, [participants, user?.id, camOn, mediaDevices.localStream, remoteStreams]);
 
   // US-PERM-07: Track whether current user has hand raised (FR-4.8)
   const [isHandRaised, setIsHandRaised] = useState<boolean>(() => {
-    const selfPresence = room?.presence?.find((p) => p.userId === user?.id);
+    const selfPresence = room?.presence?.find((p) => p && p.userId === user?.id);
     return Boolean(selfPresence?.handRaised);
   });
 
   // Sync handRaised status when room loads or presence updates
   useEffect(() => {
     if (room?.presence && user?.id) {
-      const selfPresence = room.presence.find((p) => p.userId === user.id);
+      const selfPresence = room.presence.find((p) => p && p.userId === user.id);
       if (selfPresence) {
         setIsHandRaised(Boolean(selfPresence.handRaised));
       }
@@ -452,7 +454,7 @@ export const LiveTab: React.FC<LiveTabProps> = ({
     const onPresenceUpdate = (data: { roomId: string; presence: any[] }) => {
       if (data.roomId !== roomId) return;
       if (Array.isArray(data.presence) && user?.id) {
-        const self = data.presence.find((p: any) => p.userId === user.id);
+        const self = data.presence.find((p: any) => p && p.userId === user.id);
         if (self) {
           setIsHandRaised(Boolean(self.handRaised));
         }
@@ -467,7 +469,7 @@ export const LiveTab: React.FC<LiveTabProps> = ({
         setIsHandRaised(data.raised);
       }
       setParticipants((prev) =>
-        prev.map((p) => (p.id === data.userId ? { ...p, handRaised: data.raised } : p))
+        (prev || []).map((p) => (p && p.id === data.userId ? { ...p, handRaised: data.raised } : p))
       );
     };
 

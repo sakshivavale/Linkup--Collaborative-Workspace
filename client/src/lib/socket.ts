@@ -2,11 +2,16 @@ import { io, Socket } from 'socket.io-client';
 import { supabase } from './supabase';
 
 // In production the backend lives on a separate Render domain, so we read
-// VITE_API_BASE_URL.  In local dev Vite's /socket.io proxy forwards to
-// localhost:3001, so an empty string (same-origin) works fine.
-const SOCKET_URL =
+// VITE_API_BASE_URL (or VITE_API_URL / VITE_APL_URL). In local dev Vite's /socket.io proxy forwards to
+// localhost:3001, so same-origin origin fallback works fine.
+const RAW_SOCKET_URL = (
   import.meta.env.VITE_API_BASE_URL ||
-  (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3001');
+  import.meta.env.VITE_API_URL ||
+  import.meta.env.VITE_APL_URL ||
+  (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3001')
+).trim();
+
+export const SOCKET_URL = RAW_SOCKET_URL.replace(/\/+$/, '');
 
 /**
  * Socket.IO client instance configured with Supabase auth token
