@@ -34,6 +34,7 @@ import {
   executeCode,
   checkRunRateLimit,
   getAvailableRuntimes,
+  getExecutionWorkerStatus,
   MAX_CODE_BYTES,
   MAX_STDIN_BYTES,
 } from './lib/piston';
@@ -90,12 +91,28 @@ app.get('/health', (_req: Request, res: Response) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// requireAuth middleware is applied to every route except GET /health (US-SEC-01 AC-1, NFR-1.1)
+// requireAuth middleware is applied to every route except GET /health and execution health check (US-SEC-01 AC-1, NFR-1.1)
 app.use((req: Request, res: Response, next: NextFunction) => {
-  if (req.method === 'GET' && (req.path === '/health' || req.path === '/health/')) {
+  if (
+    req.method === 'GET' &&
+    (req.path === '/health' ||
+      req.path === '/health/' ||
+      req.path === '/health/execution' ||
+      req.path === '/api/health/execution')
+  ) {
     return next();
   }
   return requireAuth(req, res, next);
+});
+
+// Unauthenticated execution worker health check endpoint
+app.get(['/health/execution', '/api/health/execution'], async (_req: Request, res: Response) => {
+  try {
+    const status = await getExecutionWorkerStatus();
+    res.status(200).json({ status: 'ok', ...status });
+  } catch (err: any) {
+    res.status(500).json({ status: 'error', error: err.message });
+  }
 });
 
 // Normalize :id and :roomId params across routes
@@ -1928,7 +1945,7 @@ const handleExecuteCode = async (req: Request, res: Response) => {
       return res.status(502).json({
         error: {
           code: 'EXECUTION_UNAVAILABLE',
-          message: 'Code execution service is currently unavailable',
+          message: err.message || 'Code execution service is currently unavailable',
         },
       });
     }
