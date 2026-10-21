@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -81,6 +81,8 @@ export const RoomPage: React.FC = () => {
   // US-LIVE-01 & US-LIVE-05 & US-LIVE-06: Session state, inCall state & timer
   const [activeSession, setActiveSession] = useState<Session | null>(null);
   const [isInCall, setIsInCall] = useState(false);
+  // Ref so the socket effect can always read the latest isInCall without re-subscribing
+  const isInCallRef = useRef(false);
   const [isStartingSession, setIsStartingSession] = useState(false);
   const [isEndingSession, setIsEndingSession] = useState(false);
   const [sessionEnded, setSessionEnded] = useState(false);
@@ -171,6 +173,7 @@ export const RoomPage: React.FC = () => {
       const session = await api.post<Session>(`/api/rooms/${roomId}/sessions`);
       setActiveSession(session);
       setSessionEnded(false);
+      isInCallRef.current = true;
       setIsInCall(true);
       if (room) {
         room.activeSessionId = session.id;
@@ -201,6 +204,7 @@ export const RoomPage: React.FC = () => {
       await api.post<Session>(url);
       setActiveSession(null);
       setSessionEnded(true);
+      isInCallRef.current = false;
       setIsInCall(false);
       if (room) {
         room.activeSessionId = null;
@@ -266,6 +270,9 @@ export const RoomPage: React.FC = () => {
 
     const handleConnect = () => {
       console.log('[RoomPage] Socket connected / reconnected. Syncing state from room:join snapshot...');
+      // US-ERR-08 AC-3: The banner disappears and controls re-enable within 1 second of reconnection
+      setIsReconnecting(false);
+
       socket.emit('room:join', { roomId }, (res: any) => {
         if (res?.error?.code === 'NOT_A_MEMBER' || (res?.ok === false && res?.error?.code === 'NOT_A_MEMBER')) {
           navigate('/', { replace: true, state: { flash: 'ROOM_KICKED' } });
@@ -275,12 +282,9 @@ export const RoomPage: React.FC = () => {
         syncRoomSnapshot(snapshot);
 
         // US-LIVE-07 AC-4: If in live call, re-emit live:joined to cancel grace timer & reuse open attendance record
-        if (isInCall) {
+        if (isInCallRef.current) {
           socket.emit('live:joined', { roomId });
         }
-
-        // US-LIVE-07 AC-3: Within 15 seconds of reconnection, banner disappears and full state is synced
-        setIsReconnecting(false);
       });
     };
 
@@ -302,6 +306,10 @@ export const RoomPage: React.FC = () => {
       }
     };
 
+    const handleReconnectAttempt = () => {
+      setIsReconnecting(true);
+    };
+
     if (!socket.connected) {
       socket.connect();
     }
@@ -314,6 +322,8 @@ export const RoomPage: React.FC = () => {
     socket.on('connect_error', handleConnectError);
     socket.on('connect', handleConnect);
     socket.on('room:error', handleRoomError);
+    socket.io.on('reconnect_attempt', handleReconnectAttempt);
+    socket.io.on('reconnect', handleConnect);
     window.addEventListener('offline', handleOffline);
     window.addEventListener('online', handleOnline);
 
@@ -322,11 +332,14 @@ export const RoomPage: React.FC = () => {
       socket.off('connect_error', handleConnectError);
       socket.off('connect', handleConnect);
       socket.off('room:error', handleRoomError);
+      socket.io.off('reconnect_attempt', handleReconnectAttempt);
+      socket.io.off('reconnect', handleConnect);
       window.removeEventListener('offline', handleOffline);
       window.removeEventListener('online', handleOnline);
       socket.emit('room:leave', roomId);
     };
-  }, [roomId, isInCall, room, setRoom]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roomId]);
 
   useEffect(() => {
     const handleJoinCodeUpdated = (data: { roomId: string; joinCode: string }) => {
@@ -365,6 +378,7 @@ export const RoomPage: React.FC = () => {
       if (data.roomId === roomId) {
         setActiveSession(null);
         setSessionEnded(true);
+        isInCallRef.current = false;
         setIsInCall(false);
         if (room) {
           room.activeSessionId = null;
@@ -547,7 +561,7 @@ export const RoomPage: React.FC = () => {
   // ── Main room workspace ────────────────────────────────────────────────────
   return (
     <div className="flex flex-col flex-1 h-full overflow-hidden">
-      {/* US-LIVE-07 Acceptance Criteria 1: A top-of-screen "Reconnecting..." banner appears when the connection drops */}
+      {/* US-ERR-08 & US-LIVE-07: Persistent top-of-screen "Reconnecting..." banner appears on socket disconnect */}
       {isReconnecting && (
         <aside
           id="reconnecting-banner"
@@ -557,7 +571,7 @@ export const RoomPage: React.FC = () => {
           className="shrink-0 bg-amber-500 text-slate-950 font-bold px-4 py-2 text-xs sm:text-sm flex items-center justify-center gap-2 shadow-md animate-pulse z-50 border-b border-amber-600/30"
         >
           <RefreshCw className="w-4 h-4 animate-spin text-slate-950 shrink-0" />
-          <span>Reconnecting... Network connection dropped. Re-syncing room state.</span>
+          <span>Reconnecting... Network connection dropped. Real-time features are temporarily unavailable.</span>
         </aside>
       )}
 
@@ -692,6 +706,7 @@ export const RoomPage: React.FC = () => {
               type="button"
               disabled={isReconnecting}
               onClick={() => {
+                isInCallRef.current = true;
                 setIsInCall(true);
                 setMainTab('live');
               }}
@@ -938,8 +953,8 @@ export const RoomPage: React.FC = () => {
               roomId={roomId!}
               sessionId={activeSession?.id ?? null}
               inCall={isInCall}
-              onJoinCall={() => setIsInCall(true)}
-              onLeaveCall={() => setIsInCall(false)}
+              onJoinCall={() => { isInCallRef.current = true; setIsInCall(true); }}
+              onLeaveCall={() => { isInCallRef.current = false; setIsInCall(false); }}
               isHost={room.myRole === 'host'}
               disabled={isReconnecting}
               isReconnecting={isReconnecting}
@@ -953,6 +968,7 @@ export const RoomPage: React.FC = () => {
               isHost={room.myRole === 'host'}
               initialElements={boardElements}
               onElementsChange={setBoardElements}
+              disabled={isReconnecting}
             />
           )}
           {mainTab === 'code' && (
@@ -963,6 +979,7 @@ export const RoomPage: React.FC = () => {
               initialCodeState={codeState}
               onCodeStateChange={setCodeState}
               isHost={room.myRole === 'host'}
+              disabled={isReconnecting}
             />
           )}
         </main>

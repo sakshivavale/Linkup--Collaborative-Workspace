@@ -321,7 +321,7 @@ export async function getAvailableRuntimes(): Promise<PistonRuntime[]> {
 /**
  * Truncate string to maxBytes in UTF-8.
  */
-function truncateToBytes(str: string, maxBytes: number): { text: string; truncated: boolean } {
+export function truncateToBytes(str: string, maxBytes: number = MAX_OUTPUT_BYTES): { text: string; truncated: boolean } {
   if (Buffer.byteLength(str, 'utf8') <= maxBytes) {
     return { text: str, truncated: false };
   }
@@ -580,6 +580,39 @@ async function runWithJudge0(options: {
 }
 
 /**
+ * Builds the payload sent to Piston with all sandboxing limits enforced (US-SEC-03 / NFR-1.3):
+ * - run_timeout: 3000 ms
+ * - compile_timeout: 10000 ms
+ * - run_memory_limit: 256 MB (268,435,456 bytes)
+ */
+export function buildPistonPayload(options: {
+  language: Language;
+  code: string;
+  stdin?: string;
+}) {
+  const langConfig = LANGUAGE_PISTON_MAP[options.language];
+  if (!langConfig) {
+    throw Object.assign(new Error(`Unsupported language: ${options.language}`), { status: 400, code: 'VALIDATION' });
+  }
+
+  return {
+    language: langConfig.pistonLang,
+    version: '*',
+    files: [
+      {
+        name: resolveSourceFileName(options.language, options.code),
+        content: options.code,
+      },
+    ],
+    stdin: options.stdin || '',
+    run_timeout: RUN_TIMEOUT_MS,
+    compile_timeout: COMPILE_TIMEOUT_MS,
+    run_memory_limit: RUN_MEMORY_LIMIT,
+    compile_memory_limit: RUN_MEMORY_LIMIT,
+  };
+}
+
+/**
  * Executes a process on the host system with stdin piping and timeout enforcement.
  */
 function runLocalProcess(
@@ -829,12 +862,15 @@ export async function executeCode(options: {
   const { language } = options;
 
   if (mockExecutor) {
-    return mockExecutor(options);
-  }
-
-  const langConfig = LANGUAGE_PISTON_MAP[language];
-  if (!langConfig) {
-    throw Object.assign(new Error(`Unsupported language: ${language}`), { status: 400, code: 'VALIDATION' });
+    const res = await mockExecutor(options);
+    const stdoutTrunc = truncateToBytes(res.stdout || '', MAX_OUTPUT_BYTES);
+    const stderrTrunc = truncateToBytes(res.stderr || '', MAX_OUTPUT_BYTES);
+    return {
+      ...res,
+      stdout: stdoutTrunc.text,
+      stderr: stderrTrunc.text,
+      truncated: res.truncated || stdoutTrunc.truncated || stderrTrunc.truncated,
+    };
   }
 
   const configuredUrl = getPrimaryPistonUrl();

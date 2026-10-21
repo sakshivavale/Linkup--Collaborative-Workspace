@@ -11,6 +11,7 @@ import {
   handleSocketDisconnect,
   setUserLiveStatus,
   setUserHandStatus,
+  setUserMediaStatus,
 } from './realtime/presence';
 import {
   getActiveScreenShare,
@@ -49,16 +50,21 @@ const server = http.createServer(app);
 
 export const io = new SocketIOServer(server, {
   cors: {
-    // Accept any localhost or private-network (RFC 1918) origin.
+    // Accept env.CORS_ORIGIN (production Render URL), any localhost, or private-network (RFC 1918) origin.
     // Matches 192.168.x.x, 10.x.x.x, 172.16-31.x.x and localhost.
     origin: (origin, callback) => {
       if (!origin) return callback(null, true); // server-to-server
+      // Allow production frontend URL from env (Render deployment)
+      if ((env.CORS_ORIGIN && origin === env.CORS_ORIGIN) || (process.env.CORS_ORIGIN && origin === process.env.CORS_ORIGIN)) {
+        return callback(null, true);
+      }
       const allowed = [
-        /^http:\/\/localhost:\d+$/,
-        /^http:\/\/127\.0\.0\.1:\d+$/,
-        /^http:\/\/192\.168\.\d{1,3}\.\d{1,3}:\d+$/,
-        /^http:\/\/10\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+$/,
-        /^http:\/\/172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}:\d+$/,
+        /^https?:\/\/localhost(:\d+)?$/,
+        /^https?:\/\/127\.0\.0\.1(:\d+)?$/,
+        /^https?:\/\/192\.168\.\d{1,3}\.\d{1,3}(:\d+)?$/,
+        /^https?:\/\/10\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?$/,
+        /^https?:\/\/172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}(:\d+)?$/,
+        /^https:\/\/.*\.onrender\.com$/,
       ];
       if (allowed.some((re) => re.test(origin))) {
         callback(null, true);
@@ -91,12 +97,12 @@ io.on('connection', (socket) => {
     if (payload && typeof payload === 'object' && typeof payload.roomId === 'string') {
       return payload.roomId.trim();
     }
-    // Fallback: search rooms that socket is currently in
+    // Fallback: search rooms that socket is currently in (ignoring user private rooms)
     for (const room of socket.rooms) {
-      if (room !== socket.id && !room.startsWith('room:')) {
+      if (room !== socket.id && !room.startsWith('room:') && !room.startsWith('user:')) {
         return room;
       }
-      if (room.startsWith('room:')) {
+      if (room.startsWith('room:') && !room.startsWith('room:user:')) {
         return room.replace('room:', '');
       }
     }
@@ -233,11 +239,19 @@ io.on('connection', (socket) => {
   });
 
   /**
-   * live:joined — user enters the live call (US-ROOM-02 AC-3, US-LIVE-07 AC-4, US-ATT-01 AC-1, AC-3)
+   * live:joined — user enters the live call (US-ROOM-02 AC-3, US-LIVE-07 AC-4, US-ATT-01 AC-1, AC-3, US-SEC-01)
    */
   socket.on('live:joined', async (payload: any, ack?: (res: any) => void) => {
     const roomId = extractRoomId(payload);
-    if (roomId && user?.id) {
+    if (!roomId || !user?.id) {
+      if (typeof ack === 'function') ack({ ok: false, error: 'roomId and authenticated user required' });
+      return;
+    }
+
+    try {
+      // US-SEC-01: Re-check membership and flags from DB/cache on every event
+      await getRoomForUser(user.id, roomId);
+
       // US-ERR-02: User cannot join live if no session is active (FR-3.2, api-contract §4.2)
       const activeSession = await getActiveSession(roomId);
       if (!activeSession) {
@@ -263,17 +277,29 @@ io.on('connection', (socket) => {
         });
       }
       if (typeof ack === 'function') ack({ ok: true, data: record, record });
-    } else {
-      if (typeof ack === 'function') ack({ ok: false, error: 'roomId and authenticated user required' });
+    } catch (err: any) {
+      const code = err instanceof NotAMemberError || err?.code === 'NOT_A_MEMBER' ? 'NOT_A_MEMBER' : 'INTERNAL_SERVER_ERROR';
+      const notMemberErr = { code, message: err.message || 'You are not a member of this room' };
+      socket.emit('room:error', notMemberErr);
+      socket.emit('error', notMemberErr);
+      if (typeof ack === 'function') ack({ ok: false, error: notMemberErr });
     }
   });
 
   /**
-   * live:left — user leaves the live call (US-ROOM-02 AC-3, US-LIVE-07 AC-4, US-ATT-01 AC-2)
+   * live:left — user leaves the live call (US-ROOM-02 AC-3, US-LIVE-07 AC-4, US-ATT-01 AC-2, US-SEC-01)
    */
   socket.on('live:left', async (payload: any, ack?: (res: any) => void) => {
     const roomId = extractRoomId(payload);
-    if (roomId && user?.id) {
+    if (!roomId || !user?.id) {
+      if (typeof ack === 'function') ack({ ok: false, error: 'roomId and authenticated user required' });
+      return;
+    }
+
+    try {
+      // US-SEC-01: Re-check membership and flags from DB/cache on every event
+      await getRoomForUser(user.id, roomId);
+
       const presence = setUserLiveStatus(roomId, user.id, false, socket.id);
       await recordLiveLeave(roomId, user.id, socket.id);
 
@@ -295,13 +321,17 @@ io.on('connection', (socket) => {
       }
 
       if (typeof ack === 'function') ack({ ok: true });
-    } else {
-      if (typeof ack === 'function') ack({ ok: false, error: 'roomId and authenticated user required' });
+    } catch (err: any) {
+      const code = err instanceof NotAMemberError || err?.code === 'NOT_A_MEMBER' ? 'NOT_A_MEMBER' : 'INTERNAL_SERVER_ERROR';
+      const notMemberErr = { code, message: err.message || 'You are not a member of this room' };
+      socket.emit('room:error', notMemberErr);
+      socket.emit('error', notMemberErr);
+      if (typeof ack === 'function') ack({ ok: false, error: notMemberErr });
     }
   });
 
   /**
-   * screen:start — user requests to share their screen (US-LIVE-04, FR-3.5)
+   * screen:start — user requests to share their screen (US-LIVE-04, FR-3.5, US-SEC-01)
    * Acceptance Criteria:
    * 1. Enabled only if can_screen = true (or user is the host).
    * 2. Screen share appears as focused tile for all participants; other tiles move to a strip below.
@@ -317,6 +347,7 @@ io.on('connection', (socket) => {
     }
 
     try {
+      // US-SEC-01: Re-check membership and flags from DB/cache on every event
       const room = await getRoomForUser(user.id, roomId);
       const isHost = room.myRole === 'host';
       const member = room.members?.find((m) => m.userId === user.id);
@@ -359,14 +390,16 @@ io.on('connection', (socket) => {
       }
     } catch (err: any) {
       console.error(`[Socket] Error starting screen share in room ${roomId}:`, err);
-      const serverErr = { code: 'INTERNAL_SERVER_ERROR', message: err.message || 'Failed to start screen share' };
+      const code = err instanceof NotAMemberError || err?.code === 'NOT_A_MEMBER' ? 'NOT_A_MEMBER' : 'INTERNAL_SERVER_ERROR';
+      const serverErr = { code, message: err.message || 'Failed to start screen share' };
       socket.emit('screen:error', serverErr);
+      socket.emit('room:error', serverErr);
       if (typeof ack === 'function') ack({ ok: false, error: serverErr });
     }
   });
 
   /**
-   * screen:stop — user or host stops active screen share (US-LIVE-04, FR-3.5)
+   * screen:stop — user or host stops active screen share (US-LIVE-04, FR-3.5, US-SEC-01)
    */
   socket.on('screen:stop', async (payload: any, ack?: (res: any) => void) => {
     const roomId = extractRoomId(payload);
@@ -376,6 +409,7 @@ io.on('connection', (socket) => {
     }
 
     try {
+      // US-SEC-01: Re-check membership and flags from DB/cache on every event
       const room = await getRoomForUser(user.id, roomId);
       const isHost = room.myRole === 'host';
       const stopped = isHost ? forceStopScreenShare(roomId) : stopScreenShare(roomId, user.id);
@@ -394,14 +428,130 @@ io.on('connection', (socket) => {
       }
     } catch (err: any) {
       console.warn(`[Socket] Error stopping screen share in room ${roomId}:`, err);
-      if (typeof ack === 'function') ack({ ok: true });
+      const code = err instanceof NotAMemberError || err?.code === 'NOT_A_MEMBER' ? 'NOT_A_MEMBER' : 'INTERNAL_SERVER_ERROR';
+      const serverErr = { code, message: err.message || 'Failed to stop screen share' };
+      socket.emit('screen:error', serverErr);
+      if (typeof ack === 'function') ack({ ok: false, error: serverErr });
     }
   });
 
   /**
-   * hand:raise — raise or lower hand in live session (US-PERM-07, FR-4.8)
+   * webrtc:offer — relays SDP offer for screen-share or peer video.
+   * If targetSocketId or targetUserId is specified, relays directly to that peer.
+   * If neither is specified, relays to room host (screen-share default).
    */
-  socket.on('hand:raise', (payload: any) => {
+  socket.on('webrtc:offer', async (payload: any, ack?: (res: any) => void) => {
+    const roomId = extractRoomId(payload);
+    if (!roomId || !user?.id || !payload?.sdp) {
+      if (typeof ack === 'function') ack({ ok: false, error: { code: 'VALIDATION', message: 'Room ID and sdp required' } });
+      return;
+    }
+
+    try {
+      await getRoomForUser(user.id, roomId);
+      const targetUserId = payload?.targetUserId;
+      const targetSocketId = payload?.targetSocketId;
+      const streamType = payload?.streamType || (targetUserId || targetSocketId ? 'video' : 'screen');
+
+      const relayData = {
+        roomId,
+        sdp: payload.sdp,
+        fromSocketId: socket.id,
+        fromUserId: user.id,
+        streamType,
+      };
+
+      if (targetSocketId) {
+        io.to(targetSocketId).emit('webrtc:offer', relayData);
+      } else if (targetUserId) {
+        io.to(`user:${targetUserId}`).emit('webrtc:offer', relayData);
+      } else {
+        io.to(`room:${roomId}:host`).emit('webrtc:offer', relayData);
+      }
+
+      if (typeof ack === 'function') ack({ ok: true });
+    } catch (err: any) {
+      const code = err instanceof NotAMemberError || err?.code === 'NOT_A_MEMBER' ? 'NOT_A_MEMBER' : 'INTERNAL_SERVER_ERROR';
+      if (typeof ack === 'function') ack({ ok: false, error: { code, message: err.message || 'Failed to relay offer' } });
+    }
+  });
+
+  /**
+   * webrtc:answer — answers a specific peer's offer (relay only).
+   */
+  socket.on('webrtc:answer', async (payload: any, ack?: (res: any) => void) => {
+    const roomId = extractRoomId(payload);
+    const targetSocketId = payload?.targetSocketId;
+    const targetUserId = payload?.targetUserId;
+    if (!roomId || !user?.id || !payload?.sdp || (!targetSocketId && !targetUserId)) {
+      if (typeof ack === 'function') ack({ ok: false, error: { code: 'VALIDATION', message: 'Room ID, sdp, and target destination required' } });
+      return;
+    }
+
+    try {
+      await getRoomForUser(user.id, roomId);
+      const streamType = payload?.streamType || 'video';
+      const relayData = {
+        roomId,
+        sdp: payload.sdp,
+        fromSocketId: socket.id,
+        fromUserId: user.id,
+        streamType,
+      };
+
+      if (targetSocketId) {
+        io.to(targetSocketId).emit('webrtc:answer', relayData);
+      } else if (targetUserId) {
+        io.to(`user:${targetUserId}`).emit('webrtc:answer', relayData);
+      }
+
+      if (typeof ack === 'function') ack({ ok: true });
+    } catch (err: any) {
+      const code = err instanceof NotAMemberError || err?.code === 'NOT_A_MEMBER' ? 'NOT_A_MEMBER' : 'INTERNAL_SERVER_ERROR';
+      if (typeof ack === 'function') ack({ ok: false, error: { code, message: err.message || 'Failed to relay answer' } });
+    }
+  });
+
+  /**
+   * webrtc:ice-candidate — bidirectional ICE candidate relay between peers (relay only).
+   */
+  socket.on('webrtc:ice-candidate', async (payload: any, ack?: (res: any) => void) => {
+    const roomId = extractRoomId(payload);
+    const targetSocketId = payload?.targetSocketId;
+    const targetUserId = payload?.targetUserId;
+    if (!roomId || !user?.id || !payload?.candidate || (!targetSocketId && !targetUserId)) {
+      if (typeof ack === 'function') ack({ ok: false, error: { code: 'VALIDATION', message: 'Room ID, candidate, and target destination required' } });
+      return;
+    }
+
+    try {
+      await getRoomForUser(user.id, roomId);
+      const streamType = payload?.streamType || 'video';
+      const relayData = {
+        roomId,
+        candidate: payload.candidate,
+        fromSocketId: socket.id,
+        fromUserId: user.id,
+        streamType,
+      };
+
+      if (targetSocketId) {
+        io.to(targetSocketId).emit('webrtc:ice-candidate', relayData);
+      } else if (targetUserId) {
+        io.to(`user:${targetUserId}`).emit('webrtc:ice-candidate', relayData);
+      }
+
+      if (typeof ack === 'function') ack({ ok: true });
+    } catch (err: any) {
+      const code = err instanceof NotAMemberError || err?.code === 'NOT_A_MEMBER' ? 'NOT_A_MEMBER' : 'INTERNAL_SERVER_ERROR';
+      if (typeof ack === 'function') ack({ ok: false, error: { code, message: err.message || 'Failed to relay ICE candidate' } });
+    }
+  });
+
+  /**
+   * hand:raise — raise or lower hand in live session (US-PERM-07, FR-4.8, US-SEC-01)
+   */
+  socket.on('hand:raise', async (payload: any, ack?: (res: any) => void) => {
     const roomId = extractRoomId(payload);
     const raised = Boolean(payload?.raised);
     const targetUserId =
@@ -409,7 +559,15 @@ io.on('connection', (socket) => {
         ? String(payload.userId)
         : user?.id;
 
-    if (roomId && targetUserId) {
+    if (!roomId || !targetUserId || !user?.id) {
+      if (typeof ack === 'function') ack({ ok: false, error: { code: 'VALIDATION', message: 'Room ID required' } });
+      return;
+    }
+
+    try {
+      // US-SEC-01: Re-check membership and flags from DB/cache on every event
+      await getRoomForUser(user.id, roomId);
+
       let presence = setUserHandStatus(roomId, targetUserId, raised);
       if (!presence && targetUserId === user?.id && user) {
         addSocketToRoom(roomId, socket.id, user);
@@ -426,6 +584,47 @@ io.on('connection', (socket) => {
         userId: targetUserId,
         raised,
       });
+
+      if (typeof ack === 'function') ack({ ok: true });
+    } catch (err: any) {
+      console.warn(`[Socket] Error in hand:raise for room ${roomId}:`, err);
+      const code = err instanceof NotAMemberError || err?.code === 'NOT_A_MEMBER' ? 'NOT_A_MEMBER' : 'INTERNAL_SERVER_ERROR';
+      const notMemberErr = { code, message: err.message || 'You are not a member of this room' };
+      socket.emit('room:error', notMemberErr);
+      socket.emit('error', notMemberErr);
+      if (typeof ack === 'function') ack({ ok: false, error: notMemberErr });
+    }
+  });
+
+  /**
+   * live:media-state — broadcast a user's mic/camera on-off toggle to the room (presence sync)
+   */
+  socket.on('live:media-state', async (payload: any, ack?: (res: any) => void) => {
+    const roomId = extractRoomId(payload);
+    if (!roomId || !user?.id) {
+      if (typeof ack === 'function') ack({ ok: false, error: { code: 'VALIDATION', message: 'Room ID required' } });
+      return;
+    }
+
+    const patch: { micOn?: boolean; cameraOn?: boolean } = {};
+    if (typeof payload?.micOn === 'boolean') patch.micOn = payload.micOn;
+    if (typeof payload?.cameraOn === 'boolean') patch.cameraOn = payload.cameraOn;
+
+    try {
+      await getRoomForUser(user.id, roomId);
+
+      const presence = setUserMediaStatus(roomId, user.id, patch);
+      if (presence) {
+        io.to(`room:${roomId}`).to(roomId).emit('presence:update', {
+          roomId,
+          presence,
+        });
+      }
+
+      if (typeof ack === 'function') ack({ ok: true });
+    } catch (err: any) {
+      const code = err instanceof NotAMemberError || err?.code === 'NOT_A_MEMBER' ? 'NOT_A_MEMBER' : 'INTERNAL_SERVER_ERROR';
+      if (typeof ack === 'function') ack({ ok: false, error: { code, message: err.message || 'Failed to update media state' } });
     }
   });
 
@@ -522,14 +721,15 @@ io.on('connection', (socket) => {
       }
     } catch (err: any) {
       console.warn(`[Socket] Error in wb:update for room ${roomId}:`, err);
-      const errPayload = { code: 'FORBIDDEN', message: err.message || 'Access denied', event: 'wb:update' };
+      const code = err instanceof NotAMemberError || err?.code === 'NOT_A_MEMBER' ? 'NOT_A_MEMBER' : 'FORBIDDEN';
+      const errPayload = { code, message: err.message || 'Access denied', event: 'wb:update' };
       socket.emit('error', errPayload);
       if (typeof ack === 'function') ack({ ok: false, error: errPayload });
     }
   });
 
   /**
-   * wb:clear — host clears the entire whiteboard (US-WB-05, FR-5.14, api-contract §4.2, §4.3)
+   * wb:clear — host clears the entire whiteboard (US-WB-05, FR-5.14, api-contract §4.2, §4.3, US-SEC-01)
    * Acceptance Criteria:
    * 1. A "Clear Board" button is visible to the host only.
    * 2. Clicking shows a confirmation dialog.
@@ -575,8 +775,9 @@ io.on('connection', (socket) => {
       }
     } catch (err: any) {
       console.warn(`[Socket] Error in wb:clear for room ${roomId}:`, err);
+      const code = err instanceof NotAMemberError || err?.code === 'NOT_A_MEMBER' ? 'NOT_A_MEMBER' : (err.code || 'FORBIDDEN');
       const errPayload = {
-        code: err.code || 'FORBIDDEN',
+        code,
         message: err.message || 'Access denied',
         event: 'wb:clear',
       };
@@ -652,14 +853,15 @@ io.on('connection', (socket) => {
       }
     } catch (err: any) {
       console.warn(`[Socket] Error in code:update for room ${roomId}:`, err);
-      const errPayload = { code: 'FORBIDDEN', message: err.message || 'Access denied', event: 'code:update' };
+      const code = err instanceof NotAMemberError || err?.code === 'NOT_A_MEMBER' ? 'NOT_A_MEMBER' : 'FORBIDDEN';
+      const errPayload = { code, message: err.message || 'Access denied', event: 'code:update' };
       socket.emit('error', errPayload);
       if (typeof ack === 'function') ack({ ok: false, error: errPayload });
     }
   });
 
   /**
-   * code:pen — assign code editor pen holder (US-PERM-05, US-CODE-02, architecture doc §5.5)
+   * code:pen — assign code editor pen holder (US-PERM-05, US-CODE-02, architecture doc §5.5, US-SEC-01)
    */
   socket.on('code:pen', async (payload: any, ack?: (res: any) => void) => {
     const roomId = extractRoomId(payload);
@@ -720,14 +922,15 @@ io.on('connection', (socket) => {
       }
     } catch (err: any) {
       console.warn(`[Socket] Error in code:pen for room ${roomId}:`, err);
-      const errPayload = { code: 'INTERNAL_SERVER_ERROR', message: err.message || 'Failed to assign pen' };
+      const code = err instanceof NotAMemberError || err?.code === 'NOT_A_MEMBER' ? 'NOT_A_MEMBER' : 'INTERNAL_SERVER_ERROR';
+      const errPayload = { code, message: err.message || 'Failed to assign pen' };
       socket.emit('error', errPayload);
       if (typeof ack === 'function') ack({ ok: false, error: errPayload });
     }
   });
 
   /**
-   * code:request-pen — student requests the edit pen (US-CODE-08, FR-5.9, api-contract §4.2)
+   * code:request-pen — student requests the edit pen (US-CODE-08, FR-5.9, api-contract §4.2, US-SEC-01)
    * Acceptance Criteria:
    * 1. A participant with can_code who does not hold the pen emits code:request-pen.
    * 2. The server sends code:pen-requested to the host's sockets.
@@ -832,8 +1035,9 @@ io.on('connection', (socket) => {
       }
     } catch (err: any) {
       console.warn(`[Socket] Error in code:request-pen for room ${roomId}:`, err);
+      const code = err instanceof NotAMemberError || err?.code === 'NOT_A_MEMBER' ? 'NOT_A_MEMBER' : (err.code || 'FORBIDDEN');
       const errPayload = {
-        code: err.code || 'FORBIDDEN',
+        code,
         message: err.message || 'Failed to request edit pen',
         event: 'code:request-pen',
       };
@@ -843,17 +1047,51 @@ io.on('connection', (socket) => {
   });
 
   /**
-   * code:run-started — broadcast code execution start to room (US-CODE-05 AC-3, FR-5.5)
+   * code:run-started — broadcast code execution start to room (US-CODE-05 AC-3, FR-5.5, US-SEC-01)
    */
-  socket.on('code:run-started', (payload: any) => {
+  socket.on('code:run-started', async (payload: any, ack?: (res: any) => void) => {
     const roomId = extractRoomId(payload);
-    if (!roomId) return;
-    const language = payload?.language;
-    io.to(`room:${roomId}`).to(roomId).emit('code:run-started', {
-      roomId,
-      by: user?.fullName || user?.id || 'Unknown',
-      language,
-    });
+    if (!roomId || !user?.id) {
+      if (typeof ack === 'function') ack({ ok: false, error: { code: 'VALIDATION', message: 'Room ID required' } });
+      return;
+    }
+
+    try {
+      // US-SEC-01: Re-check membership and flags from DB/cache on every event
+      const room = await getRoomForUser(user.id, roomId);
+      const hostMember = room.members?.find((m) => m.memberRole === 'host');
+      const defaultHostId = hostMember?.userId || (room as any).owner_id || (room.myRole === 'host' ? user.id : '');
+      const currentHolderId = getPenHolder(roomId, defaultHostId);
+
+      const isHost = room.myRole === 'host' || user.id === defaultHostId;
+      const isHolder = currentHolderId === user.id;
+
+      if (!isHost && !isHolder) {
+        const notHolderErr = {
+          code: 'NOT_PEN_HOLDER',
+          message: 'Only the current pen holder or room host can broadcast code run',
+          event: 'code:run-started',
+        };
+        socket.emit('error', notHolderErr);
+        if (typeof ack === 'function') ack({ ok: false, error: notHolderErr });
+        return;
+      }
+
+      const language = payload?.language;
+      io.to(`room:${roomId}`).to(roomId).emit('code:run-started', {
+        roomId,
+        by: user?.fullName || user?.id || 'Unknown',
+        language,
+      });
+
+      if (typeof ack === 'function') ack({ ok: true });
+    } catch (err: any) {
+      console.warn(`[Socket] Error in code:run-started for room ${roomId}:`, err);
+      const code = err instanceof NotAMemberError || err?.code === 'NOT_A_MEMBER' ? 'NOT_A_MEMBER' : 'FORBIDDEN';
+      const errPayload = { code, message: err.message || 'Access denied', event: 'code:run-started' };
+      socket.emit('error', errPayload);
+      if (typeof ack === 'function') ack({ ok: false, error: errPayload });
+    }
   });
 
   socket.on('disconnect', async (reason) => {
@@ -913,8 +1151,11 @@ io.on('connection', (socket) => {
 });
 
 const isDirectExecution =
-  process.argv[1] &&
-  (/src[\\/]index\.ts$/.test(process.argv[1]) || /dist[\\/]index\.js$/.test(process.argv[1]));
+  require.main === module ||
+  (Boolean(process.argv[1]) &&
+    (/(?:src|dist)[\\/](?:.*[\\/])?index\.[jt]s$/.test(process.argv[1]) ||
+      process.argv[1].endsWith('index.js') ||
+      process.argv[1].endsWith('index.ts')));
 
 server.on('error', (err: any) => {
   if (err.code === 'EADDRINUSE') {
@@ -924,11 +1165,13 @@ server.on('error', (err: any) => {
   }
 });
 
+const HOST = '0.0.0.0';
+
 if (isDirectExecution && process.env.NODE_ENV !== 'test') {
-  server.listen(env.PORT, () => {
-    console.log(`[Server] LinkUp API server running on port ${env.PORT}`);
-    console.log(`[Server] Health check available at http://localhost:${env.PORT}/health`);
-    console.log(`[Server] Protected API routes mounted at http://localhost:${env.PORT}/api/*`);
+  server.listen(env.PORT, HOST, () => {
+    console.log(`[Server] LinkUp API server running on http://${HOST}:${env.PORT}`);
+    console.log(`[Server] Health check available at http://${HOST}:${env.PORT}/health`);
+    console.log(`[Server] Protected API routes mounted at http://${HOST}:${env.PORT}/api/*`);
     closeDanglingAttendanceRecords().catch(() => {});
   });
 }

@@ -5,6 +5,8 @@ export interface PresenceUser {
   fullName: string;
   inLive: boolean;
   handRaised: boolean;
+  micOn: boolean;
+  cameraOn: boolean;
   socketIds: Set<string>;
   liveSockets?: Set<string>;
 }
@@ -27,6 +29,8 @@ export function getRoomPresence(roomId: string): PresenceEntry[] {
     fullName: u.fullName,
     inLive: u.inLive,
     handRaised: u.handRaised,
+    micOn: u.micOn,
+    cameraOn: u.cameraOn,
   }));
 }
 
@@ -52,6 +56,10 @@ export function addSocketToRoom(
       fullName: user.fullName || 'User',
       inLive: false,
       handRaised: false,
+      // Matches LiveTab's own initial local state (mic on, camera off) until the client's
+      // first live:media-state update arrives, to avoid a flash of the wrong icon.
+      micOn: true,
+      cameraOn: false,
       socketIds: new Set<string>(),
       liveSockets: new Set<string>(),
     };
@@ -210,6 +218,26 @@ export function setUserHandStatus(
 }
 
 /**
+ * Update a user's mic/camera on-off status for a room (live:media-state).
+ */
+export function setUserMediaStatus(
+  roomId: string,
+  userId: string,
+  patch: { micOn?: boolean; cameraOn?: boolean }
+): PresenceEntry[] | null {
+  const roomUsers = roomPresenceMap.get(roomId);
+  if (!roomUsers) return null;
+
+  const user = roomUsers.get(userId);
+  if (!user) return null;
+
+  if (typeof patch.micOn === 'boolean') user.micOn = patch.micOn;
+  if (typeof patch.cameraOn === 'boolean') user.cameraOn = patch.cameraOn;
+
+  return getRoomPresence(roomId);
+}
+
+/**
  * Inject mock presence for a room (useful for testing and demo environments).
  */
 export function setMockPresence(roomId: string, presence: PresenceEntry[]): void {
@@ -220,6 +248,8 @@ export function setMockPresence(roomId: string, presence: PresenceEntry[]): void
       fullName: p.fullName,
       inLive: p.inLive,
       handRaised: p.handRaised,
+      micOn: p.micOn ?? true,
+      cameraOn: p.cameraOn ?? false,
       socketIds: new Set(['mock-socket-' + p.userId]),
       liveSockets: p.inLive ? new Set(['mock-socket-' + p.userId]) : new Set(),
     });

@@ -25,13 +25,16 @@ export default function ParticipantTile({
   isStrip?: boolean;
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
+  // Attach video stream to video element when stream is present and camera is on
   useEffect(() => {
     if (!videoRef.current) return;
-    if (participant.stream) {
-      // Attach stream if provided (WebRTC)
+    if (participant.stream && !participant.cameraOff) {
       try {
-        videoRef.current.srcObject = participant.stream as any;
+        if (videoRef.current.srcObject !== participant.stream) {
+          videoRef.current.srcObject = participant.stream as any;
+        }
         videoRef.current.play().catch(() => {});
       } catch (err) {
         // ignore attach errors in demo
@@ -39,7 +42,27 @@ export default function ParticipantTile({
     } else {
       videoRef.current.srcObject = null;
     }
-  }, [participant.stream]);
+  }, [participant.stream, participant.cameraOff]);
+
+  // For remote participants, play audio even if camera is off
+  useEffect(() => {
+    if (!audioRef.current || participant.isSelf) return;
+    if (participant.stream) {
+      try {
+        const stream = participant.stream as MediaStream;
+        if (stream.getAudioTracks && stream.getAudioTracks().length > 0) {
+          if (audioRef.current.srcObject !== stream) {
+            audioRef.current.srcObject = stream;
+          }
+          audioRef.current.play().catch(() => {});
+        }
+      } catch (err) {
+        // ignore audio attach errors
+      }
+    } else {
+      audioRef.current.srcObject = null;
+    }
+  }, [participant.stream, participant.isSelf]);
 
   const ringClass = participant.isSpeaking ? 'ring-4 ring-indigo-400' : 'ring-0';
 
@@ -51,6 +74,17 @@ export default function ParticipantTile({
         isStrip ? 'w-44 shrink-0' : 'w-full'
       }`}
     >
+      {/* Remote participant audio (plays continuously even if video is off, muted for self to prevent echo) */}
+      {!participant.isSelf && (
+        <audio
+          ref={audioRef}
+          autoPlay
+          playsInline
+          className="hidden"
+          data-testid={`participant-audio-${participant.id}`}
+        />
+      )}
+
       {/* Hand raised indicator badge (US-PERM-07, FR-4.8) */}
       {participant.handRaised && (
         <div
@@ -76,14 +110,17 @@ export default function ParticipantTile({
       ) : (
         <video
           ref={videoRef}
-          className={`w-full ${isStrip ? 'h-28' : 'h-36 sm:h-40'} object-cover bg-black`}
+          autoPlay
           playsInline
           muted
+          className={`w-full ${isStrip ? 'h-28' : 'h-36 sm:h-40'} object-cover bg-black`}
         />
       )}
 
       <div className="absolute left-0 right-0 bottom-0 p-2 bg-gradient-to-t from-black/85 via-black/50 to-transparent flex items-center justify-between">
-        <div className="text-xs font-medium text-white truncate max-w-[100px]">{participant.name}</div>
+        <div className="text-xs font-medium text-white truncate max-w-[100px]">
+          {participant.name} {participant.isSelf ? '(You)' : ''}
+        </div>
         <div className="flex items-center gap-1.5 shrink-0">
           {participant.isMuted && <div className="text-white/80"><MuteIcon /></div>}
           {participant.cameraOff && <div className="text-white/80"><CameraOffIcon /></div>}

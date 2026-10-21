@@ -423,14 +423,38 @@ export function escapeCsvField(val: string | number | null | undefined): string 
   return str;
 }
 
+/** Minimum fraction of the session a student must attend to be marked present (US-ATT-07). */
+export const PRESENT_THRESHOLD_RATIO = 0.6;
+
+/**
+ * Determine present/absent status from minutes attended vs. total session duration.
+ * If the session's start time is unknown, duration can't be computed - default to present
+ * (fail open, since we can't fault a student for a tracking gap).
+ */
+export function computeAttendanceStatus(
+  minutesAttended: number,
+  sessionStartedAt?: string | null,
+  sessionEndedAt?: string | null
+): 'present' | 'absent' {
+  if (!sessionStartedAt) return 'present';
+  const startMs = new Date(sessionStartedAt).getTime();
+  const endMs = sessionEndedAt ? new Date(sessionEndedAt).getTime() : Date.now();
+  if (isNaN(startMs) || isNaN(endMs) || endMs <= startMs) return 'present';
+  const sessionMinutes = (endMs - startMs) / 60000;
+  const requiredMinutes = sessionMinutes * PRESENT_THRESHOLD_RATIO;
+  return minutesAttended >= requiredMinutes ? 'present' : 'absent';
+}
+
 /**
  * Aggregate raw attendance records into per-student summary rows (US-ATT-04, FR-6.4).
- * Columns: Name, First Join, Last Leave, Total Minutes, Number of Joins.
- * Total minutes are rounded to the nearest minute.
+ * Columns: Name, First Join, Last Leave, Total Minutes, Number of Joins, Status.
+ * Total minutes are rounded to the nearest minute. Status is 'present' when attended
+ * minutes >= 60% of the session's total duration (US-ATT-07).
  */
 export function aggregateAttendanceRecords(
   records: AttendanceRecord[],
-  sessionEndedAt?: string | null
+  sessionEndedAt?: string | null,
+  sessionStartedAt?: string | null
 ): AttendanceRow[] {
   const userMap = new Map<string, AttendanceRecord[]>();
 
@@ -479,6 +503,7 @@ export function aggregateAttendanceRecords(
       lastLeave,
       minutes,
       joins,
+      status: computeAttendanceStatus(minutes, sessionStartedAt, sessionEndedAt),
     });
   }
 
@@ -490,7 +515,7 @@ export function aggregateAttendanceRecords(
  * Required columns: Name, First Join, Last Leave, Total Minutes, Number of Joins.
  */
 export function attendanceToCSV(rows: AttendanceRow[]): string {
-  const headers = ['Name', 'First Join', 'Last Leave', 'Total Minutes', 'Number of Joins'];
+  const headers = ['Name', 'First Join', 'Last Leave', 'Total Minutes', 'Number of Joins', 'Status'];
   const headerLine = headers.join(',');
   const lines = [
     headerLine,
@@ -501,6 +526,7 @@ export function attendanceToCSV(rows: AttendanceRow[]): string {
         escapeCsvField(r.lastLeave),
         escapeCsvField(r.minutes),
         escapeCsvField(r.joins),
+        escapeCsvField(r.status === 'present' ? 'Present' : 'Absent'),
       ].join(',')
     ),
   ];
@@ -512,9 +538,10 @@ export function attendanceToCSV(rows: AttendanceRow[]): string {
  */
 export function calculateMockAttendanceSummary(
   sessionId: string,
-  sessionEndedAt?: string | null
+  sessionEndedAt?: string | null,
+  sessionStartedAt?: string | null
 ): AttendanceRow[] {
   const records = mockAttendanceStore.filter((a) => a.sessionId === sessionId);
-  return aggregateAttendanceRecords(records, sessionEndedAt);
+  return aggregateAttendanceRecords(records, sessionEndedAt, sessionStartedAt);
 }
 

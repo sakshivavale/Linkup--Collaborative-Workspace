@@ -11,8 +11,14 @@
   "scripts": {
     "dev": "npm run dev --workspace=client",
     "dev:server": "npm run dev --workspace=server",
-    "build": "npm run build --workspace=client",
+    "build": "npm run build --workspace=shared && npm run build --workspace=server",
+    "build:server": "npm run build --workspace=shared && npm run build --workspace=server",
+    "build:client": "npm run build --workspace=shared && npm run build --workspace=client",
+    "build:all": "npm run build --workspace=shared && npm run build --workspace=server && npm run build --workspace=client",
+    "start": "node server/dist/index.js",
+    "start:server": "node server/dist/index.js",
     "test:auth": "npm run test:auth --workspace=server",
+    "test:password-reset": "npm run test:password-reset --workspace=server",
     "test:profile": "npm run test:profile --workspace=server",
     "test:rooms": "npm run test:rooms --workspace=server",
     "test:dash": "npm run test:dash --workspace=server",
@@ -23,6 +29,7 @@
     "test:screen-share": "npm run test:screen-share --workspace=server",
     "test:end-session": "npm run test:end-session --workspace=server",
     "test:host-leave": "npm run test:host-leave --workspace=server",
+    "test:reconnect": "npm run test:reconnect --workspace=server",
     "test:devices": "npm run test:devices --workspace=server",
     "test:chat-history": "npm run test:chat-history --workspace=server",
     "test:chat-send": "npm run test:chat-send --workspace=server",
@@ -47,7 +54,8 @@
     "test:invalid-join-code": "npm run test:invalid-join-code --workspace=server",
     "test:join-live-no-session": "npm run test:join-live-no-session --workspace=server",
     "test:camera-mic-permission": "npm run test:camera-mic-permission --workspace=server",
-    "test:removed-from-room": "npm run test:removed-from-room --workspace=server"
+    "test:removed-from-room": "npm run test:removed-from-room --workspace=server",
+    "test:socket-disconnect": "npm run test:socket-disconnect --workspace=server"
   },
   "devDependencies": {
     "typescript": "^5.4.5"

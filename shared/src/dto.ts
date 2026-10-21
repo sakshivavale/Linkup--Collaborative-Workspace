@@ -91,6 +91,8 @@ export interface PresenceEntry {
   fullName: string;
   inLive: boolean;
   handRaised: boolean;
+  micOn: boolean;
+  cameraOn: boolean;
 }
 
 export interface GridParticipant {
@@ -101,6 +103,7 @@ export interface GridParticipant {
   isSpeaking: boolean;
   handRaised?: boolean;
   stream?: unknown | null;
+  isSelf?: boolean;
 }
 
 export function buildParticipantTiles(
@@ -112,11 +115,12 @@ export function buildParticipantTiles(
     .map((entry) => ({
       id: entry.userId,
       name: entry.fullName,
-      isMuted: true,
-      cameraOff: true,
+      isMuted: !entry.micOn,
+      cameraOff: !entry.cameraOn,
       isSpeaking: activeSpeakerUserId !== null && entry.userId === activeSpeakerUserId,
       handRaised: Boolean(entry.handRaised),
       stream: null,
+      isSelf: false,
     }));
 }
 
@@ -164,6 +168,8 @@ export interface AttendanceRow {
   lastLeave: string;
   minutes: number;
   joins: number;
+  /** 'present' if attended minutes >= 60% of session duration, else 'absent' */
+  status: 'present' | 'absent';
 }
 
 export interface ChatMessage {

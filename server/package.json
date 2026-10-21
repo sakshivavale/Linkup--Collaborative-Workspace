@@ -4,9 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "ts-node-dev src/index.ts",
-    "build": "tsc",
+    "build": "npm --prefix ../shared run build && tsc",
     "start": "node dist/index.js",
     "test:auth": "tsx scripts/test-auth-enforcement.ts",
+    "test:password-reset": "tsx scripts/test-password-reset.ts",
     "test:profile": "tsx scripts/test-profile-update.ts",
     "test:rooms": "tsx scripts/test-dash-live-badge.ts",
     "test:dash": "tsx scripts/test-dash-live-badge.ts",
@@ -18,6 +19,7 @@
     "test:member-removal": "tsx scripts/test-room-member-removal.ts",
     "test:session": "tsx scripts/test-start-session-host.ts",
     "test:screen-share": "tsx scripts/test-screen-sharing.ts",
+    "test:video": "tsx scripts/test-two-way-video-webrtc.ts",
     "test:end-session": "tsx scripts/test-end-session-host.ts",
     "test:host-leave": "tsx scripts/test-host-leave-without-ending.ts",
     "test:reconnect": "tsx scripts/test-auto-reconnect.ts",
@@ -51,7 +53,13 @@
     "test:invalid-join-code": "tsx scripts/test-invalid-join-code.ts",
     "test:join-live-no-session": "tsx scripts/test-join-live-no-session.ts",
     "test:camera-mic-permission": "tsx scripts/test-camera-mic-permission-denied.ts",
-    "test:removed-from-room": "tsx scripts/test-removed-from-room.ts"
+    "test:removed-from-room": "tsx scripts/test-removed-from-room.ts",
+    "test:socket-disconnect": "tsx scripts/test-socket-disconnected-banner.ts",
+    "test:sec-routes": "tsx scripts/test-all-api-routes-authenticated.ts",
+    "test:sec-secrets": "tsx scripts/test-secrets-never-exposed.ts",
+    "test:sec-sandbox": "tsx scripts/test-sandboxed-code-execution.ts",
+    "test:sec-perf": "tsx scripts/test-performance-targets.ts",
+    "test:sec-scale": "tsx scripts/test-scalability-mvp.ts"
   },
   "dependencies": {
     "@linkup/shared": "*",
