@@ -507,29 +507,31 @@ export const DashboardPage: React.FC = () => {
           )
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5" data-testid="rooms-grid">
-            {rooms.map((room) => (
-              <RoomCard
-                key={room.id}
-                room={room}
-                onJoinCodeRegenerated={(roomId, newCode) => {
-                  setRooms((prev) =>
-                    prev.map((r) => (r.id === roomId ? { ...r, joinCode: newCode } : r))
-                  );
-                }}
-                onRoomUpdated={(updated) => {
-                  setRooms((prev) =>
-                    prev.map((r) => (r.id === updated.id ? { ...r, ...updated } : r))
-                  );
-                  setSuccessNotification(`Room "${updated.name}" updated successfully.`);
-                  window.setTimeout(() => setSuccessNotification(null), 3000);
-                }}
-                onRoomArchived={(archivedId) => {
-                  setRooms((prev) => prev.filter((r) => r.id !== archivedId));
-                  setSuccessNotification('Room archived successfully.');
-                  window.setTimeout(() => setSuccessNotification(null), 3000);
-                }}
-              />
-            ))}
+            {(rooms || [])
+              .filter((room): room is RoomSummary => Boolean(room && room.id))
+              .map((room) => (
+                <RoomCard
+                  key={room.id}
+                  room={room}
+                  onJoinCodeRegenerated={(roomId, newCode) => {
+                    setRooms((prev) =>
+                      (prev || []).map((r) => (r && r.id === roomId ? { ...r, joinCode: newCode } : r))
+                    );
+                  }}
+                  onRoomUpdated={(updated) => {
+                    setRooms((prev) =>
+                      (prev || []).map((r) => (r && r.id === updated.id ? { ...r, ...updated } : r))
+                    );
+                    setSuccessNotification(`Room "${updated.name}" updated successfully.`);
+                    window.setTimeout(() => setSuccessNotification(null), 3000);
+                  }}
+                  onRoomArchived={(archivedId) => {
+                    setRooms((prev) => (prev || []).filter((r) => r && r.id !== archivedId));
+                    setSuccessNotification('Room archived successfully.');
+                    window.setTimeout(() => setSuccessNotification(null), 3000);
+                  }}
+                />
+              ))}
           </div>
         )}
       </section>

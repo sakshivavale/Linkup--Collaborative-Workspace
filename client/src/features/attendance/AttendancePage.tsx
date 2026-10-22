@@ -71,9 +71,9 @@ export const AttendancePage: React.FC = () => {
 
         const data = await api.get<Session[]>(`/api/rooms/${currentRoomId}/sessions`);
         if (!isMounted) return;
-        setSessions(data || []);
+        setSessions(Array.isArray(data) ? data.filter((s): s is Session => Boolean(s && s.id)) : []);
         setIsHost(true);
-        if (data && data.length > 0) {
+        if (Array.isArray(data) && data.length > 0 && data[0]?.id) {
           // Select most recent session by default
           setSelectedSessionId(data[0].id);
         }
