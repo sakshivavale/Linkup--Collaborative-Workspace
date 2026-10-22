@@ -13,7 +13,7 @@ import {
   Shield,
   CheckCircle2
 } from 'lucide-react';
-import { api, HttpError } from '../../lib/api';
+import { api, HttpError, NetworkError } from '../../lib/api';
 import { Room, Permissions, PermissionKey } from '@linkup/shared';
 
 interface CreateRoomModalProps {
@@ -171,16 +171,40 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
       const createdRoom = await api.post<Room>('/api/rooms', payload);
       onSuccess(createdRoom);
     } catch (err: unknown) {
-      if (err instanceof HttpError) {
-        if (err.status === 403) {
-          setErrorMessage('Permission denied: Only teachers can create classroom rooms (TEACHER_ONLY).');
+      if (err instanceof NetworkError) {
+        // Server is completely unreachable — direct the user to start the backend
+        setErrorMessage(
+          'Cannot connect to the server. Make sure the backend is running ' +
+          '(npm run dev:server) and refresh the page.'
+        );
+        console.error('[CreateRoom] Network error:', err.message);
+      } else if (err instanceof HttpError) {
+        if (err.status === 401) {
+          setErrorMessage(
+            'Your session has expired. Please refresh the page and sign in again.'
+          );
+        } else if (err.status === 403) {
+          const isTeacherPending = err.code === 'TEACHER_ONLY' && err.message?.includes('pending');
+          setErrorMessage(
+            isTeacherPending
+              ? 'Your teacher account is pending review. Rooms can only be created once your account is approved.'
+              : 'Permission denied: Only approved teachers can create classroom rooms.'
+          );
         } else if (err.status === 400) {
-          setErrorMessage(err.message || 'Invalid room parameters. Please check room name and description.');
+          setErrorMessage(
+            err.message || 'Invalid room details. Please check the room name and description.'
+          );
         } else {
-          setErrorMessage(err.message || 'Failed to create room. Please try again.');
+          setErrorMessage(
+            err.message || 'The server encountered an error. Please try again in a moment.'
+          );
         }
+        console.error(`[CreateRoom] HTTP ${err.status} error:`, err.message);
       } else {
-        setErrorMessage('An unexpected network error occurred while creating the room.');
+        setErrorMessage(
+          'An unexpected error occurred while creating the room. Please try again.'
+        );
+        console.error('[CreateRoom] Unexpected error:', err);
       }
     } finally {
       setIsSubmitting(false);

@@ -71,9 +71,9 @@ export const AttendancePage: React.FC = () => {
 
         const data = await api.get<Session[]>(`/api/rooms/${currentRoomId}/sessions`);
         if (!isMounted) return;
-        setSessions(data || []);
+        setSessions(Array.isArray(data) ? data.filter((s): s is Session => Boolean(s && s.id)) : []);
         setIsHost(true);
-        if (data && data.length > 0) {
+        if (Array.isArray(data) && data.length > 0 && data[0]?.id) {
           // Select most recent session by default
           setSelectedSessionId(data[0].id);
         }
@@ -486,6 +486,7 @@ export const AttendancePage: React.FC = () => {
                       <th className="py-3.5 px-6">Last Leave</th>
                       <th className="py-3.5 px-6 text-center">Total Minutes</th>
                       <th className="py-3.5 px-6 text-center">Number of Joins</th>
+                      <th className="py-3.5 px-6 text-center">Status</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200/60 dark:divide-slate-800/60">
@@ -515,6 +516,17 @@ export const AttendancePage: React.FC = () => {
                         <td className="py-3 px-6 text-center" data-testid={`attendance-joins-${row.userId}`}>
                           <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
                             {row.joins} {row.joins === 1 ? 'join' : 'joins'}
+                          </span>
+                        </td>
+                        <td className="py-3 px-6 text-center" data-testid={`attendance-status-${row.userId}`}>
+                          <span
+                            className={`inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-bold border ${
+                              row.status === 'present'
+                                ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/20'
+                                : 'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-500/20'
+                            }`}
+                          >
+                            {row.status === 'present' ? 'Present' : 'Absent'}
                           </span>
                         </td>
                       </tr>

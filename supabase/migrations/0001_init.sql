@@ -1,9 +1,15 @@
 -- ============ Types ============
-create type public.user_role   as enum ('teacher', 'student');
-create type public.member_role as enum ('host', 'participant');
+do $$ begin
+  create type public.user_role as enum ('teacher', 'student');
+exception when duplicate_object then null;
+end $$;
+do $$ begin
+  create type public.member_role as enum ('host', 'participant');
+exception when duplicate_object then null;
+end $$;
 
 -- ============ Profiles ============
-create table public.profiles (
+create table if not exists public.profiles (
   id          uuid primary key references auth.users(id) on delete cascade,
   full_name   text not null check (char_length(full_name) between 1 and 100),
   role        public.user_role not null default 'student',
@@ -24,12 +30,13 @@ begin
   return new;
 end; $$;
 
+drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
 
 -- ============ Rooms ============
-create table public.rooms (
+create table if not exists public.rooms (
   id                   uuid primary key default gen_random_uuid(),
   name                 text not null check (char_length(name) between 1 and 80),
   description          text check (description is null or char_length(description) <= 500),
@@ -42,7 +49,7 @@ create table public.rooms (
 );
 
 -- ============ Members + permissions ============
-create table public.room_members (
+create table if not exists public.room_members (
   room_id         uuid not null references public.rooms(id) on delete cascade,
   user_id         uuid not null references public.profiles(id) on delete cascade,
   member_role     public.member_role not null default 'participant',
@@ -55,10 +62,10 @@ create table public.room_members (
   updated_at      timestamptz not null default now(),
   primary key (room_id, user_id)
 );
-create index room_members_user_idx on public.room_members (user_id);
+create index if not exists room_members_user_idx on public.room_members (user_id);
 
 -- ============ Live sessions ============
-create table public.live_sessions (
+create table if not exists public.live_sessions (
   id            uuid primary key default gen_random_uuid(),
   room_id       uuid not null references public.rooms(id) on delete cascade,
   started_by    uuid not null references public.profiles(id),
@@ -67,11 +74,11 @@ create table public.live_sessions (
   livekit_room  text generated always as ('linkup-' || id::text) stored unique
 );
 -- at most one active session per room
-create unique index live_sessions_one_active
+create unique index if not exists live_sessions_one_active
   on public.live_sessions (room_id) where ended_at is null;
 
 -- ============ Attendance ============
-create table public.attendance (
+create table if not exists public.attendance (
   id          bigint generated always as identity primary key,
   session_id  uuid not null references public.live_sessions(id) on delete cascade,
   room_id     uuid not null references public.rooms(id) on delete cascade,
@@ -81,12 +88,12 @@ create table public.attendance (
   check (left_at is null or left_at >= joined_at)
 );
 -- at most one OPEN record per user per session (reconnect reuses it)
-create unique index attendance_one_open
+create unique index if not exists attendance_one_open
   on public.attendance (session_id, user_id) where left_at is null;
-create index attendance_session_idx on public.attendance (session_id);
+create index if not exists attendance_session_idx on public.attendance (session_id);
 
 -- ============ Chat ============
-create table public.messages (
+create table if not exists public.messages (
   id          bigint generated always as identity primary key,
   room_id     uuid not null references public.rooms(id) on delete cascade,
   session_id  uuid references public.live_sessions(id) on delete set null,
@@ -94,10 +101,10 @@ create table public.messages (
   body        text not null check (char_length(body) between 1 and 2000),
   created_at  timestamptz not null default now()
 );
-create index messages_room_created_idx on public.messages (room_id, created_at desc);
+create index if not exists messages_room_created_idx on public.messages (room_id, created_at desc);
 
 -- ============ Code workspace ============
-create table public.code_state (
+create table if not exists public.code_state (
   room_id     uuid primary key references public.rooms(id) on delete cascade,
   language    text not null default 'python'
               check (language in ('python','javascript','cpp','java')),
@@ -108,7 +115,7 @@ create table public.code_state (
 );
 
 -- ============ Whiteboard ============
-create table public.whiteboard_state (
+create table if not exists public.whiteboard_state (
   room_id     uuid primary key references public.rooms(id) on delete cascade,
   elements    jsonb not null default '[]'::jsonb,
   updated_at  timestamptz not null default now()

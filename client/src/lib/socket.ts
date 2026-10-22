@@ -1,9 +1,19 @@
 import { io, Socket } from 'socket.io-client';
 import { supabase } from './supabase';
 
-// Connect to the same origin — Vite's /socket.io proxy forwards to localhost:3001.
-// This works on ANY IP address the dev machine is assigned; no hardcoding needed.
-const SOCKET_URL = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3001';
+// In production the backend lives on a separate Render domain, so we read
+// VITE_API_BASE_URL (or VITE_API_URL / VITE_APL_URL). In local dev Vite's /socket.io proxy forwards to
+// localhost:3001, so same-origin origin fallback works fine.
+const RAW_SOCKET_URL = (
+  import.meta.env.VITE_API_BASE_URL ||
+  import.meta.env.VITE_API_URL ||
+  import.meta.env.VITE_APL_URL ||
+  (typeof window !== 'undefined' && window.location.hostname.includes('linkup-collaborative-workspace')
+    ? 'https://linkup-collaborative-workspace-r74x.onrender.com'
+    : typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3001')
+).trim();
+
+export const SOCKET_URL = RAW_SOCKET_URL.replace(/\/+$/, '');
 
 /**
  * Socket.IO client instance configured with Supabase auth token

@@ -34,30 +34,44 @@ import {
   executeCode,
   checkRunRateLimit,
   getAvailableRuntimes,
+  getExecutionWorkerStatus,
   MAX_CODE_BYTES,
   MAX_STDIN_BYTES,
 } from './lib/piston';
 import { RunResult, Language } from '@linkup/shared';
 
 
-// Dynamic CORS origin: accepts localhost AND any 192.168.x.x LAN IP on port 5173.
-// This permanently prevents CORS failures when the dev machine's IP changes.
+// Dynamic CORS origin: accepts localhost, LAN IPs, production CORS_ORIGIN env var, and Render HTTPS.
 function isCorsAllowed(origin: string | undefined): boolean {
   if (!origin) return true; // same-origin / server-to-server
+  // Allow production frontend URL from env (Render deployment)
+  if ((env.CORS_ORIGIN && origin === env.CORS_ORIGIN) || (process.env.CORS_ORIGIN && origin === process.env.CORS_ORIGIN)) {
+    return true;
+  }
   const allowedPatterns = [
-    /^http:\/\/localhost:\d+$/,
-    /^http:\/\/127\.0\.0\.1:\d+$/,
-    /^http:\/\/192\.168\.\d{1,3}\.\d{1,3}:\d+$/,
-    /^http:\/\/10\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+$/,
-    /^http:\/\/172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}:\d+$/,
+    /^https?:\/\/localhost(:\d+)?$/,
+    /^https?:\/\/127\.0\.0\.1(:\d+)?$/,
+    /^https?:\/\/192\.168\.\d{1,3}\.\d{1,3}(:\d+)?$/,
+    /^https?:\/\/10\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?$/,
+    /^https?:\/\/172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}(:\d+)?$/,
+    /^https:\/\/.*\.onrender\.com$/,
   ];
   return allowedPatterns.some((re) => re.test(origin));
 }
 
 export const app = express();
 
+// Disable Express's automatic ETag generation - it was causing the browser to serve stale,
+// cached 304 responses for dynamic/authenticated API data (e.g. GET /api/rooms/:id returning
+// a membership list from before a user had joined, even after a hard refresh).
+app.set('etag', false);
+
 // Security and middleware
 app.use(helmet());
+app.use('/api', (_req: Request, res: Response, next: NextFunction) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  next();
+});
 app.use(
   cors({
     origin: (origin, callback) => {
@@ -77,12 +91,28 @@ app.get('/health', (_req: Request, res: Response) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// requireAuth middleware is applied to every route except GET /health (US-SEC-01 AC-1, NFR-1.1)
+// requireAuth middleware is applied to every route except GET /health and execution health check (US-SEC-01 AC-1, NFR-1.1)
 app.use((req: Request, res: Response, next: NextFunction) => {
-  if (req.method === 'GET' && (req.path === '/health' || req.path === '/health/')) {
+  if (
+    req.method === 'GET' &&
+    (req.path === '/health' ||
+      req.path === '/health/' ||
+      req.path === '/health/execution' ||
+      req.path === '/api/health/execution')
+  ) {
     return next();
   }
   return requireAuth(req, res, next);
+});
+
+// Unauthenticated execution worker health check endpoint
+app.get(['/health/execution', '/api/health/execution'], async (_req: Request, res: Response) => {
+  try {
+    const status = await getExecutionWorkerStatus();
+    res.status(200).json({ status: 'ok', ...status });
+  } catch (err: any) {
+    res.status(500).json({ status: 'error', error: err.message });
+  }
 });
 
 // Normalize :id and :roomId params across routes
@@ -287,8 +317,19 @@ app.post('/api/rooms', async (req: Request, res: Response) => {
     });
 
     return res.status(201).json(createdRoom);
-  } catch (err) {
+  } catch (err: any) {
     console.error('[Rooms API] Error creating room:', err);
+
+    if (err?.code === 'DB_INSERT_FAILED') {
+      return res.status(503).json({
+        error: {
+          code: 'DATABASE_ERROR',
+          message: 'Failed to persist room in the database. Please try again in a moment.',
+          details: err.supabaseCode ? `Supabase error code: ${err.supabaseCode}` : undefined,
+        },
+      });
+    }
+
     return res.status(500).json({
       error: {
         code: 'INTERNAL_SERVER_ERROR',
@@ -329,9 +370,21 @@ app.post('/api/rooms/join', async (req: Request, res: Response) => {
         const io = req.app.get('io');
         if (io) {
           io.to(`room:${result.roomId}`).emit('member:joined', {
-            userId: user.id,
-            fullName: user.fullName,
-            role: user.role,
+            roomId: result.roomId,
+            member: {
+              userId: user.id,
+              fullName: user.fullName,
+              userRole: user.role,
+              memberRole: 'participant',
+              permissions: result.permissions || {
+                canMic: false,
+                canCamera: false,
+                canScreen: false,
+                canWhiteboard: false,
+                canCode: false,
+              },
+              joinedAt: new Date().toISOString(),
+            },
           });
         }
       } catch (socketErr) {
@@ -1905,7 +1958,7 @@ const handleExecuteCode = async (req: Request, res: Response) => {
       return res.status(502).json({
         error: {
           code: 'EXECUTION_UNAVAILABLE',
-          message: 'Code execution service is currently unavailable',
+          message: err.message || 'Code execution service is currently unavailable',
         },
       });
     }

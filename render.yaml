@@ -1,0 +1,62 @@
+# Render Blueprint — LinkUp Collaborative Workspace
+# Docs: https://render.com/docs/blueprint-spec
+
+services:
+  # ─────────────────────────────────────────────
+  # 1. Backend — Node.js Web Service
+  # ─────────────────────────────────────────────
+  - type: web
+    name: linkup-api
+    env: node
+    plan: free
+    region: oregon
+    rootDir: .
+    buildCommand: npm install && npm run build:server
+    startCommand: node server/dist/index.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000          # Render auto-routes, but app reads process.env.PORT
+      - key: SUPABASE_URL
+        sync: false           # Set manually in Render dashboard
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false           # Set manually in Render dashboard
+      - key: CORS_ORIGIN
+        sync: false           # Set to your frontend Render URL after first deploy
+      - key: PISTON_URL
+        value: http://localhost:2000   # Override if using external Piston
+
+  # ─────────────────────────────────────────────
+  # 2. Frontend — Static Site (Vite/React)
+  # ─────────────────────────────────────────────
+  - type: static
+    name: linkup-client
+    plan: free
+    region: oregon
+    rootDir: .
+    buildCommand: npm install && npm run build:client
+    staticPublishPath: ./client/dist
+    # SPA routing: redirect all 404s back to index.html
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /assets/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
+      - path: /*
+        name: Cache-Control
+        value: no-cache
+    envVars:
+      - key: VITE_SUPABASE_URL
+        sync: false           # Set manually in Render dashboard
+      - key: VITE_SUPABASE_ANON_KEY
+        sync: false           # Set manually in Render dashboard
+      - key: VITE_API_BASE_URL
+        sync: false           # Set to your backend Render URL (linkup-api)
+      - key: VITE_API_URL
+        sync: false           # Supported alternative for backend Render URL
+

@@ -86,6 +86,7 @@ import {
   calculateMockAttendanceSummary,
   attendanceToCSV,
   aggregateAttendanceRecords,
+  computeAttendanceStatus,
 } from './attendance';
 
 export function setMockRooms(userId: string, rooms: RoomSummary[]) {
@@ -285,8 +286,8 @@ export const DEFAULT_SAMPLE_ROOMS: Record<string, RoomSummary> = {
       },
     ],
     presence: [
-      { userId: 'user-turing', fullName: 'Prof. Alan Turing', inLive: true, handRaised: false },
-      { userId: 'user-grace', fullName: 'Grace Hopper', inLive: true, handRaised: false },
+      { userId: 'user-turing', fullName: 'Prof. Alan Turing', inLive: true, handRaised: false, micOn: true, cameraOn: false },
+      { userId: 'user-grace', fullName: 'Grace Hopper', inLive: true, handRaised: false, micOn: true, cameraOn: false },
     ],
   },
   'room-math201-inactive': {
@@ -318,7 +319,7 @@ export const DEFAULT_SAMPLE_ROOMS: Record<string, RoomSummary> = {
       },
     ],
     presence: [
-      { userId: 'user-lovelace', fullName: 'Dr. Ada Lovelace', inLive: false, handRaised: false },
+      { userId: 'user-lovelace', fullName: 'Dr. Ada Lovelace', inLive: false, handRaised: false, micOn: true, cameraOn: false },
     ],
   },
   'room-phys301-active': {
@@ -350,8 +351,8 @@ export const DEFAULT_SAMPLE_ROOMS: Record<string, RoomSummary> = {
       },
     ],
     presence: [
-      { userId: 'user-feynman', fullName: 'Dr. Richard Feynman', inLive: true, handRaised: false },
-      { userId: 'user-curie', fullName: 'Marie Curie', inLive: true, handRaised: false },
+      { userId: 'user-feynman', fullName: 'Dr. Richard Feynman', inLive: true, handRaised: false, micOn: true, cameraOn: false },
+      { userId: 'user-curie', fullName: 'Marie Curie', inLive: true, handRaised: false, micOn: true, cameraOn: false },
     ],
   },
 };
@@ -370,29 +371,36 @@ export async function getRoomForUser(
     };
   }
 
-  // Check mock store for testing harness (US-ROOM-01, US-ROOM-02, US-ROOM-03)
-  if (mockRoomsStore.has(userId)) {
-    const userRooms = mockRoomsStore.get(userId) || [];
-    const found = userRooms.find((r) => r.id === roomId);
-    if (found) {
-      return {
-        ...found,
-        presence: getRoomPresence(roomId),
-      };
-    }
-  }
-
-  // If mock store is being used and the room exists in the mock store for other users,
-  // but the requesting user is not a member, throw NotAMemberError
-  for (const rooms of mockRoomsStore.values()) {
-    if (Array.isArray(rooms) && rooms.some((r) => r.id === roomId)) {
-      throw new NotAMemberError();
-    }
-  }
-
   // Validate UUID to avoid PostgreSQL "invalid input syntax for type uuid" error
   const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  if (!UUID_REGEX.test(roomId)) {
+  const isRealDbRoom = UUID_REGEX.test(roomId);
+
+  // Mock store checks only apply to test-harness room ids (e.g. "room-abc123"). A real
+  // Supabase-backed room (UUID id) is mirrored into mockRoomsStore too (see createRoom's
+  // "keep mock store in sync" comment), so without this guard, any OTHER user's mock-room
+  // list containing this same real room id would wrongly short-circuit to NotAMemberError
+  // here before ever checking the real room_members table.
+  if (!isRealDbRoom) {
+    // Check mock store for testing harness (US-ROOM-01, US-ROOM-02, US-ROOM-03)
+    if (mockRoomsStore.has(userId)) {
+      const userRooms = mockRoomsStore.get(userId) || [];
+      const found = userRooms.find((r) => r.id === roomId);
+      if (found) {
+        return {
+          ...found,
+          presence: getRoomPresence(roomId),
+        };
+      }
+    }
+
+    // If mock store is being used and the room exists in the mock store for other users,
+    // but the requesting user is not a member, throw NotAMemberError
+    for (const rooms of mockRoomsStore.values()) {
+      if (Array.isArray(rooms) && rooms.some((r) => r.id === roomId)) {
+        throw new NotAMemberError();
+      }
+    }
+
     throw Object.assign(new Error('You are not a member of this room'), { code: 'NOT_A_MEMBER', status: 403 });
   }
 
@@ -462,9 +470,9 @@ export async function getRoomForUser(
 
   const { data: roomMembers } = await supabase
     .from('room_members')
-    .select('user_id, member_role, created_at, can_mic, can_camera, can_screen, can_whiteboard, can_code')
+    .select('user_id, member_role, joined_at, can_mic, can_camera, can_screen, can_whiteboard, can_code')
     .eq('room_id', roomId)
-    .order('created_at', { ascending: true });
+    .order('joined_at', { ascending: true });
 
   const memberUserIds = (roomMembers || []).map((member) => member.user_id);
   const { data: memberProfiles } = await supabase
@@ -495,7 +503,7 @@ export async function getRoomForUser(
         canWhiteboard: Boolean(member.can_whiteboard),
         canCode: Boolean(member.can_code),
       },
-      joinedAt: member.created_at,
+      joinedAt: member.joined_at,
     };
   });
 
@@ -564,6 +572,7 @@ export async function createRoom(
 
   let roomId = 'room-' + Math.random().toString(36).substring(2, 11);
   let createdAt = new Date().toISOString();
+  let dbInsertSucceeded = false;
 
   try {
     const { data: insertedRoom, error: roomError } = await supabase
@@ -578,12 +587,30 @@ export async function createRoom(
       .select('id, created_at')
       .single();
 
-    if (!roomError && insertedRoom) {
+    if (roomError) {
+      // Log the detailed Supabase error for debugging
+      console.error('[Rooms Service] Supabase rooms INSERT failed:', {
+        code: roomError.code,
+        message: roomError.message,
+        details: roomError.details,
+        hint: roomError.hint,
+      });
+      // Re-throw so the API route returns a 500 with a clear error message
+      // rather than silently returning an ephemeral in-memory room
+      throw Object.assign(new Error(roomError.message || 'Database insert failed'), {
+        code: 'DB_INSERT_FAILED',
+        status: 500,
+        supabaseCode: roomError.code,
+      });
+    }
+
+    if (insertedRoom) {
       roomId = insertedRoom.id;
       createdAt = insertedRoom.created_at || createdAt;
+      dbInsertSucceeded = true;
 
       // Add teacher as host in room_members (Criterion 3)
-      await supabase.from('room_members').insert({
+      const { error: memberError } = await supabase.from('room_members').insert({
         room_id: roomId,
         user_id: ownerId,
         member_role: 'host',
@@ -593,24 +620,38 @@ export async function createRoom(
         can_whiteboard: true,
         can_code: true,
       });
+      if (memberError) {
+        console.warn('[Rooms Service] Failed to insert host room_member (non-fatal):', memberError.message);
+      }
 
-      // Initialize empty code_state
-      await supabase.from('code_state').insert({
+      // Initialize empty code_state (non-fatal if it fails)
+      const { error: codeStateError } = await supabase.from('code_state').insert({
         room_id: roomId,
         holder_id: ownerId,
         language: 'python',
         content: '',
         rev: 0,
       });
+      if (codeStateError) {
+        console.warn('[Rooms Service] Failed to init code_state (non-fatal):', codeStateError.message);
+      }
 
-      // Initialize empty whiteboard_state
-      await supabase.from('whiteboard_state').insert({
+      // Initialize empty whiteboard_state (non-fatal if it fails)
+      const { error: wbError } = await supabase.from('whiteboard_state').insert({
         room_id: roomId,
         elements: [],
       });
+      if (wbError) {
+        console.warn('[Rooms Service] Failed to init whiteboard_state (non-fatal):', wbError.message);
+      }
     }
-  } catch (err) {
-    console.warn('[Rooms Service] Supabase insert warning (fallback to in-memory):', err);
+  } catch (err: any) {
+    // Only rethrow structured errors from our own throw above (DB_INSERT_FAILED)
+    // — genuine Supabase client/network exceptions are caught here too
+    if (err?.code === 'DB_INSERT_FAILED') {
+      throw err;
+    }
+    console.warn('[Rooms Service] Unexpected exception during room creation (fallback to in-memory):', err?.message || err);
   }
 
   const roomSummary: RoomSummary = {
@@ -625,13 +666,21 @@ export async function createRoom(
     createdAt,
   };
 
-  // Keep mock store in sync for unit/integration testing
-  if (mockRoomsStore.has(ownerId)) {
+  if (!dbInsertSucceeded) {
+    // No real DB persistence happened - mockRoomsStore IS the storage for this room, for every caller.
+    if (mockRoomsStore.has(ownerId)) {
+      const existing = mockRoomsStore.get(ownerId) || [];
+      mockRoomsStore.set(ownerId, [roomSummary, ...existing]);
+    } else {
+      mockRoomsStore.set(ownerId, [roomSummary]);
+    }
+  } else if (mockRoomsStore.has(ownerId)) {
+    // Real DB room, but this owner already has pre-seeded mock state (test harness) - keep it in sync.
+    // Do NOT bootstrap a new mock entry for owners who don't have one: that would wrongly flag every
+    // real-DB room as "mock" for every mockRoomsStore.has(ownerId)/cross-user-scan check elsewhere
+    // (getRoomForUser, startSession, etc.), breaking real rooms for all other real users.
     const existing = mockRoomsStore.get(ownerId) || [];
     mockRoomsStore.set(ownerId, [roomSummary, ...existing]);
-  } else {
-    // If not in mock store yet, initialize it so immediate GET /api/rooms returns it in mock mode
-    mockRoomsStore.set(ownerId, [roomSummary]);
   }
 
   const createdRoom: Room = {
@@ -956,7 +1005,7 @@ export async function updateMemberPermissions(
 
   const { data: memberRow, error: memberError } = await supabase
     .from('room_members')
-    .select('user_id, member_role, created_at, can_mic, can_camera, can_screen, can_whiteboard, can_code')
+    .select('user_id, member_role, joined_at, can_mic, can_camera, can_screen, can_whiteboard, can_code')
     .eq('room_id', normalizedRoomId)
     .eq('user_id', normalizedTarget)
     .maybeSingle();
@@ -985,7 +1034,7 @@ export async function updateMemberPermissions(
     .update(dbUpdates)
     .eq('room_id', normalizedRoomId)
     .eq('user_id', normalizedTarget)
-    .select('user_id, member_role, created_at, can_mic, can_camera, can_screen, can_whiteboard, can_code')
+    .select('user_id, member_role, joined_at, can_mic, can_camera, can_screen, can_whiteboard, can_code')
     .single();
 
   if (updateError) {
@@ -1013,7 +1062,7 @@ export async function updateMemberPermissions(
     userRole: profile?.role || 'student',
     memberRole: updatedRow.member_role,
     permissions,
-    joinedAt: updatedRow.created_at,
+    joinedAt: updatedRow.joined_at,
   };
 
   return { member, permissions };
@@ -1124,7 +1173,7 @@ export async function bulkUpdateMemberPermissions(
     .eq('room_id', normalizedRoomId)
     .neq('user_id', room.owner_id)
     .neq('member_role', 'host')
-    .select('user_id, member_role, created_at, can_mic, can_camera, can_screen, can_whiteboard, can_code');
+    .select('user_id, member_role, joined_at, can_mic, can_camera, can_screen, can_whiteboard, can_code');
 
   if (updateError) {
     console.warn('[Rooms Service] Error bulk updating member permissions:', updateError.message);
@@ -1150,7 +1199,7 @@ export async function bulkUpdateMemberPermissions(
         canWhiteboard: Boolean(row.can_whiteboard),
         canCode: Boolean(row.can_code),
       },
-      joinedAt: row.created_at,
+      joinedAt: row.joined_at,
     };
   });
 
@@ -1509,7 +1558,7 @@ export async function updateRoom(
 export async function joinRoomByCode(
   userId: string,
   rawCode: string
-): Promise<{ roomId: string; alreadyMember: boolean }> {
+): Promise<{ roomId: string; alreadyMember: boolean; permissions?: Permissions }> {
   // AC 2: Normalise code to uppercase
   const code = (rawCode || '').trim().toUpperCase();
 
@@ -1595,17 +1644,24 @@ export async function joinRoomByCode(
 
   // AC 3: User is new to the room — copy default permissions and insert
   const defPerms = (room.default_permissions as any) || {};
+  const permissions: Permissions = {
+    canMic: Boolean(defPerms.can_mic ?? defPerms.canMic ?? false),
+    canCamera: Boolean(defPerms.can_camera ?? defPerms.canCamera ?? false),
+    canScreen: Boolean(defPerms.can_screen ?? defPerms.canScreen ?? false),
+    canWhiteboard: Boolean(defPerms.can_whiteboard ?? defPerms.canWhiteboard ?? false),
+    canCode: Boolean(defPerms.can_code ?? defPerms.canCode ?? false),
+  };
   const { error: insertError } = await supabase
     .from('room_members')
     .insert({
       room_id: room.id,
       user_id: userId,
       member_role: 'participant',
-      can_mic: Boolean(defPerms.can_mic ?? defPerms.canMic ?? false),
-      can_camera: Boolean(defPerms.can_camera ?? defPerms.canCamera ?? false),
-      can_screen: Boolean(defPerms.can_screen ?? defPerms.canScreen ?? false),
-      can_whiteboard: Boolean(defPerms.can_whiteboard ?? defPerms.canWhiteboard ?? false),
-      can_code: Boolean(defPerms.can_code ?? defPerms.canCode ?? false),
+      can_mic: permissions.canMic,
+      can_camera: permissions.canCamera,
+      can_screen: permissions.canScreen,
+      can_whiteboard: permissions.canWhiteboard,
+      can_code: permissions.canCode,
     });
 
   if (insertError) {
@@ -1617,7 +1673,7 @@ export async function joinRoomByCode(
     throw new Error('Failed to join room');
   }
 
-  return { roomId: room.id, alreadyMember: false };
+  return { roomId: room.id, alreadyMember: false, permissions };
 }
 
 /**
@@ -2312,7 +2368,7 @@ export async function getAttendanceSummary(
       error.status = 404;
       throw error;
     }
-    return calculateMockAttendanceSummary(normalizedSessionId, sess.endedAt);
+    return calculateMockAttendanceSummary(normalizedSessionId, sess.endedAt, sess.startedAt);
   }
 
   // 2. Check in-memory mock rooms
@@ -2348,7 +2404,7 @@ export async function getAttendanceSummary(
       throw error;
     }
 
-    return calculateMockAttendanceSummary(normalizedSessionId, sess?.endedAt);
+    return calculateMockAttendanceSummary(normalizedSessionId, sess?.endedAt, sess?.startedAt);
   }
 
   // 3. PostgreSQL / Supabase
@@ -2425,14 +2481,18 @@ export async function getAttendanceSummary(
     });
 
     if (!rpcErr && Array.isArray(rpcRows)) {
-      return rpcRows.map((r: any) => ({
-        userId: r.user_id,
-        fullName: r.full_name || 'Participant',
-        firstJoin: r.first_join,
-        lastLeave: r.last_leave,
-        minutes: Number(r.minutes) || 0,
-        joins: Number(r.joins) || 0,
-      }));
+      return rpcRows.map((r: any) => {
+        const minutes = Number(r.minutes) || 0;
+        return {
+          userId: r.user_id,
+          fullName: r.full_name || 'Participant',
+          firstJoin: r.first_join,
+          lastLeave: r.last_leave,
+          minutes,
+          joins: Number(r.joins) || 0,
+          status: computeAttendanceStatus(minutes, session.started_at, session.ended_at),
+        };
+      });
     }
   } catch {
     // Fall back to table query below
@@ -2471,7 +2531,8 @@ export async function getAttendanceSummary(
       joinedAt: r.joined_at,
       leftAt: r.left_at,
     })),
-    session.ended_at
+    session.ended_at,
+    session.started_at
   );
 }
 

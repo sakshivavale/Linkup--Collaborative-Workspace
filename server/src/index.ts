@@ -5,12 +5,14 @@ import { env } from './config/env';
 import { socketAuthMiddleware } from './realtime/socketAuth';
 import { getRoomForUser, NotAMemberError, closeDanglingAttendanceRecords, getActiveSession } from './lib/rooms';
 import { recordLiveJoin, recordLiveLeave, recordSocketDisconnect } from './lib/attendance';
+import type { Member } from '@linkup/shared';
 import {
   addSocketToRoom,
   removeSocketFromRoom,
   handleSocketDisconnect,
   setUserLiveStatus,
   setUserHandStatus,
+  setUserMediaStatus,
 } from './realtime/presence';
 import {
   getActiveScreenShare,
@@ -49,16 +51,21 @@ const server = http.createServer(app);
 
 export const io = new SocketIOServer(server, {
   cors: {
-    // Accept any localhost or private-network (RFC 1918) origin.
+    // Accept env.CORS_ORIGIN (production Render URL), any localhost, or private-network (RFC 1918) origin.
     // Matches 192.168.x.x, 10.x.x.x, 172.16-31.x.x and localhost.
     origin: (origin, callback) => {
       if (!origin) return callback(null, true); // server-to-server
+      // Allow production frontend URL from env (Render deployment)
+      if ((env.CORS_ORIGIN && origin === env.CORS_ORIGIN) || (process.env.CORS_ORIGIN && origin === process.env.CORS_ORIGIN)) {
+        return callback(null, true);
+      }
       const allowed = [
-        /^http:\/\/localhost:\d+$/,
-        /^http:\/\/127\.0\.0\.1:\d+$/,
-        /^http:\/\/192\.168\.\d{1,3}\.\d{1,3}:\d+$/,
-        /^http:\/\/10\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+$/,
-        /^http:\/\/172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}:\d+$/,
+        /^https?:\/\/localhost(:\d+)?$/,
+        /^https?:\/\/127\.0\.0\.1(:\d+)?$/,
+        /^https?:\/\/192\.168\.\d{1,3}\.\d{1,3}(:\d+)?$/,
+        /^https?:\/\/10\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?$/,
+        /^https?:\/\/172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}(:\d+)?$/,
+        /^https:\/\/.*\.onrender\.com$/,
       ];
       if (allowed.some((re) => re.test(origin))) {
         callback(null, true);
@@ -91,12 +98,12 @@ io.on('connection', (socket) => {
     if (payload && typeof payload === 'object' && typeof payload.roomId === 'string') {
       return payload.roomId.trim();
     }
-    // Fallback: search rooms that socket is currently in
+    // Fallback: search rooms that socket is currently in (ignoring user private rooms)
     for (const room of socket.rooms) {
-      if (room !== socket.id && !room.startsWith('room:')) {
+      if (room !== socket.id && !room.startsWith('room:') && !room.startsWith('user:')) {
         return room;
       }
-      if (room.startsWith('room:')) {
+      if (room.startsWith('room:') && !room.startsWith('room:user:')) {
         return room.replace('room:', '');
       }
     }
@@ -141,7 +148,7 @@ io.on('connection', (socket) => {
       const activeScreen = getActiveScreenShare(roomId);
       const activeSession = await getActiveSession(roomId);
 
-      const hostMember = room.members?.find((m) => m.memberRole === 'host');
+      const hostMember = room.members?.find((m: Member) => m.memberRole === 'host');
       const defaultHostId = hostMember?.userId || (room as any).owner_id || (room.myRole === 'host' ? user.id : null);
       const codeSnapshot = await getOrLoadCodeState(roomId, defaultHostId);
       const boardSnapshot = await getOrLoadWhiteboardState(roomId);
@@ -150,7 +157,7 @@ io.on('connection', (socket) => {
       const snapshot = {
         roomId,
         room,
-        me: room.members?.find((m) => m.userId === user.id) || null,
+        me: room.members?.find((m: Member) => m.userId === user.id) || null,
         members: room.members || [],
         presence,
         session: activeSession,
@@ -430,6 +437,119 @@ io.on('connection', (socket) => {
   });
 
   /**
+   * webrtc:offer — relays SDP offer for screen-share or peer video.
+   * If targetSocketId or targetUserId is specified, relays directly to that peer.
+   * If neither is specified, relays to room host (screen-share default).
+   */
+  socket.on('webrtc:offer', async (payload: any, ack?: (res: any) => void) => {
+    const roomId = extractRoomId(payload);
+    if (!roomId || !user?.id || !payload?.sdp) {
+      if (typeof ack === 'function') ack({ ok: false, error: { code: 'VALIDATION', message: 'Room ID and sdp required' } });
+      return;
+    }
+
+    try {
+      await getRoomForUser(user.id, roomId);
+      const targetUserId = payload?.targetUserId;
+      const targetSocketId = payload?.targetSocketId;
+      const streamType = payload?.streamType || (targetUserId || targetSocketId ? 'video' : 'screen');
+
+      const relayData = {
+        roomId,
+        sdp: payload.sdp,
+        fromSocketId: socket.id,
+        fromUserId: user.id,
+        streamType,
+      };
+
+      if (targetSocketId) {
+        io.to(targetSocketId).emit('webrtc:offer', relayData);
+      } else if (targetUserId) {
+        io.to(`user:${targetUserId}`).emit('webrtc:offer', relayData);
+      } else {
+        io.to(`room:${roomId}:host`).emit('webrtc:offer', relayData);
+      }
+
+      if (typeof ack === 'function') ack({ ok: true });
+    } catch (err: any) {
+      const code = err instanceof NotAMemberError || err?.code === 'NOT_A_MEMBER' ? 'NOT_A_MEMBER' : 'INTERNAL_SERVER_ERROR';
+      if (typeof ack === 'function') ack({ ok: false, error: { code, message: err.message || 'Failed to relay offer' } });
+    }
+  });
+
+  /**
+   * webrtc:answer — answers a specific peer's offer (relay only).
+   */
+  socket.on('webrtc:answer', async (payload: any, ack?: (res: any) => void) => {
+    const roomId = extractRoomId(payload);
+    const targetSocketId = payload?.targetSocketId;
+    const targetUserId = payload?.targetUserId;
+    if (!roomId || !user?.id || !payload?.sdp || (!targetSocketId && !targetUserId)) {
+      if (typeof ack === 'function') ack({ ok: false, error: { code: 'VALIDATION', message: 'Room ID, sdp, and target destination required' } });
+      return;
+    }
+
+    try {
+      await getRoomForUser(user.id, roomId);
+      const streamType = payload?.streamType || 'video';
+      const relayData = {
+        roomId,
+        sdp: payload.sdp,
+        fromSocketId: socket.id,
+        fromUserId: user.id,
+        streamType,
+      };
+
+      if (targetSocketId) {
+        io.to(targetSocketId).emit('webrtc:answer', relayData);
+      } else if (targetUserId) {
+        io.to(`user:${targetUserId}`).emit('webrtc:answer', relayData);
+      }
+
+      if (typeof ack === 'function') ack({ ok: true });
+    } catch (err: any) {
+      const code = err instanceof NotAMemberError || err?.code === 'NOT_A_MEMBER' ? 'NOT_A_MEMBER' : 'INTERNAL_SERVER_ERROR';
+      if (typeof ack === 'function') ack({ ok: false, error: { code, message: err.message || 'Failed to relay answer' } });
+    }
+  });
+
+  /**
+   * webrtc:ice-candidate — bidirectional ICE candidate relay between peers (relay only).
+   */
+  socket.on('webrtc:ice-candidate', async (payload: any, ack?: (res: any) => void) => {
+    const roomId = extractRoomId(payload);
+    const targetSocketId = payload?.targetSocketId;
+    const targetUserId = payload?.targetUserId;
+    if (!roomId || !user?.id || !payload?.candidate || (!targetSocketId && !targetUserId)) {
+      if (typeof ack === 'function') ack({ ok: false, error: { code: 'VALIDATION', message: 'Room ID, candidate, and target destination required' } });
+      return;
+    }
+
+    try {
+      await getRoomForUser(user.id, roomId);
+      const streamType = payload?.streamType || 'video';
+      const relayData = {
+        roomId,
+        candidate: payload.candidate,
+        fromSocketId: socket.id,
+        fromUserId: user.id,
+        streamType,
+      };
+
+      if (targetSocketId) {
+        io.to(targetSocketId).emit('webrtc:ice-candidate', relayData);
+      } else if (targetUserId) {
+        io.to(`user:${targetUserId}`).emit('webrtc:ice-candidate', relayData);
+      }
+
+      if (typeof ack === 'function') ack({ ok: true });
+    } catch (err: any) {
+      const code = err instanceof NotAMemberError || err?.code === 'NOT_A_MEMBER' ? 'NOT_A_MEMBER' : 'INTERNAL_SERVER_ERROR';
+      if (typeof ack === 'function') ack({ ok: false, error: { code, message: err.message || 'Failed to relay ICE candidate' } });
+    }
+  });
+
+  /**
    * hand:raise — raise or lower hand in live session (US-PERM-07, FR-4.8, US-SEC-01)
    */
   socket.on('hand:raise', async (payload: any, ack?: (res: any) => void) => {
@@ -474,6 +594,38 @@ io.on('connection', (socket) => {
       socket.emit('room:error', notMemberErr);
       socket.emit('error', notMemberErr);
       if (typeof ack === 'function') ack({ ok: false, error: notMemberErr });
+    }
+  });
+
+  /**
+   * live:media-state — broadcast a user's mic/camera on-off toggle to the room (presence sync)
+   */
+  socket.on('live:media-state', async (payload: any, ack?: (res: any) => void) => {
+    const roomId = extractRoomId(payload);
+    if (!roomId || !user?.id) {
+      if (typeof ack === 'function') ack({ ok: false, error: { code: 'VALIDATION', message: 'Room ID required' } });
+      return;
+    }
+
+    const patch: { micOn?: boolean; cameraOn?: boolean } = {};
+    if (typeof payload?.micOn === 'boolean') patch.micOn = payload.micOn;
+    if (typeof payload?.cameraOn === 'boolean') patch.cameraOn = payload.cameraOn;
+
+    try {
+      await getRoomForUser(user.id, roomId);
+
+      const presence = setUserMediaStatus(roomId, user.id, patch);
+      if (presence) {
+        io.to(`room:${roomId}`).to(roomId).emit('presence:update', {
+          roomId,
+          presence,
+        });
+      }
+
+      if (typeof ack === 'function') ack({ ok: true });
+    } catch (err: any) {
+      const code = err instanceof NotAMemberError || err?.code === 'NOT_A_MEMBER' ? 'NOT_A_MEMBER' : 'INTERNAL_SERVER_ERROR';
+      if (typeof ack === 'function') ack({ ok: false, error: { code, message: err.message || 'Failed to update media state' } });
     }
   });
 
@@ -983,7 +1135,7 @@ io.on('connection', (socket) => {
         if (holder === user.id) {
           getRoomForUser(user.id, roomId)
             .then((r) => {
-              const hostMember = r.members?.find((m) => m.memberRole === 'host');
+              const hostMember = r.members?.find((m: Member) => m.memberRole === 'host');
               const hostId = hostMember?.userId || (r as any).owner_id || null;
               codeService.setPen(roomId, hostId);
               io.to(`room:${roomId}`).to(roomId).emit('code:pen', {
@@ -1000,8 +1152,11 @@ io.on('connection', (socket) => {
 });
 
 const isDirectExecution =
-  process.argv[1] &&
-  (/src[\\/]index\.ts$/.test(process.argv[1]) || /dist[\\/]index\.js$/.test(process.argv[1]));
+  require.main === module ||
+  (Boolean(process.argv[1]) &&
+    (/(?:src|dist)[\\/](?:.*[\\/])?index\.[jt]s$/.test(process.argv[1]) ||
+      process.argv[1].endsWith('index.js') ||
+      process.argv[1].endsWith('index.ts')));
 
 server.on('error', (err: any) => {
   if (err.code === 'EADDRINUSE') {
@@ -1011,11 +1166,13 @@ server.on('error', (err: any) => {
   }
 });
 
+const HOST = '0.0.0.0';
+
 if (isDirectExecution && process.env.NODE_ENV !== 'test') {
-  server.listen(env.PORT, () => {
-    console.log(`[Server] LinkUp API server running on port ${env.PORT}`);
-    console.log(`[Server] Health check available at http://localhost:${env.PORT}/health`);
-    console.log(`[Server] Protected API routes mounted at http://localhost:${env.PORT}/api/*`);
+  server.listen(env.PORT, HOST, () => {
+    console.log(`[Server] LinkUp API server running on http://${HOST}:${env.PORT}`);
+    console.log(`[Server] Health check available at http://${HOST}:${env.PORT}/health`);
+    console.log(`[Server] Protected API routes mounted at http://${HOST}:${env.PORT}/api/*`);
     closeDanglingAttendanceRecords().catch(() => {});
   });
 }
