@@ -210,48 +210,48 @@ export const DashboardPage: React.FC = () => {
       {/* Teacher Pending Approval Banner */}
       {isPendingTeacher && (
         <div
-          id="teacher-pending-banner"
-          data-testid="teacher-pending-banner"
-          className="glass-panel p-6 sm:p-7 rounded-3xl mb-8 border border-amber-300 dark:border-amber-500/30 bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent relative overflow-hidden shadow-lg animate-in fade-in duration-300"
-        >
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <div className="flex items-start gap-3.5">
-              <div className="w-12 h-12 rounded-2xl bg-amber-100 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0 shadow-sm">
-                <Clock className="w-6 h-6 animate-pulse" />
-              </div>
-              <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white">
-                    Teacher Application Under Review
-                  </h2>
-                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-300/60 dark:border-amber-500/30">
-                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping" />
-                    STATUS: PENDING_TEACHER
-                  </span>
+            id="teacher-pending-banner"
+            data-testid="teacher-pending-banner"
+            className="glass-panel p-6 sm:p-7 rounded-3xl mb-8 border border-amber-300 dark:border-amber-500/30 bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent relative overflow-hidden shadow-lg animate-in fade-in duration-300"
+          >
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="flex items-start gap-3.5">
+                <div className="w-12 h-12 rounded-2xl bg-amber-100 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0 shadow-sm">
+                  <Clock className="w-6 h-6 animate-pulse" />
                 </div>
-                <p className="text-xs text-slate-600 dark:text-slate-300 mt-1 max-w-2xl leading-relaxed">
-                  You signed up requesting <strong>Teacher</strong> access. Your application is currently pending review. While pending, you have full student access to join and collaborate in rooms. Room Creation and Host Controls will automatically unlock once approved.
-                </p>
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white">
+                      Teacher Application Under Review
+                    </h2>
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-300/60 dark:border-amber-500/30">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping" />
+                      STATUS: PENDING_TEACHER
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-600 dark:text-slate-300 mt-1 max-w-2xl leading-relaxed">
+                    You signed up requesting <strong>Teacher</strong> access. Your application is currently pending review. While pending, you have full student access to join and collaborate in rooms. Room Creation and Host Controls will automatically unlock once approved.
+                  </p>
+                </div>
               </div>
-            </div>
 
-            <div className="flex items-center gap-2.5 self-end sm:self-auto shrink-0">
-              <button
-                type="button"
-                id="check-teacher-approval-btn"
-                onClick={async () => {
-                  await refreshProfile();
-                  fetchRooms();
-                }}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 shadow-sm hover:bg-slate-50 dark:hover:bg-slate-700 transition-all active:scale-95"
-              >
-                <RefreshCw className="w-3.5 h-3.5" />
-                <span>Check Status</span>
-              </button>
+              <div className="flex items-center gap-2.5 self-end sm:self-auto shrink-0">
+                <button
+                  type="button"
+                  id="check-teacher-approval-btn"
+                  onClick={async () => {
+                    await refreshProfile();
+                    fetchRooms();
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 shadow-sm hover:bg-slate-50 dark:hover:bg-slate-700 transition-all active:scale-95"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Check Status</span>
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
       {/* Welcome Banner */}
       <div className="glass-panel rounded-3xl p-6 sm:p-8 mb-8 relative overflow-hidden">
