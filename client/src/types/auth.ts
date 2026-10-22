@@ -1,10 +1,12 @@
 export type UserRole = 'teacher' | 'student';
+export type TeacherApprovalStatus = 'PENDING_TEACHER' | 'APPROVED' | 'REJECTED' | 'NONE';
 
 export interface UserProfile {
   id: string;
   email: string;
   fullName: string;
   role: UserRole;
+  status?: TeacherApprovalStatus;
   createdAt?: string;
 }
 

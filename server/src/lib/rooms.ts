@@ -587,13 +587,30 @@ export async function createRoom(
       .select('id, created_at')
       .single();
 
-    if (!roomError && insertedRoom) {
+    if (roomError) {
+      // Log the detailed Supabase error for debugging
+      console.error('[Rooms Service] Supabase rooms INSERT failed:', {
+        code: roomError.code,
+        message: roomError.message,
+        details: roomError.details,
+        hint: roomError.hint,
+      });
+      // Re-throw so the API route returns a 500 with a clear error message
+      // rather than silently returning an ephemeral in-memory room
+      throw Object.assign(new Error(roomError.message || 'Database insert failed'), {
+        code: 'DB_INSERT_FAILED',
+        status: 500,
+        supabaseCode: roomError.code,
+      });
+    }
+
+    if (insertedRoom) {
       roomId = insertedRoom.id;
       createdAt = insertedRoom.created_at || createdAt;
       dbInsertSucceeded = true;
 
       // Add teacher as host in room_members (Criterion 3)
-      await supabase.from('room_members').insert({
+      const { error: memberError } = await supabase.from('room_members').insert({
         room_id: roomId,
         user_id: ownerId,
         member_role: 'host',
@@ -603,24 +620,38 @@ export async function createRoom(
         can_whiteboard: true,
         can_code: true,
       });
+      if (memberError) {
+        console.warn('[Rooms Service] Failed to insert host room_member (non-fatal):', memberError.message);
+      }
 
-      // Initialize empty code_state
-      await supabase.from('code_state').insert({
+      // Initialize empty code_state (non-fatal if it fails)
+      const { error: codeStateError } = await supabase.from('code_state').insert({
         room_id: roomId,
         holder_id: ownerId,
         language: 'python',
         content: '',
         rev: 0,
       });
+      if (codeStateError) {
+        console.warn('[Rooms Service] Failed to init code_state (non-fatal):', codeStateError.message);
+      }
 
-      // Initialize empty whiteboard_state
-      await supabase.from('whiteboard_state').insert({
+      // Initialize empty whiteboard_state (non-fatal if it fails)
+      const { error: wbError } = await supabase.from('whiteboard_state').insert({
         room_id: roomId,
         elements: [],
       });
+      if (wbError) {
+        console.warn('[Rooms Service] Failed to init whiteboard_state (non-fatal):', wbError.message);
+      }
     }
-  } catch (err) {
-    console.warn('[Rooms Service] Supabase insert warning (fallback to in-memory):', err);
+  } catch (err: any) {
+    // Only rethrow structured errors from our own throw above (DB_INSERT_FAILED)
+    // — genuine Supabase client/network exceptions are caught here too
+    if (err?.code === 'DB_INSERT_FAILED') {
+      throw err;
+    }
+    console.warn('[Rooms Service] Unexpected exception during room creation (fallback to in-memory):', err?.message || err);
   }
 
   const roomSummary: RoomSummary = {

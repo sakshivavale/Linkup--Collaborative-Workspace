@@ -5,6 +5,7 @@ import { env } from './config/env';
 import { socketAuthMiddleware } from './realtime/socketAuth';
 import { getRoomForUser, NotAMemberError, closeDanglingAttendanceRecords, getActiveSession } from './lib/rooms';
 import { recordLiveJoin, recordLiveLeave, recordSocketDisconnect } from './lib/attendance';
+import type { Member } from '@linkup/shared';
 import {
   addSocketToRoom,
   removeSocketFromRoom,
@@ -147,7 +148,7 @@ io.on('connection', (socket) => {
       const activeScreen = getActiveScreenShare(roomId);
       const activeSession = await getActiveSession(roomId);
 
-      const hostMember = room.members?.find((m) => m.memberRole === 'host');
+      const hostMember = room.members?.find((m: Member) => m.memberRole === 'host');
       const defaultHostId = hostMember?.userId || (room as any).owner_id || (room.myRole === 'host' ? user.id : null);
       const codeSnapshot = await getOrLoadCodeState(roomId, defaultHostId);
       const boardSnapshot = await getOrLoadWhiteboardState(roomId);
@@ -156,7 +157,7 @@ io.on('connection', (socket) => {
       const snapshot = {
         roomId,
         room,
-        me: room.members?.find((m) => m.userId === user.id) || null,
+        me: room.members?.find((m: Member) => m.userId === user.id) || null,
         members: room.members || [],
         presence,
         session: activeSession,
@@ -1134,7 +1135,7 @@ io.on('connection', (socket) => {
         if (holder === user.id) {
           getRoomForUser(user.id, roomId)
             .then((r) => {
-              const hostMember = r.members?.find((m) => m.memberRole === 'host');
+              const hostMember = r.members?.find((m: Member) => m.memberRole === 'host');
               const hostId = hostMember?.userId || (r as any).owner_id || null;
               codeService.setPen(roomId, hostId);
               io.to(`room:${roomId}`).to(roomId).emit('code:pen', {

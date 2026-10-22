@@ -1,15 +1,17 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { User, Session, AuthError } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { api, HttpError } from '../lib/api';
-import { UserRole } from '../types/auth';
+import { UserRole, TeacherApprovalStatus } from '../types/auth';
 
 interface AuthContextType {
   user: User | null;
   session: Session | null;
   role: UserRole | null;
+  status: TeacherApprovalStatus;
   fullName: string;
   loading: boolean;
+  refreshProfile: () => Promise<void>;
   signIn: (email: string, password: string) => Promise<{ error: AuthError | null }>;
   signOut: () => Promise<void>;
   logout: () => Promise<void>;
@@ -24,6 +26,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [customFullName, setCustomFullName] = useState<string | null>(null);
+  const [serverRole, setServerRole] = useState<UserRole | null>(null);
+  const [serverStatus, setServerStatus] = useState<TeacherApprovalStatus | null>(null);
+
+  const refreshProfile = useCallback(async () => {
+    try {
+      const res = await api.get<{
+        user: {
+          id: string;
+          fullName: string;
+          role: UserRole;
+          status?: TeacherApprovalStatus;
+        };
+      }>('/api/me');
+
+      if (res?.user) {
+        if (res.user.role) setServerRole(res.user.role);
+        if (res.user.status) setServerStatus(res.user.status);
+        if (res.user.fullName) setCustomFullName(res.user.fullName);
+      }
+    } catch {
+      // Ignore background refresh failure on network drop
+    }
+  }, []);
 
   useEffect(() => {
     // 1. Initial session check from local storage
@@ -35,6 +61,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
         setSession(initialSession);
         setUser(initialSession?.user ?? null);
+        if (initialSession) {
+          refreshProfile();
+        }
       } catch (err) {
         console.error('[LinkUp Auth] Unexpected error retrieving session:', err);
       } finally {
@@ -50,13 +79,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } = supabase.auth.onAuthStateChange((_event, currentSession) => {
       setSession(currentSession);
       setUser(currentSession?.user ?? null);
+      if (currentSession) {
+        refreshProfile();
+      }
       setLoading(false);
     });
 
     return () => {
       subscription.unsubscribe();
     };
-  }, []);
+  }, [refreshProfile]);
 
   const signIn = async (email: string, password: string) => {
     const { data, error } = await supabase.auth.signInWithPassword({
@@ -71,8 +103,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     return { error };
   };
-
-  const [customFullName, setCustomFullName] = useState<string | null>(null);
 
   const signOut = async () => {
     try {
@@ -156,16 +186,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     user?.email?.split('@')[0] ||
     'User';
 
-  const role = (user?.user_metadata?.role as UserRole) || 'student';
+  const rawStatus = serverStatus || user?.user_metadata?.status || user?.user_metadata?.teacher_status;
+  let status: TeacherApprovalStatus = 'NONE';
+  if (rawStatus === 'PENDING_TEACHER' || rawStatus === 'pending') {
+    status = 'PENDING_TEACHER';
+  } else if (rawStatus === 'APPROVED' || rawStatus === 'approved') {
+    status = 'APPROVED';
+  } else if (rawStatus === 'REJECTED' || rawStatus === 'rejected') {
+    status = 'REJECTED';
+  }
+
+  const effectiveRole = serverRole || (status === 'PENDING_TEACHER' ? 'student' : (user?.user_metadata?.role as UserRole) || 'student');
 
   return (
     <AuthContext.Provider
       value={{
         user,
         session,
-        role,
+        role: effectiveRole,
+        status,
         fullName,
         loading,
+        refreshProfile,
         signIn,
         signOut,
         logout: signOut,
