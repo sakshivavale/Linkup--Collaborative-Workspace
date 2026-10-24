@@ -84,9 +84,7 @@ export const LiveTab: React.FC<LiveTabProps> = ({
 
   // US-ERR-03: Sync mediaDevices permission denial state & notify parent
   useEffect(() => {
-    if (mediaDevices.permissionDenied) {
-      setMediaPermissionDenied(true);
-    }
+    setMediaPermissionDenied(mediaDevices.permissionDenied);
   }, [mediaDevices.permissionDenied]);
 
   useEffect(() => {
@@ -130,27 +128,43 @@ export const LiveTab: React.FC<LiveTabProps> = ({
     micOn,
   });
 
-  // Attach local and remote media streams to participant tiles
-  const participantsWithStreams = React.useMemo(() => {
-    return (participants || [])
-      .filter((p): p is Participant => Boolean(p && p.id))
-      .map((p) => {
-        const isSelf = Boolean(user?.id && p.id === user.id);
-        return {
-          ...p,
-          isSelf,
-          stream: isSelf
-            ? (camOn && mediaDevices.localStream ? mediaDevices.localStream : null)
-            : (remoteStreams.get(p.id) || null),
-        };
-      });
-  }, [participants, user?.id, camOn, mediaDevices.localStream, remoteStreams]);
-
   // US-PERM-07: Track whether current user has hand raised (FR-4.8)
   const [isHandRaised, setIsHandRaised] = useState<boolean>(() => {
     const selfPresence = room?.presence?.find((p) => p && p.userId === user?.id);
     return Boolean(selfPresence?.handRaised);
   });
+
+  // Attach local and remote media streams to participant tiles with real-time indicators
+  const participantsWithStreams = React.useMemo(() => {
+    let list = (participants || []).filter((p): p is Participant => Boolean(p && p.id));
+    if (inCall && user?.id && !list.some((p) => p.id === user.id)) {
+      list = [
+        ...list,
+        {
+          id: user.id,
+          name: user.fullName || 'You',
+          isMuted: !micOn,
+          cameraOff: !camOn,
+          isSpeaking: false,
+          handRaised: isHandRaised,
+          stream: null,
+          isSelf: true,
+        },
+      ];
+    }
+    return list.map((p) => {
+      const isSelf = Boolean(user?.id && p.id === user.id);
+      return {
+        ...p,
+        isSelf,
+        isMuted: isSelf ? !micOn : p.isMuted,
+        cameraOff: isSelf ? !camOn : p.cameraOff,
+        stream: isSelf
+          ? (camOn && mediaDevices.localStream ? mediaDevices.localStream : null)
+          : (remoteStreams.get(p.id) || null),
+      };
+    });
+  }, [participants, user?.id, user?.fullName, inCall, camOn, micOn, isHandRaised, mediaDevices.localStream, remoteStreams]);
 
   // Sync handRaised status when room loads or presence updates
   useEffect(() => {
@@ -263,6 +277,8 @@ export const LiveTab: React.FC<LiveTabProps> = ({
           };
           const stream = await navigator.mediaDevices.getUserMedia(constraints);
           if (active) {
+            setMediaPermissionDenied(false);
+            mediaDevices.clearPermissionDenied();
             mediaDevices.setLocalStream((prev) => {
               if (prev) {
                 prev.getVideoTracks().forEach((t) => t.stop());
@@ -294,12 +310,33 @@ export const LiveTab: React.FC<LiveTabProps> = ({
     };
   }, [camOn, inCall, mediaDevices.selectedVideoInput]);
 
+  // Synchronize local video preview element with localStream whenever camOn or localStream updates
+  useEffect(() => {
+    if (localVideoRef.current && camOn && mediaDevices.localStream) {
+      const hasLiveVideo = mediaDevices.localStream.getVideoTracks().some(
+        (t) => t.readyState === 'live'
+      );
+      if (hasLiveVideo && localVideoRef.current.srcObject !== mediaDevices.localStream) {
+        localVideoRef.current.srcObject = mediaDevices.localStream;
+        localVideoRef.current.play().catch(() => {});
+      }
+    } else if (localVideoRef.current && !camOn) {
+      localVideoRef.current.srcObject = null;
+    }
+  }, [camOn, mediaDevices.localStream]);
+
   // US-ERR-03: Handle local microphone audio stream with browser permission denial protection
   useEffect(() => {
     let active = true;
     const updateAudioStream = async () => {
       if (!micOn || !inCall) {
-        mediaDevices.stopAudioTracks();
+        if (!inCall) {
+          mediaDevices.stopAudioTracks();
+        } else if (mediaDevices.localStream) {
+          mediaDevices.localStream.getAudioTracks().forEach((track) => {
+            track.enabled = false;
+          });
+        }
         return;
       }
 
@@ -320,6 +357,8 @@ export const LiveTab: React.FC<LiveTabProps> = ({
           };
           const stream = await navigator.mediaDevices.getUserMedia(constraints);
           if (active) {
+            setMediaPermissionDenied(false);
+            mediaDevices.clearPermissionDenied();
             mediaDevices.setLocalStream((prev) => {
               if (prev) {
                 prev.getAudioTracks().forEach((t) => t.stop());
@@ -1045,16 +1084,24 @@ export const LiveTab: React.FC<LiveTabProps> = ({
                     data-testid="active-camera-pill"
                     className="px-2 py-0.5 rounded-md bg-black/60 backdrop-blur-md border border-white/10 text-[10px] font-medium text-slate-300 flex items-center gap-1"
                   >
-                    <Video className="w-3 h-3 text-indigo-400" />
-                    <span className="truncate max-w-[120px]">{activeCamLabel}</span>
+                    {camOn ? (
+                      <Video className="w-3 h-3 text-indigo-400" />
+                    ) : (
+                      <VideoOff className="w-3 h-3 text-slate-500" />
+                    )}
+                    <span className="truncate max-w-[120px]">{camOn ? activeCamLabel : 'Camera Off'}</span>
                   </div>
                   <div
                     id="active-mic-pill"
                     data-testid="active-mic-pill"
                     className="px-2 py-0.5 rounded-md bg-black/60 backdrop-blur-md border border-white/10 text-[10px] font-medium text-slate-300 flex items-center gap-1"
                   >
-                    <Mic className="w-3 h-3 text-emerald-400" />
-                    <span className="truncate max-w-[120px]">{activeMicLabel}</span>
+                    {micOn ? (
+                      <Mic className="w-3 h-3 text-emerald-400" />
+                    ) : (
+                      <MicOff className="w-3 h-3 text-red-400" />
+                    )}
+                    <span className="truncate max-w-[120px]">{micOn ? activeMicLabel : 'Muted'}</span>
                   </div>
                 </div>
 
