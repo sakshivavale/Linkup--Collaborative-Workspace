@@ -35,6 +35,7 @@ import { api, HttpError } from '../../lib/api';
 import { socket } from '../../lib/socket';
 import { useAuth } from '../../context/AuthContext';
 import { PermissionToastContainer } from './PermissionToast';
+import { ErrorBoundary } from '../../components/ErrorBoundary';
 
 // ─── Tab & sidebar definitions ───────────────────────────────────────────────
 type MainTab = 'live' | 'whiteboard' | 'code';
@@ -58,7 +59,7 @@ export const RoomPage: React.FC = () => {
   const { user } = useAuth();
 
   const { room, setRoom, loading, error } = useRoom(roomId);
-  const currentMember = room?.members?.find((m) => m.userId === user?.id);
+  const currentMember = room?.members?.find((m) => m && m.userId === user?.id);
 
   const [mainTab, setMainTab] = useState<MainTab>('live');
   const [sideTab, setSideTab] = useState<SideTab>('chat');
@@ -171,12 +172,14 @@ export const RoomPage: React.FC = () => {
     setSessionError(null);
     try {
       const session = await api.post<Session>(`/api/rooms/${roomId}/sessions`);
-      setActiveSession(session);
-      setSessionEnded(false);
-      isInCallRef.current = true;
-      setIsInCall(true);
-      if (room) {
-        room.activeSessionId = session.id;
+      if (session?.id) {
+        setActiveSession(session);
+        setSessionEnded(false);
+        isInCallRef.current = true;
+        setIsInCall(true);
+        if (room) {
+          room.activeSessionId = session.id;
+        }
       }
     } catch (err: any) {
       console.error('[RoomPage] Error starting session:', err);
@@ -364,7 +367,7 @@ export const RoomPage: React.FC = () => {
 
     // US-LIVE-01 Acceptance Criteria 2: all room members receive a session:started socket event and see room update to "Live" status
     const handleSessionStarted = (data: { roomId: string; session: Session }) => {
-      if (data.roomId === roomId) {
+      if (data.roomId === roomId && data.session?.id) {
         setActiveSession(data.session);
         setSessionEnded(false);
         if (room) {
@@ -948,40 +951,42 @@ export const RoomPage: React.FC = () => {
           id={`room-tab-panel-${mainTab}`}
           role="tabpanel"
         >
-          <div className={mainTab === 'live' ? 'h-full' : 'hidden'}>
-            <LiveTab
-              roomId={roomId!}
-              sessionId={activeSession?.id ?? null}
-              inCall={isInCall}
-              onJoinCall={() => { isInCallRef.current = true; setIsInCall(true); }}
-              onLeaveCall={() => { isInCallRef.current = false; setIsInCall(false); }}
-              isHost={room.myRole === 'host'}
-              disabled={isReconnecting}
-              isReconnecting={isReconnecting}
-              onMediaPermissionError={setMediaPermissionDenied}
-            />
-          </div>
-          {mainTab === 'whiteboard' && (
-            <WhiteboardTab
-              roomId={roomId!}
-              canWhiteboard={room.myRole === 'host' || Boolean(currentMember?.permissions?.canWhiteboard ?? false)}
-              isHost={room.myRole === 'host'}
-              initialElements={boardElements}
-              onElementsChange={setBoardElements}
-              disabled={isReconnecting}
-            />
-          )}
-          {mainTab === 'code' && (
-            <CodeTab
-              roomId={roomId!}
-              canCode={room.myRole === 'host' || Boolean(currentMember?.permissions?.canCode ?? true)}
-              members={room.members || []}
-              initialCodeState={codeState}
-              onCodeStateChange={setCodeState}
-              isHost={room.myRole === 'host'}
-              disabled={isReconnecting}
-            />
-          )}
+          <ErrorBoundary fallbackTitle="An error occurred loading this workspace view">
+            <div className={mainTab === 'live' ? 'h-full' : 'hidden'}>
+              <LiveTab
+                roomId={roomId!}
+                sessionId={activeSession?.id ?? null}
+                inCall={isInCall}
+                onJoinCall={() => { isInCallRef.current = true; setIsInCall(true); }}
+                onLeaveCall={() => { isInCallRef.current = false; setIsInCall(false); }}
+                isHost={room.myRole === 'host'}
+                disabled={isReconnecting}
+                isReconnecting={isReconnecting}
+                onMediaPermissionError={setMediaPermissionDenied}
+              />
+            </div>
+            {mainTab === 'whiteboard' && (
+              <WhiteboardTab
+                roomId={roomId!}
+                canWhiteboard={room.myRole === 'host' || Boolean(currentMember?.permissions?.canWhiteboard ?? false)}
+                isHost={room.myRole === 'host'}
+                initialElements={boardElements}
+                onElementsChange={setBoardElements}
+                disabled={isReconnecting}
+              />
+            )}
+            {mainTab === 'code' && (
+              <CodeTab
+                roomId={roomId!}
+                canCode={room.myRole === 'host' || Boolean(currentMember?.permissions?.canCode ?? true)}
+                members={room.members || []}
+                initialCodeState={codeState}
+                onCodeStateChange={setCodeState}
+                isHost={room.myRole === 'host'}
+                disabled={isReconnecting}
+              />
+            )}
+          </ErrorBoundary>
         </main>
 
         {/* Sidebar */}

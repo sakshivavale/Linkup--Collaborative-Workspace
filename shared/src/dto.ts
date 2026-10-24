@@ -1,6 +1,8 @@
 export type UserRole = 'teacher' | 'student';
 export type MemberRole = 'host' | 'participant';
 
+export type TeacherApprovalStatus = 'PENDING_TEACHER' | 'APPROVED' | 'REJECTED' | 'NONE';
+
 export const PERMISSION_KEYS = [
   'canMic',
   'canCamera',
@@ -18,6 +20,8 @@ export interface Me {
   fullName: string;
   role: UserRole;
   email: string;
+  status?: TeacherApprovalStatus;
+  requestedRole?: UserRole;
 }
 
 export interface UpdateProfileDto {
@@ -111,10 +115,10 @@ export function buildParticipantTiles(
   activeSpeakerUserId: string | null = null
 ): GridParticipant[] {
   return (presence ?? [])
-    .filter((entry) => entry.inLive)
+    .filter((entry): entry is PresenceEntry => Boolean(entry && entry.userId && entry.inLive))
     .map((entry) => ({
       id: entry.userId,
-      name: entry.fullName,
+      name: entry.fullName || 'Anonymous',
       isMuted: !entry.micOn,
       cameraOff: !entry.cameraOn,
       isSpeaking: activeSpeakerUserId !== null && entry.userId === activeSpeakerUserId,

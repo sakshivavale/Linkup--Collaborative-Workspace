@@ -18,7 +18,7 @@ import {
   Hand,
   MicOff,
 } from 'lucide-react';
-import { RoomSummary, PresenceEntry, Member, PermissionKey } from '@linkup/shared';
+import { RoomSummary, PresenceEntry, Member, PermissionKey, UserRole } from '@linkup/shared';
 import { useAuth } from '../../context/AuthContext';
 import { socket } from '../../lib/socket';
 import { api, HttpError } from '../../lib/api';
@@ -64,7 +64,7 @@ type PanelMember = {
   id: string;
   userId?: string;
   name: string;
-  role: 'teacher' | 'student';
+  role: UserRole;
   memberRole: 'host' | 'participant';
   isSelf: boolean;
 };
@@ -148,19 +148,19 @@ export const PeoplePanel: React.FC<PeoplePanelProps> = ({
       isSelf: true,
     };
 
-    const serverMembers = room.members ?? [];
+    const serverMembers = (room.members ?? []).filter((m): m is Member => Boolean(m && m.userId));
     const normalized = serverMembers
       .filter((member) => member.userId !== currentUserId)
       .map((member) => ({
         id: `member-${member.userId}`,
         userId: member.userId,
-        name: member.fullName,
+        name: member.fullName || 'Anonymous',
         role: member.userRole ?? 'student',
         memberRole: member.memberRole ?? 'participant',
         isSelf: false,
       }));
 
-    if (room.myRole !== 'host' && !serverMembers.some((m) => m.memberRole === 'host' || m.fullName === room.hostName)) {
+    if (room.myRole !== 'host' && !serverMembers.some((m) => m && (m.memberRole === 'host' || m.fullName === room.hostName))) {
       const hostMember: PanelMember = {
         id: 'host',
         userId: 'host',
@@ -185,19 +185,19 @@ export const PeoplePanel: React.FC<PeoplePanelProps> = ({
       isSelf: true,
     };
 
-    const serverMembers = room.members ?? [];
+    const serverMembers = (room.members ?? []).filter((m): m is Member => Boolean(m && m.userId));
     const normalized = serverMembers
       .filter((member) => member.userId !== currentUserId)
       .map((member) => ({
         id: `member-${member.userId}`,
         userId: member.userId,
-        name: member.fullName,
+        name: member.fullName || 'Anonymous',
         role: member.userRole ?? 'student',
         memberRole: member.memberRole ?? 'participant',
         isSelf: false,
       }));
 
-    if (room.myRole !== 'host' && !serverMembers.some((m) => m.memberRole === 'host' || m.fullName === room.hostName)) {
+    if (room.myRole !== 'host' && !serverMembers.some((m) => m && (m.memberRole === 'host' || m.fullName === room.hostName))) {
       const hostMember: PanelMember = {
         id: 'host',
         userId: 'host',
@@ -216,20 +216,20 @@ export const PeoplePanel: React.FC<PeoplePanelProps> = ({
   useEffect(() => {
     const onPresenceUpdate = (data: { roomId: string; presence: PresenceEntry[] }) => {
       if (data.roomId === room.id && Array.isArray(data.presence)) {
-        setPresenceList(data.presence);
+        setPresenceList(data.presence.filter(Boolean));
       }
     };
 
     const onMemberJoined = (data: { roomId: string; member: Member }) => {
-      if (data.roomId === room.id && data.member) {
+      if (data.roomId === room.id && data.member && data.member.userId) {
         setMembers((current) => {
-          if (current.some((m) => m.userId === data.member.userId)) return current;
+          if (current.some((m) => m && m.userId === data.member.userId)) return current;
           return [
             ...current,
             {
               id: `member-${data.member.userId}`,
               userId: data.member.userId,
-              name: data.member.fullName,
+              name: data.member.fullName || 'Anonymous',
               role: data.member.userRole ?? 'student',
               memberRole: data.member.memberRole ?? 'participant',
               isSelf: data.member.userId === currentUserId,

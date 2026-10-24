@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
-import { SignUpFormData, SignUpFormErrors, UserRole } from '../../types/auth';
+import { SignUpFormData, SignUpFormErrors } from '../../types/auth';
 import { ThemeToggle } from '../../components/ui/ThemeToggle';
 import { Logo } from '../../components/ui/Logo';
 import { 
@@ -93,15 +93,25 @@ export const SignupPage: React.FC = () => {
       const cleanFullName = formData.fullName.trim();
       const cleanEmail = formData.email.trim().toLowerCase();
 
-      // Sign up with Supabase Auth
-      // Metadata (full_name, role) triggers automatic insertion into public.profiles
+      // Teacher role workflow:
+      // When user selects 'Teacher', account is created with Status: PENDING_TEACHER and Role: STUDENT.
+      // Once approved, role is updated to TEACHER.
+      const isTeacherChoice = formData.role === 'teacher';
+      const initialRole = 'student';
+      const initialStatus = isTeacherChoice ? 'PENDING_TEACHER' : 'NONE';
+      const initialTeacherStatus = isTeacherChoice ? 'pending' : 'none';
+
       const { data, error } = await supabase.auth.signUp({
         email: cleanEmail,
         password: formData.password,
         options: {
           data: {
             full_name: cleanFullName,
-            role: formData.role as UserRole,
+            role: initialRole,
+            requested_role: formData.role,
+            status: initialStatus,
+            teacher_status: initialTeacherStatus,
+            applied_at: new Date().toISOString(),
           },
         },
       });
@@ -349,6 +359,15 @@ export const SignupPage: React.FC = () => {
                   )}
                 </label>
               </div>
+
+              {formData.role === 'teacher' && (
+                <div className="mt-2.5 text-[11px] text-amber-700 dark:text-amber-300 flex items-start gap-1.5 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 p-2.5 rounded-xl">
+                  <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                  <span>
+                    <strong>Teacher Pending Review:</strong> Your account will be created with status <em>PENDING_TEACHER</em>. Once reviewed and approved, Room Creation and Host Controls will unlock.
+                  </span>
+                </div>
+              )}
 
               {errors.role && (
                 <p id="role-error" className="mt-2 text-xs text-red-500 dark:text-red-400 flex items-center gap-1 font-medium">

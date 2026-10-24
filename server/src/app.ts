@@ -248,11 +248,13 @@ app.post('/api/rooms', async (req: Request, res: Response) => {
     });
   }
 
-  if (user.role !== 'teacher') {
+  if (user.role !== 'teacher' || user.status === 'PENDING_TEACHER') {
     return res.status(403).json({
       error: {
         code: 'TEACHER_ONLY',
-        message: 'Only teachers can create rooms',
+        message: user.status === 'PENDING_TEACHER'
+          ? 'Teacher account is pending review and approval'
+          : 'Only teachers can create rooms',
       },
     });
   }
@@ -315,8 +317,19 @@ app.post('/api/rooms', async (req: Request, res: Response) => {
     });
 
     return res.status(201).json(createdRoom);
-  } catch (err) {
+  } catch (err: any) {
     console.error('[Rooms API] Error creating room:', err);
+
+    if (err?.code === 'DB_INSERT_FAILED') {
+      return res.status(503).json({
+        error: {
+          code: 'DATABASE_ERROR',
+          message: 'Failed to persist room in the database. Please try again in a moment.',
+          details: err.supabaseCode ? `Supabase error code: ${err.supabaseCode}` : undefined,
+        },
+      });
+    }
+
     return res.status(500).json({
       error: {
         code: 'INTERNAL_SERVER_ERROR',

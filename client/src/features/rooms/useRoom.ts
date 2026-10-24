@@ -180,7 +180,7 @@ export function useRoom(roomId: string | undefined): UseRoomResult {
       setRoom((prev) => {
         if (!prev) return prev;
         const members = prev.members?.map((m) =>
-          m.userId === data.userId ? { ...m, permissions: data.permissions } : m
+          m && m.userId === data.userId ? { ...m, permissions: data.permissions } : m
         );
         return { ...prev, members };
       });
@@ -212,7 +212,7 @@ export function useRoom(roomId: string | undefined): UseRoomResult {
       if (data.roomId !== roomId || !data.member) return;
       setRoom((prev) => {
         if (!prev) return prev;
-        if (prev.members?.some((m) => m.userId === data.member.userId)) return prev;
+        if (prev.members?.some((m) => m && m.userId === data.member.userId)) return prev;
         return {
           ...prev,
           members: [...(prev.members || []), data.member],
@@ -225,7 +225,7 @@ export function useRoom(roomId: string | undefined): UseRoomResult {
       if (data.roomId !== roomId) return;
       setRoom((prev) => {
         if (!prev) return prev;
-        const members = prev.members?.filter((m) => m.userId !== data.userId);
+        const members = prev.members?.filter((m) => m && m.userId !== data.userId);
         return { ...prev, members, memberCount: Math.max(0, prev.memberCount - 1) };
       });
     };
