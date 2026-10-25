@@ -1,4 +1,4 @@
-export type UserRole = 'teacher' | 'student';
+export type UserRole = 'teacher' | 'student' | 'admin' | 'TEACHER' | 'STUDENT' | 'ADMIN';
 export type MemberRole = 'host' | 'participant';
 
 export type TeacherApprovalStatus = 'PENDING_TEACHER' | 'APPROVED' | 'REJECTED' | 'NONE';
@@ -20,6 +20,8 @@ export interface Me {
   fullName: string;
   role: UserRole;
   email: string;
+  isApproved?: boolean;
+  is_verified?: boolean;
   status?: TeacherApprovalStatus;
   requestedRole?: UserRole;
 }

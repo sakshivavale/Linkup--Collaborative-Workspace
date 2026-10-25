@@ -219,3 +219,46 @@ export const requireHost: RequestHandler = async (
     });
   }
 };
+
+/**
+ * Authorization middleware to restrict unverified/pending teachers from accessing resources.
+ */
+export const requireApprovedTeacher: RequestHandler = (
+  req: Request,
+  res: Response<ApiErrorResponse>,
+  next: NextFunction
+) => {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({
+      error: {
+        code: 'UNAUTHENTICATED',
+        message: 'Authentication required',
+      },
+    });
+  }
+
+  const roleLower = (user.role || '').toLowerCase();
+  const isAdmin = roleLower === 'admin' || user.email?.toLowerCase() === 'support@gmail.com';
+  const isApproved =
+    isAdmin ||
+    user.isApproved === true ||
+    (user as any).is_verified === true ||
+    user.status === 'approved' ||
+    user.status === 'APPROVED';
+
+  if ((roleLower !== 'teacher' && !isAdmin) || !isApproved) {
+    return res.status(403).json({
+      error: {
+        code: 'TEACHER_ONLY',
+        message:
+          user.status === 'pending' || user.status === 'PENDING_TEACHER' || !isApproved
+            ? 'Your teacher account is pending administrator verification. Resource access is restricted.'
+            : 'Only verified teachers can perform this action',
+      },
+    });
+  }
+
+  next();
+};
+

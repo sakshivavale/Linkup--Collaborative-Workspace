@@ -62,7 +62,7 @@ export const DashboardPage: React.FC = () => {
   const location = useLocation();
   const { fullName, role, status, refreshProfile, session } = useAuth();
   const isPendingTeacher = status === 'PENDING_TEACHER';
-  const isTeacher = role === 'teacher' && !isPendingTeacher;
+  const isTeacher = (role || '').toLowerCase() === 'teacher' && !isPendingTeacher;
 
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isCreateRoomModalOpen, setIsCreateRoomModalOpen] = useState(false);
@@ -103,7 +103,7 @@ export const DashboardPage: React.FC = () => {
 
   useEffect(() => {
     fetchRooms();
-  }, [fetchRooms]);
+  }, [fetchRooms, isTeacher]);
 
   useEffect(() => {
     const flash = (location.state as { flash?: string } | null)?.flash;
@@ -230,7 +230,7 @@ export const DashboardPage: React.FC = () => {
                     </span>
                   </div>
                   <p className="text-xs text-slate-600 dark:text-slate-300 mt-1 max-w-2xl leading-relaxed">
-                    You signed up requesting <strong>Teacher</strong> access. Your application is currently pending review. While pending, you have full student access to join and collaborate in rooms. Room Creation and Host Controls will automatically unlock once approved.
+                    <strong>Your teacher account has been created and is currently awaiting administrator verification.</strong> While pending, you have full student access to join and collaborate in rooms. Room Creation and Host Controls will automatically unlock once approved.
                   </p>
                 </div>
               </div>

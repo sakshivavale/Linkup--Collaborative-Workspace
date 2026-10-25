@@ -13,6 +13,7 @@ import { DashboardPage } from './features/dashboard/DashboardPage';
 import { RoomPage } from './features/rooms/RoomPage';
 import { PlaygroundPage } from './features/playground/PlaygroundPage';
 import { AttendancePage } from './features/attendance/AttendancePage';
+import { AdminDashboardPage } from './features/admin/AdminDashboardPage';
 
 export const App: React.FC = () => {
   return (
@@ -31,6 +32,15 @@ export const App: React.FC = () => {
             />
             <Route
               path="/login"
+              element={
+                <PublicRoute>
+                  <LoginPage />
+                </PublicRoute>
+              }
+            />
+            {/* AC 1.1.3: Dedicated /signin route for sign in */}
+            <Route
+              path="/signin"
               element={
                 <PublicRoute>
                   <LoginPage />
@@ -60,6 +70,8 @@ export const App: React.FC = () => {
                 <Route path="/rooms/:id/attendance" element={<AttendancePage />} />
                 <Route path="/rooms/:roomId/attendance" element={<AttendancePage />} />
                 <Route path="/playground" element={<PlaygroundPage />} />
+                {/* Dedicated Admin Route (AC 1.1.3) */}
+                <Route path="/admin" element={<AdminDashboardPage />} />
                 {/* Fallback for logged-in unknown routes */}
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Route>

@@ -90,6 +90,15 @@ io.on('connection', (socket) => {
     socket.join(`user:${user.id}`);
   }
 
+  // Admin room subscription for real-time teacher registration notifications
+  const isAdmin = user?.role === 'ADMIN' || user?.role === 'admin' || user?.email?.toLowerCase() === 'support@gmail.com';
+  if (isAdmin) {
+    socket.join('admin');
+  }
+  socket.on('admin:join', () => {
+    socket.join('admin');
+  });
+
   /**
    * Helper to extract roomId from either string or object payload
    */

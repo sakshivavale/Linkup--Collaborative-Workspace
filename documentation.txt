@@ -1,0 +1,915 @@
+================================================================================
+                    LINKUP — COLLABORATIVE WORKSPACE
+   COMPREHENSIVE TECHNICAL DOCUMENTATION & SYSTEM ARCHITECTURE SPECIFICATION
+================================================================================
+Document Type   : System Architecture & Feature Engineering Specification
+Document Name   : documentation.txt
+Author          : Lead Full-Stack Architect & Core Developer
+Repository      : LinkUp — Collaborative Classroom Workspace
+Target Platform : Web (Modern Desktop & Mobile Browsers), Node.js, PostgreSQL
+================================================================================
+
+TABLE OF CONTENTS
+--------------------------------------------------------------------------------
+1. PROJECT OVERVIEW & EXECUTIVE SUMMARY
+2. FEATURE-BY-FEATURE BREAKDOWN: TOOLS USED & ARCHITECTURAL REASONS
+   2.1  Authentication, Identity & Profile Management
+   2.2  Classroom & Room Workspace Lifecycle Engine
+   2.3  Granular Host-Controlled Permission Engine (Core Innovation)
+   2.4  Real-Time Two-Way Video/Audio Conferencing & Device Management
+   2.5  Single-Presenter Screen Sharing Engine with Conflict Prevention
+   2.6  Collaborative Multi-Language Code Editor with Single-Pen Locking
+   2.7  Isolated Multi-Language Remote Code Execution Engine
+   2.8  Real-Time Shared Vector Whiteboard with State Persistence
+   2.9  Classroom Chat with Persistent History & Sanitized Link Parsing
+   2.10 Automated Session & Attendance Tracking Engine with Grace Period
+   2.11 Live Presence, Status Badging & Hand Raising Feedback System
+   2.12 Defensive Security, Input Validation & Secret Protection Layer
+3. SYSTEM ARCHITECTURE: PHASIC BREAKDOWN (USING |, >, - SYMBOLS)
+   3.1  High-Level Topology & Data Flow Map
+   3.2  Phase 1: Cryptographic Authentication & Token Issuance Phase
+   3.3  Phase 2: Room Ingress, Access Control & State Hydration Phase
+   3.4  Phase 3: WebRTC Peer-to-Peer Mesh Media Signaling Phase
+   3.5  Phase 4: Real-Time Collaborative Interaction & Remote Execution Phase
+        4A. Collaborative Monaco Code Sync & Piston Sandboxing Pipeline
+        4B. Excalidraw Element Diff & Vector Canvas Broadcast Pipeline
+        4C. Host Permission Mutation & Multi-Layer Enforcement Pipeline
+   3.6  Phase 5: Session Termination, Write-Behind Persistence & Attendance Audit
+4. EXHAUSTIVE TECHNOLOGY STACK MATRIX & RATIONALE
+5. DATA PERSISTENCE & RELATIONAL SCHEMA SPECIFICATION
+6. RECOVERY, RESILIENCE & EDGE-CASE HANDLING STRATEGIES
+7. CONCLUSION & ENGINEERING IMPACT
+
+
+================================================================================
+1. PROJECT OVERVIEW & EXECUTIVE SUMMARY
+================================================================================
+
+LinkUp is a specialized, all-in-one virtual classroom and real-time collaborative
+engineering workspace designed for computer science universities, coding
+academies, technical bootcamps, and developer mentorship programs.
+
+In traditional remote learning environments, educators and students are forced to
+maintain 4 to 6 fragmented, disconnected applications simultaneously:
+  - Video and Audio Conferencing : Zoom, Google Meet, Microsoft Teams
+  - Code Collaboration & Run    : Replit, OnlineGDB, GitHub Codespaces
+  - Diagramming & Whiteboard    : Miro, Excalidraw standalone, Google Jamboard
+  - Real-Time Chat & Links      : Slack, Discord, WhatsApp
+  - Class Administration/Roll   : Google Classroom, manual spreadsheets
+
+This fragmented ecosystem causes severe cognitive switching overhead, bandwidth
+wastage, out-of-sync context, and complete lack of classroom discipline controls.
+Standard conferencing platforms only offer crude binary controls (mute all or
+eject), leaving instructors powerless to manage student participation in a
+hands-on coding or diagramming session.
+
+LinkUp resolves this by delivering a single, unified workspace URL encompassing:
+  1. Low-latency multi-peer video, audio, and screen sharing.
+  2. Full-featured Monaco code editor supporting multiple programming languages.
+  3. Secure, isolated remote code compilation and execution.
+  4. Infinite vector collaborative whiteboard (Excalidraw).
+  5. Persistent, auditable classroom chat.
+  6. An unbypassable, host-governed 5-way permission engine (Mic, Camera, Screen,
+     Whiteboard, and Code Editor).
+  7. Fully automated, tamper-proof attendance recording with reconnect tolerance.
+
+
+================================================================================
+2. FEATURE-BY-FEATURE BREAKDOWN: TOOLS USED & ARCHITECTURAL REASONS
+================================================================================
+
+--------------------------------------------------------------------------------
+2.1 AUTHENTICATION, IDENTITY & PROFILE MANAGEMENT
+--------------------------------------------------------------------------------
+Description:
+  Provides cryptographically secure user registration, email/password login,
+  JWT token issuance, automated profile hydration, role classification (Teacher
+  vs Student), session persistence, and self-service password reset flows.
+
+Tools Used:
+  - Frontend : @supabase/supabase-js, React (useState, useEffect, useContext),
+               React Router DOM (v6), Tailwind CSS.
+  - Backend  : Express.js, TypeScript, custom Auth Middleware (Bearer JWT parsing),
+               Supabase GoTrue Auth service.
+  - Database : Supabase PostgreSQL (auth.users table, public.profiles table,
+               PostgreSQL database triggers).
+
+Reason for Using These Tools:
+  - Supabase Auth eliminates the high security risk of self-managing raw password
+    hashes, salt rounds, and token revocation lists.
+  - JWTs (JSON Web Tokens) allow stateless authentication across both HTTP REST
+    endpoints and Socket.IO handshake layers without querying the database on
+    every single WebSocket frame.
+  - PostgreSQL trigger automatically duplicates newly registered auth.users into
+    the public.profiles table, maintaining referential integrity across all room
+    memberships.
+  - Single Source of Truth: While the frontend obtains the session token from
+    Supabase, the Express backend acts as the sole gatekeeper for all application
+    data reads and writes.
+
+--------------------------------------------------------------------------------
+2.2 CLASSROOM & ROOM WORKSPACE LIFECYCLE ENGINE
+--------------------------------------------------------------------------------
+Description:
+  Enables teachers to create persistent subject rooms (e.g., "DSA Batch 2026"),
+  generates collision-resistant 6-character alphanumeric join codes, provides
+  one-click shareable join URLs, lists active rooms on the instructor and student
+  dashboards, handles member rosters, and permits archiving or deletion.
+
+Tools Used:
+  - Frontend : React Router DOM, TanStack-style data fetching patterns, Lucide React
+               (Clipboard, DoorOpen, Plus, Settings icons), Tailwind CSS.
+  - Backend  : Express.js router (/api/rooms), TypeScript, Zod schema validation,
+               custom nanoid / crypto-based code generator.
+  - Database : PostgreSQL tables: 'rooms', 'room_members' with foreign key cascades
+               and unique index on join_code.
+
+Reason for Using These Tools:
+  - 6-character uppercase codes provide zero-friction entry for students joining
+    from diverse devices without needing complex invite emails.
+  - Zod ensures runtime schema validation of input parameters before queries hit
+    the persistence layer, preventing injection or malformed data attacks.
+  - Persistent room architecture separates the concept of a "Room" (the ongoing
+    classroom containing code history, whiteboard notes, and chat) from a "Session"
+    (the ephemeral live video meeting), allowing students to review code and
+    notes asynchronously outside lecture hours.
+
+--------------------------------------------------------------------------------
+2.3 GRANULAR HOST-CONTROLLED PERMISSION ENGINE (CORE INNOVATION)
+--------------------------------------------------------------------------------
+Description:
+  The central architectural differentiator of LinkUp. The room host (teacher)
+  maintains absolute, real-time control over 5 distinct participant capability flags:
+    1. can_mic        : Permission to publish audio stream.
+    2. can_camera     : Permission to publish webcam video stream.
+    3. can_screen     : Permission to start a screen share stream.
+    4. can_whiteboard : Permission to draw or manipulate elements on Excalidraw.
+    5. can_code       : Permission to request/hold the code editor pen.
+  Includes a global "Mute All" command and immediate permission revoke triggers.
+
+Tools Used:
+  - Frontend : React custom hook (useRoom), PermissionToast notification component,
+               PeoplePanel permission matrix UI, Lucide React toggle icons.
+  - Backend  : Express REST endpoint (PATCH /api/rooms/:id/permissions/:userId),
+               Socket.IO real-time event broadcaster ('perm:changed', 'perm:sync'),
+               Server-side permission guard functions in Socket.IO event handlers.
+  - Database : PostgreSQL table 'room_members' storing booleans: can_mic,
+               can_camera, can_screen, can_whiteboard, can_code.
+
+Reason for Using These Tools:
+  - Multi-Layered Defense-in-Depth:
+      Layer 1 (UI Level)        : Buttons are disabled or hidden in the DOM.
+      Layer 2 (Socket.IO Level) : WebSocket packet handlers inspect caller ID
+                                  and reject unauthorized actions (e.g., drawing
+                                  packet discarded if can_whiteboard === false).
+      Layer 3 (Media Level)     : WebRTC tracks are stopped immediately upon
+                                  revocation signal from server.
+      Layer 4 (Database Level)  : Persistent state is updated so permissions
+                                  survive browser reloads.
+  - Socket.IO broadcast delivers instantaneous (<50ms) permission propagation,
+    causing the student's UI to unlock tools dynamically without requiring a
+    page refresh.
+
+--------------------------------------------------------------------------------
+2.4 REAL-TIME TWO-WAY VIDEO/AUDIO CONFERENCING & DEVICE MANAGEMENT
+--------------------------------------------------------------------------------
+Description:
+  Delivers interactive, multi-participant video and crystal-clear voice
+  conferencing. Allows participants to dynamically choose and switch their
+  microphone, camera, and audio output (speaker) devices on the fly with live
+  audio level indicators.
+
+Tools Used:
+  - WebRTC Native Browser APIs : RTCPeerConnection, MediaStream, MediaStreamTrack,
+                                 navigator.mediaDevices.getUserMedia,
+                                 navigator.mediaDevices.enumerateDevices.
+  - Signaling Gateway          : Socket.IO on Node.js / Express ('webrtc:offer',
+                                 'webrtc:answer', 'webrtc:ice-candidate').
+  - STUN Infrastructure        : Public Google STUN servers (stun.l.google.com:19302)
+                                 for NAT traversal and ICE candidate gathering.
+  - Frontend UI Controls       : DevicePickerModal.tsx, VideoGrid.tsx,
+                                 ParticipantTile.tsx, usePeerConnections.ts,
+                                 useMediaDevices.ts.
+
+Reason for Using These Tools:
+  - WebRTC is the open standard for sub-second, hardware-accelerated, peer-to-peer
+    audio and video transport. It avoids high server bandwidth costs of central
+    transcoding for small-to-medium classroom cohorts.
+  - Socket.IO acts as an ultra-fast signaling backplane to exchange Session
+    Description Protocol (SDP) offers, answers, and Interactive Connectivity
+    Establishment (ICE) candidates between peers.
+  - Dedicated custom hooks (useMediaDevices, usePeerConnections) cleanly isolate
+    hardware stream acquisition from React render lifecycles, preventing audio
+    feedback loops and memory leaks on unmount.
+
+--------------------------------------------------------------------------------
+2.5 SINGLE-PRESENTER SCREEN SHARING ENGINE WITH CONFLICT PREVENTION
+--------------------------------------------------------------------------------
+Description:
+  Allows an authorized user (teacher or permitted student) to broadcast their
+  desktop, application window, or browser tab. Enforces a strict server-side
+  mutex so only one participant can share at any given time, preventing stream
+  collisions and screen clobbering.
+
+Tools Used:
+  - Browser API : navigator.mediaDevices.getDisplayMedia().
+  - WebRTC      : RTCRtpSender.replaceTrack() / renegotiation over mesh channels.
+  - Backend     : Server-side screen share state coordinator (screenShare.ts in
+                  server/src/realtime), tracking activeScreenShareUserId.
+  - Frontend    : ScreenShareTile.tsx with Fullscreen API integration.
+
+Reason for Using These Tools:
+  - getDisplayMedia provides high-definition (up to 4K / 60fps), OS-level display
+    streaming with system audio capture.
+  - Server-side Mutex Lock: If another student attempts to initiate screen share
+    while someone is presenting, the server rejects the request immediately.
+  - Host Override: The host has absolute authority to revoke screen share rights,
+    which instantly triggers track termination on the presenter's client.
+
+--------------------------------------------------------------------------------
+2.6 COLLABORATIVE MULTI-LANGUAGE CODE EDITOR WITH SINGLE-PEN LOCKING
+--------------------------------------------------------------------------------
+Description:
+  An embedded professional IDE supporting Python, JavaScript, TypeScript, C++,
+  and Java. Utilizes a "Pass-the-Pen" collaboration model: all participants see
+  the code in real time, but only the active "Pen Holder" (granted by the teacher)
+  can edit. Students can click "Request Pen" to enter an orderly queue.
+
+Tools Used:
+  - Frontend Editor : @monaco-editor/react, monaco-editor (v0.57.0).
+  - Real-Time Sync  : Socket.IO events ('code:update', 'code:pen-grant',
+                      'code:pen-revoke', 'code:pen-request').
+  - State Cache     : In-memory Server Code State Cache (codeWorkspace.ts) with
+                      debounced write-behind to PostgreSQL 'code_state' table.
+  - Languages       : Python (3.10), JavaScript (Node 20), TypeScript, C++ (GCC 12),
+                      Java (OpenJDK 17).
+
+Reason for Using These Tools:
+  - Monaco Editor is the core editor that powers Visual Studio Code, providing
+    industry-standard syntax highlighting, bracket matching, code folding, and
+    line numbering.
+  - Single-Pen Paradigm vs Operational Transformation (OT/CRDT): While simultaneous
+    multi-cursor editing (like Google Docs) is useful for text, in an educational
+    programming class it leads to syntax errors, race conditions, and confusion.
+    A teacher-governed single-pen model mirrors real-world classroom pedagogy:
+    one student writes at the board while others watch, analyze, and learn.
+  - Debounced Persistence: Typing emits high-frequency WebSocket updates for zero
+    latency, but only writes to PostgreSQL after 2 seconds of inactivity,
+    protecting the database from millions of unnecessary write queries.
+
+--------------------------------------------------------------------------------
+2.7 ISOLATED MULTI-LANGUAGE REMOTE CODE EXECUTION ENGINE
+--------------------------------------------------------------------------------
+Description:
+  Allows teachers and students to execute code directly inside the browser and
+  view real-time stdout, stderr, execution time, and exit status codes without
+  requiring any local toolchains, compilers, or interpreters installed.
+
+Tools Used:
+  - Sandboxed Compiler : Piston Code Execution Engine (POST /api/v2/execute).
+  - Server Proxy       : Express backend router (/api/rooms/:id/code/run) acting
+                         as a security buffer between browser and Piston.
+  - Validation Engine  : Zod schema validator verifying language string, code
+                         payload length (<64KB), and execution timeout limits.
+  - Frontend UI        : CodeTab.tsx featuring integrated terminal output console.
+
+Reason for Using These Tools:
+  - Security & Containment: Running untrusted student code directly on the host
+    server would be catastrophic (fork bombs, disk deletion, crypto mining).
+    Piston executes every program inside an ephemeral, unprivileged Linux cgroup
+    container with strictly capped memory (128MB), CPU time (5s), and process
+    limits.
+  - Server-Side Proxying: The client never communicates with the Piston worker
+    directly. The Express server validates authorization, checks room membership,
+    sanitizes code, proxies the request, and logs the execution.
+
+--------------------------------------------------------------------------------
+2.8 REAL-TIME SHARED VECTOR WHITEBOARD WITH STATE PERSISTENCE
+--------------------------------------------------------------------------------
+Description:
+  An infinite canvas whiteboard for mathematical sketching, algorithm diagrams,
+  system design flowcharts, architecture drafting, and freehand annotation.
+  Only permitted users can draw; all participants receive live canvas updates.
+
+Tools Used:
+  - Frontend Canvas : @excalidraw/excalidraw (v0.18.1).
+  - Real-Time Sync  : Socket.IO events ('whiteboard:draw', 'whiteboard:clear',
+                      'whiteboard:sync').
+  - State Manager   : Server-side in-memory element diff and merge algorithm
+                      (whiteboard.ts) paired with PostgreSQL 'whiteboard_state'
+                      storage.
+
+Reason for Using These Tools:
+  - Excalidraw is widely recognized as the premier diagramming library with an
+    organic hand-drawn visual style, native support for shapes, text, arrows,
+    and vector serialization.
+  - JSON-Based Scene Model: Every drawing stroke or shape is serialized as a
+    discrete JSON element. This allows LinkUp to broadcast lightweight diff arrays
+    rather than heavy raster images or video frames.
+  - Read-Only Lock: When a student lacks whiteboard permissions, the component
+    renders Excalidraw in strict `viewModeEnabled={true}`, preventing accidental
+    modifications or intentional classroom vandalism.
+
+--------------------------------------------------------------------------------
+2.9 CLASSROOM CHAT WITH PERSISTENT HISTORY & SANITIZED LINK PARSING
+--------------------------------------------------------------------------------
+Description:
+  A dedicated in-room real-time messaging panel displaying sender avatars, role
+  tags (Teacher vs Student), exact timestamps, and auto-hyperlinked URLs. Chat
+  messages persist permanently in the database for the life of the room.
+
+Tools Used:
+  - Real-Time Transport : Socket.IO ('chat:message', 'chat:history').
+  - REST Fallback       : Express API (/api/rooms/:id/messages).
+  - Database Storage    : PostgreSQL 'messages' table with index on (room_id,
+                          created_at).
+  - Frontend Rendering  : ChatPanel.tsx, DOMPurify-grade regex sanitization,
+                          Lucide React Send/Link icons.
+
+Reason for Using These Tools:
+  - Dual Delivery Strategy: Instantaneous message dispatch to connected clients via
+    WebSocket, backed by synchronous database persistence ensuring zero lost
+    messages.
+  - URL Autolinking with Rel Safeguards: Automatically detects URLs (http/https)
+    and turns them into clickable anchors configured with `target="_blank"` and
+    `rel="noopener noreferrer"`, protecting users against tab-nabbing vulnerabilities.
+
+--------------------------------------------------------------------------------
+2.10 AUTOMATED SESSION & ATTENDANCE TRACKING ENGINE WITH GRACE PERIOD
+--------------------------------------------------------------------------------
+Description:
+  Eliminates manual roll calls. When an instructor clicks "Start Live Session",
+  an official session record is initiated. As participants connect or disconnect,
+  their entry and exit timestamps are recorded. To prevent false departures caused
+  by momentary network flickers or page reloads, an intelligent 60-second grace
+  period is enforced. Instructors can view attendance summaries and download a
+  verified CSV report with one click.
+
+Tools Used:
+  - State Engine   : server/src/lib/attendance.ts, server/src/realtime/presence.ts.
+  - Timers & Grace : Node.js setTimeout lifecycle dictionary tracking disconnect
+                     events per (session_id, user_id).
+  - Data Export    : Express CSV generation stream sending `text/csv` with
+                     RFC 4180 escaping.
+  - Persistence    : PostgreSQL 'sessions' and 'attendance' tables.
+
+Reason for Using These Tools:
+  - Eliminates 10 to 15 minutes of wasted lecture time normally spent on manual
+    roll-calls.
+  - Reconnection Grace Architecture: A naive socket disconnect listener would
+    artificially split a student's record into dozens of 2-minute fragments if
+    their home Wi-Fi drops momentarily. LinkUp's 60-second deferred timer cancels
+    the departure record if the student reconnects within the threshold,
+    maintaining clean, contiguous attendance records.
+  - Immutable Audit Log: Attendance records cannot be edited or fabricated by
+    students, providing university-grade attendance compliance.
+
+--------------------------------------------------------------------------------
+2.11 LIVE PRESENCE, STATUS BADGING & HAND RAISING FEEDBACK SYSTEM
+--------------------------------------------------------------------------------
+Description:
+  Displays real-time participant status across the UI: online badges, microphone
+  active/muted status, webcam status, active screen sharer, and a prioritized
+  hand-raising queue allowing students to signal questions without interrupting
+  the teacher's lecture.
+
+Tools Used:
+  - Real-Time Engine : Socket.IO presence maps (server/src/realtime/presence.ts).
+  - Frontend State   : React Context (RoomContext), custom hooks, Tailwind CSS
+                       pulse animations, Lucide React (Hand, Mic, MicOff, Video).
+
+Reason for Using These Tools:
+  - Ephemeral In-Memory Storage: Hand-raising and live speaking statuses change
+    every second. Keeping this state in memory on the Node.js server avoids
+    swamping the database with transient write operations while delivering
+    instantaneous updates to all attendees.
+
+--------------------------------------------------------------------------------
+2.12 DEFENSIVE SECURITY, INPUT VALIDATION & SECRET PROTECTION LAYER
+--------------------------------------------------------------------------------
+Description:
+  Comprehensive system-wide security hardening ensuring that API endpoints,
+  database operations, real-time channels, and execution environments are
+  impervious to common web vulnerabilities (XSS, CSRF, injection, token spoofing).
+
+Tools Used:
+  - Security Middleware : Helmet (v7.2.0) for HTTP header security (HSTS, CSP,
+                          X-Content-Type-Options, Frameguard).
+  - CORS Whitelisting   : cors (v2.8.5) strictly limiting access to verified
+                          frontend client origins.
+  - Payload Validation  : Zod (v3.23.8) schema verification on every REST body.
+  - Authentication Gate : Bearer JWT verification using Supabase public keys.
+  - Sandboxed Runner    : Docker cgroups isolation inside Piston.
+
+Reason for Using These Tools:
+  - Complete Isolation of Database: Direct client queries to PostgreSQL via Supabase
+    Row Level Security (RLS) are restricted; the Express server acts as the sole
+    trusted intermediary holding the service-role key.
+  - Defense in Depth: If a student uses developer tools or script injection to emit
+    unauthorized Socket.IO packets, server-side handler validation rejects the
+    action immediately.
+
+
+================================================================================
+3. SYSTEM ARCHITECTURE: PHASIC BREAKDOWN (USING |, >, - SYMBOLS)
+================================================================================
+
+--------------------------------------------------------------------------------
+3.1 HIGH-LEVEL TOPOLOGY & DATA FLOW MAP
+--------------------------------------------------------------------------------
+
++-----------------------------------------------------------------------------+
+|                                CLIENT TIER                                  |
+|   +---------------------------+             +---------------------------+   |
+|   |   Teacher Browser (Host)  |             | Student Browser (Member)  |   |
+|   |  - React 18 + Vite SPA    |             |  - React 18 + Vite SPA    |   |
+|   |  - Monaco Code Editor     |             |  - Monaco Code Editor     |   |
+|   |  - Excalidraw Canvas      |             |  - Excalidraw Canvas      |   |
+|   |  - WebRTC Audio/Video/Scr |             |  - WebRTC Audio/Video/Scr |   |
+|   +-------------+-------------+             +-------------+-------------+   |
++-----------------|-----------------------------------------|-----------------+
+                  |                                         |
+                  | [HTTPS / WSS]                           | [HTTPS / WSS]
+                  |                                         |
+                  v                                         v
++-----------------------------------------------------------------------------+
+|                  LINKUP APPLICATION SERVER (NODE.JS + EXPRESS)              |
+|                                                                             |
+|  +-----------------------------------------------------------------------+  |
+|  |              Security Perimeter: Helmet + CORS Whitelist              |  |
+|  +-----------------------------------+-----------------------------------+  |
+|                                      |                                      |
+|            +-------------------------+-------------------------+            |
+|            |                                                   |            |
+|            v                                                   v            |
+|  +--------------------+                             +--------------------+  |
+|  |  Express REST API  |                             |  Socket.IO Gateway |  |
+|  |  - Auth Middleware |                             |  - Handshake Auth  |  |
+|  |  - Zod Validation  |                             |  - Room Sub/Pub    |  |
+|  +---------+----------+                             +---------+----------+  |
+|            |                                                   |            |
+|            +-------------------------+-------------------------+            |
+|                                      |                                      |
+|                                      v                                      |
+|  +-----------------------------------------------------------------------+  |
+|  |                       Core Domain Services                            |  |
+|  |  [RoomService]         [PermissionService]        [SessionService]    |  |
+|  |  [CodeWorkspaceService][WhiteboardService]        [AttendanceService] |  |
+|  +-------------------+-----------------------------------+---------------+  |
++----------------------|-----------------------------------|------------------+
+                       |                                   |
+                       | [Encrypted Service-Role SQL]      | [HTTP POST /exec]
+                       v                                   v
++-------------------------------+         +-----------------------------------+
+|      DATA PERSISTENCE TIER    |         |        EXECUTION SANDBOX          |
+|   Supabase PostgreSQL Engine  |         |      Piston Isolated Worker       |
+|   - auth.users                |         |      - Docker Linux Containers    |
+|   - public.profiles           |         |      - Resource Capped (RAM/CPU)  |
+|   - public.rooms & members    |         |      - Zero Host Filesystem Access|
+|   - public.sessions & attend. |         +-----------------------------------+
+|   - public.code & whiteboard  |
++-------------------------------+
+
+--------------------------------------------------------------------------------
+3.2 PHASE 1: CRYPTOGRAPHIC AUTHENTICATION & TOKEN ISSUANCE PHASE
+--------------------------------------------------------------------------------
+
+[User Input: Email, Password, Role, Full Name]
+       |
+       |  (1. HTTPS POST /auth/v1/signup or /auth/v1/token)
+       >--------------------------------------------------+
+                                                          |
+                                                          v
+                                            +---------------------------+
+                                            |   Supabase Auth Engine    |
+                                            |   (GoTrue Cryptography)   |
+                                            +-------------+-------------+
+                                                          |
+                                                          |  (2. Validate credentials & hash)
+                                                          v
+                                            +---------------------------+
+                                            |  PostgreSQL Database      |
+                                            |  - Inserts auth.users     |
+                                            |  - DB Trigger fires       |
+                                            |  - Inserts public.profiles|
+                                            +-------------+-------------+
+                                                          |
+                                                          |  (3. Mint signed RS256 / HS256 JWT)
+       <--------------------------------------------------+
+       |
+       v
+[Client Application State (React Context)]
+       |
+       |-- Token Stored Securely in Memory / Session Storage
+       |-- User Identity Populated: { id, email, full_name, role }
+       |
+       +---> [Phase 2: Room Ingress]
+
+--------------------------------------------------------------------------------
+3.3 PHASE 2: ROOM INGRESS, ACCESS CONTROL & STATE HYDRATION PHASE
+--------------------------------------------------------------------------------
+
+[Student enters Join Code or Teacher clicks Room Dashboard]
+       |
+       |  (1. GET /api/rooms/:id with Bearer JWT Header)
+       v
++-------------------------------------------------------------+
+| Express REST Router (/api/rooms)                            |
+|  |--> authMiddleware verifies JWT signature                 |
+|  |--> roomAccessMiddleware verifies membership in DB        |
+|  |--> Queries DB for: Room metadata, Members, Permissions   |
++------------------------------+------------------------------+
+                               |
+                               |  (2. Return 200 OK + Hydration Payload)
+                               v
+[Browser Client receives Room State]
+       |
+       |  (3. Initiate WebSocket Connection: io.connect())
+       |     Auth payload: { token: Bearer_JWT, roomId: UUID }
+       v
++-------------------------------------------------------------+
+| Socket.IO Handshake Gatekeeper (server/src/realtime)        |
+|  |--> socketAuthMiddleware decodes & verifies JWT           |
+|  |--> Verifies user exists in 'room_members' table          |
+|  |--> Attaches socket to room channel: socket.join(roomId)  |
+|  |--> Broadcasts 'presence:user-joined' to room             |
+|  |--> Emits initial states:                                 |
+|         - 'code:sync' (current code, language, pen holder)  |
+|         - 'whiteboard:sync' (all current vector elements)   |
+|         - 'perm:sync' (user's specific permissions)         |
++-------------------------------------------------------------+
+
+--------------------------------------------------------------------------------
+3.4 PHASE 3: WEBRTC PEER-TO-PEER MESH MEDIA SIGNALING PHASE
+--------------------------------------------------------------------------------
+
+[Peer A (Teacher)]                                      [Peer B (Student)]
+       |                                                         |
+       |-- 1. Acquire Local Media (getUserMedia)                 |
+       |      Checks permission: can_mic / can_camera            |
+       |                                                         |
+       |-- 2. Create RTCPeerConnection                           |
+       |      Add local audio/video tracks                       |
+       |                                                         |
+       |-- 3. Create SDP Offer                                   |
+       |      pc.createOffer() -> pc.setLocalDescription()       |
+       |                                                         |
+       |-- 4. Emit 'webrtc:offer' via Socket.IO                  |
+       |      { targetUserId, sdp, callerId }                    |
+       |                                                         |
+       +-------------------> [ Socket.IO Server ]                |
+                                    |                            |
+                                    | Forward 'webrtc:offer'     |
+                                    +--------------------------->|
+                                                                 |
+                                 5. Receive Offer & Inspect <----+
+                                    pc.setRemoteDescription()
+                                    Acquire Local Media Tracks
+                                    pc.createAnswer()
+                                    pc.setLocalDescription()
+                                                                 |
+                                 6. Emit 'webrtc:answer'         |
+       |<------------------- [ Socket.IO Server ] <--------------+
+       |
+       |-- 7. Receive Answer: pc.setRemoteDescription()
+       |
+       |<==== ICE Candidate Discovery via Server Exchange ======>|
+       |      'webrtc:ice-candidate' <---> 'webrtc:ice-candidate'|
+       |                                                         |
+       +=========================================================+
+       |       ESTABLISHED DIRECT P2P ENCRYPTED WEBRTC MESH      |
+       |   (Zero Server Bandwidth Audio/Video Stream Exchange)   |
+       +=========================================================+
+
+--------------------------------------------------------------------------------
+3.5 PHASE 4: REAL-TIME COLLABORATIVE INTERACTION & REMOTE EXECUTION PHASE
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+4A. Collaborative Monaco Code Sync & Piston Sandboxing Pipeline
+--------------------------------------------------------------------------------
+
+[Student / Teacher with Pen]                       [Server / Code Service]
+       |                                                         |
+       |-- 1. Types keystroke into Monaco                        |
+       |      Emits 'code:update' { code, language }             |
+       |                                                         |
+       +-------------------------------------------------------->|
+                                                                 |-- 2. Verify: Is sender Pen Holder?
+                                                                 |      YES -> Update in-memory state
+                                                                 |      NO  -> Discard packet silently
+                                                                 |
+                                                                 |-- 3. Broadcast 'code:update'
+       |<--------------------------------------------------------+      to all room participants
+       | (Other participants render code instantaneously)        |
+       |                                                         |-- 4. Debounce Timer (2000ms)
+       |                                                         |      Writes to PostgreSQL 'code_state'
+       |
+[User Clicks "Run Code"]
+       |
+       |-- 5. POST /api/rooms/:id/code/run { language, code }
+       +-------------------------------------------------------->|
+                                                                 |-- 6. Rate-limit & validate payload
+                                                                 |      Forward to Piston Sandbox
+                                                                 |
+                                                                 v
+                                                   +---------------------------+
+                                                   | Piston Execution Engine   |
+                                                   | (Docker Container Worker) |
+                                                   | - Executes code in cgroup |
+                                                   | - Captures stdout/stderr  |
+                                                   +-------------+-------------+
+                                                                 |
+                                                                 | (Return execution result)
+       |<--------------------------------------------------------+
+       |
+       v
+[Monaco Output Terminal renders stdout, stderr & execution time]
+
+--------------------------------------------------------------------------------
+4B. Excalidraw Element Diff & Vector Canvas Broadcast Pipeline
+--------------------------------------------------------------------------------
+
+[Participant Draws on Whiteboard]
+       |
+       |-- 1. Excalidraw onChange fires with updated elements array
+       |      Checks local permission: can_whiteboard === true
+       |
+       |-- 2. Emits 'whiteboard:draw' { elements }
+       +-------------------------------------------------------->|
+                                                                 | [Server Whiteboard Service]
+                                                                 |-- 3. Guard: Verify user can_whiteboard
+                                                                 |-- 4. Merge elements in server memory
+                                                                 |-- 5. Broadcast 'whiteboard:draw'
+       |<--------------------------------------------------------+      to all room members (<50ms)
+       |
+[All Clients Receive Elements]
+       |
+       v
+[Local Excalidraw Canvas updates vector scene optimistically]
+       |
+       +---> [Server Debounce Timer: 3000ms]
+                   |
+                   v
+             [Persist full element array to PostgreSQL 'whiteboard_state']
+
+--------------------------------------------------------------------------------
+4C. Host Permission Mutation & Multi-Layer Enforcement Pipeline
+--------------------------------------------------------------------------------
+
+[Teacher (Host) in People Panel]
+       |
+       |-- 1. Clicks Toggle: e.g. Revoke 'can_mic' for Student Rahul
+       |
+       |-- 2. PATCH /api/rooms/:id/permissions/:userId
+       |      Payload: { can_mic: false }
+       v
++-------------------------------------------------------------+
+| Express Permission Controller                               |
+|  |--> 1. Verify: Is requester the authenticated Room Host?  |
+|  |--> 2. Execute SQL: UPDATE room_members SET can_mic = false|
+|  |--> 3. Trigger Socket.IO event: 'perm:changed' to Room   |
++------------------------------+------------------------------+
+                               |
+                               | (Broadcast 'perm:changed' event)
+                               v
++-------------------------------------------------------------+
+| Target Student's Browser Client                             |
+|  |--> 1. useRoom hook updates local permission state        |
+|  |--> 2. PermissionToast displays: "Host revoked your Mic"  |
+|  |--> 3. useMediaDevices halts audio MediaStreamTrack       |
+|  |--> 4. Mic button in toolbar locks to disabled state      |
++-------------------------------------------------------------+
+
+--------------------------------------------------------------------------------
+3.6 PHASE 5: SESSION TERMINATION, WRITE-BEHIND PERSISTENCE & ATTENDANCE AUDIT
+--------------------------------------------------------------------------------
+
+[Teacher clicks "End Live Session"]
+       |
+       |  (1. POST /api/rooms/:id/session/end)
+       v
++-------------------------------------------------------------+
+| Server Session Service                                      |
+|  |--> Mark active session row 'ended_at' = NOW() in DB      |
+|  |--> Close all open attendance records for present users   |
+|  |--> Broadcast 'session:ended' to all connected sockets    |
+|  |--> Force-stop any active screen share                    |
+|  |--> Flush pending code and whiteboard state to database   |
++------------------------------+------------------------------+
+                               |
+                               | (2. Signal Clients)
+                               v
++-------------------------------------------------------------+
+| Student & Teacher Browser Clients                           |
+|  |--> Stop all local WebRTC MediaStreams (Webcam, Mic, Scr) |
+|  |--> Close all RTCPeerConnections and reset video grid     |
+|  |--> UI switches from "Live Meeting" to "Workspace Mode"   |
+|  |--> Teacher can click "Export Attendance CSV" to download |
+|       comprehensive log: Name, Email, Join/Leave, Duration  |
++-------------------------------------------------------------+
+
+[Grace Period Network Disconnect Flow]
+Student Socket Drops (Wi-Fi flicker / tab refresh)
+       |
+       |--> Server detects socket disconnect
+       |--> Checks: Is there an active live session?
+       |      YES -> DO NOT close attendance immediately!
+       |             Start 60-Second Deferred Timer for (Session, User)
+       |
+       +---> Case A: Student reconnects within 60 seconds
+       |             |--> Cancel deferred timer
+       |             |--> Attendance record remains contiguous & unaffected
+       |
+       +---> Case B: Timer expires (60 seconds elapsed)
+                     |--> Finalize attendance record: 'left_at' = disconnect_time
+                     |--> Calculate total engagement duration
+
+
+================================================================================
+4. EXHAUSTIVE TECHNOLOGY STACK MATRIX & RATIONALE
+================================================================================
+
+--------------------------------------------------------------------------------
+LAYER / DOMAIN       TECHNOLOGY & VERSION    PRIMARY ARCHITECTURAL JUSTIFICATION
+--------------------------------------------------------------------------------
+Client Core          React 18.3.1            Component modularity, concurrent
+                                             rendering, rich ecosystem.
+Build Tooling        Vite 5.4.8              Sub-second HMR (Hot Module Replacement),
+                                             optimized production rollup bundles.
+Language (Frontend)  TypeScript 5.6.2        Compile-time type safety across complex
+                                             WebRTC states and socket events.
+Styling & Design     Tailwind CSS 3.4.13     Utility-first atomic styling, zero
+                                             runtime CSS overhead, consistent UI.
+Client Icons         Lucide React 0.446.0    Lightweight, modern SVG icon set for
+                                             meeting controls and classroom tools.
+Client Routing       React Router DOM 6.26.2 Declarative client-side routing, route
+                                             guards for authenticated views.
+Code Editor Engine   @monaco-editor/react    Powers Visual Studio Code; native syntax
+                     monaco-editor 0.57.0    highlighting, indentation, bracket match.
+Whiteboard Canvas    @excalidraw/excalidraw  Intuitive vector sketch canvas, JSON
+                     version 0.18.1          serialization, performant rendering.
+Realtime Client      socket.io-client 4.7.5  Automatic fallback, heartbeat ping/pong,
+                                             binary buffer support, reconnection.
+Server Framework     Express.js 4.19.2       Minimal, high-throughput HTTP server,
+                                             flexible middleware architecture.
+Server Runtime       Node.js LTS (v20+)      Event-driven, non-blocking I/O ideal
+                                             for thousands of concurrent WebSockets.
+Language (Backend)   TypeScript 5.4.5        Full type synchronization between shared
+                                             workspace packages and server logic.
+Dev Execution        ts-node-dev / tsx       Rapid local development with instant
+                                             TypeScript execution and auto-restart.
+WebSocket Gateway    Socket.IO 4.7.5         Low-latency bidirectional event channels,
+                                             room-based multiplexing, auth hooks.
+Identity & Auth      Supabase GoTrue Auth    Industry-standard JWT authentication,
+                                             secure password hashing, zero DB burden.
+Database Engine      PostgreSQL 15 (Supabase)ACID compliant relational database,
+                                             foreign key constraints, DB triggers.
+Data Validation      Zod 3.23.8              Strict runtime schema validation for
+                                             incoming REST request payloads.
+HTTP Hardening       Helmet 7.2.0            Sets security HTTP response headers
+                                             (CSP, XSS-Protection, HSTS, Sniff guard).
+CORS Security        cors 2.8.5              Strict origin filtering matching Render
+                                             production and local dev origins.
+Code Execution       Piston v2 (Dockerized)  Isolated cgroup Linux containers,
+                                             safe multi-language execution sandbox.
+Audio/Video P2P      WebRTC Native Browser   Ultra-low latency (<200ms) peer-to-peer
+                     MediaStream & RTC APIs  hardware-accelerated media streaming.
+NAT Traversal        Google STUN Servers     Public STUN endpoints resolving public
+                                             IPs and ports behind NATs.
+Shared Types         @linkup/shared          Workspace package sharing TypeScript
+                                             interfaces between client and server.
+--------------------------------------------------------------------------------
+
+
+================================================================================
+5. DATA PERSISTENCE & RELATIONAL SCHEMA SPECIFICATION
+================================================================================
+
+The LinkUp persistence model uses a strongly typed relational architecture in
+PostgreSQL, designed for relational integrity and fast indexed lookups.
+
+Table: public.profiles
+--------------------------------------------------------------------------------
+  id            UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE
+  email         VARCHAR NOT NULL
+  full_name     VARCHAR NOT NULL
+  role          VARCHAR NOT NULL CHECK (role IN ('teacher', 'student'))
+  created_at    TIMESTAMPTZ DEFAULT NOW()
+
+Table: public.rooms
+--------------------------------------------------------------------------------
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid()
+  name          VARCHAR NOT NULL
+  subject       VARCHAR
+  join_code     VARCHAR(6) UNIQUE NOT NULL (Index: idx_rooms_join_code)
+  host_id       UUID NOT NULL REFERENCES public.profiles(id) ON DELETE RESTRICT
+  is_archived   BOOLEAN DEFAULT FALSE
+  created_at    TIMESTAMPTZ DEFAULT NOW()
+
+Table: public.room_members
+--------------------------------------------------------------------------------
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid()
+  room_id       UUID NOT NULL REFERENCES public.rooms(id) ON DELETE CASCADE
+  user_id       UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE
+  role          VARCHAR NOT NULL CHECK (role IN ('host', 'participant'))
+  can_mic       BOOLEAN DEFAULT TRUE
+  can_camera    BOOLEAN DEFAULT TRUE
+  can_screen    BOOLEAN DEFAULT FALSE
+  can_whiteboardBOOLEAN DEFAULT FALSE
+  can_code      BOOLEAN DEFAULT FALSE
+  joined_at     TIMESTAMPTZ DEFAULT NOW()
+  UNIQUE(room_id, user_id)
+
+Table: public.sessions
+--------------------------------------------------------------------------------
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid()
+  room_id       UUID NOT NULL REFERENCES public.rooms(id) ON DELETE CASCADE
+  host_id       UUID NOT NULL REFERENCES public.profiles(id)
+  started_at    TIMESTAMPTZ DEFAULT NOW()
+  ended_at      TIMESTAMPTZ NULL
+
+Table: public.attendance
+--------------------------------------------------------------------------------
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid()
+  session_id    UUID NOT NULL REFERENCES public.sessions(id) ON DELETE CASCADE
+  user_id       UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE
+  joined_at     TIMESTAMPTZ DEFAULT NOW()
+  left_at       TIMESTAMPTZ NULL
+  duration_secs INTEGER DEFAULT 0
+
+Table: public.messages
+--------------------------------------------------------------------------------
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid()
+  room_id       UUID NOT NULL REFERENCES public.rooms(id) ON DELETE CASCADE
+  user_id       UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE
+  content       TEXT NOT NULL
+  created_at    TIMESTAMPTZ DEFAULT NOW()
+  (Index: idx_messages_room_time ON (room_id, created_at))
+
+Table: public.code_state
+--------------------------------------------------------------------------------
+  room_id       UUID PRIMARY KEY REFERENCES public.rooms(id) ON DELETE CASCADE
+  language      VARCHAR(32) NOT NULL DEFAULT 'javascript'
+  content       TEXT NOT NULL DEFAULT ''
+  updated_at    TIMESTAMPTZ DEFAULT NOW()
+
+Table: public.whiteboard_state
+--------------------------------------------------------------------------------
+  room_id       UUID PRIMARY KEY REFERENCES public.rooms(id) ON DELETE CASCADE
+  elements_json JSONB NOT NULL DEFAULT '[]'::jsonb
+  updated_at    TIMESTAMPTZ DEFAULT NOW()
+
+
+================================================================================
+6. RECOVERY, RESILIENCE & EDGE-CASE HANDLING STRATEGIES
+================================================================================
+
+1. Network Disconnection & Reconnection Resiliency:
+   - Socket.IO clients automatically engage exponential backoff reconnection.
+   - When a socket drops, the participant's in-memory media tracks and presence
+     are placed on a 60-second hold.
+   - If the participant returns within 60 seconds (same user_id), their session
+     is reattached, the attendance timer is preserved, and the latest room state
+     (code + whiteboard) is re-synced via 'code:sync' and 'whiteboard:sync'.
+
+2. Write-Behind Database Throttling:
+   - High-speed collaborative typing (Monaco) and sketching (Excalidraw) emit
+     dozens of WebSocket events per second.
+   - Direct database writes on every stroke would saturate connection pools.
+   - LinkUp maintains in-memory buffers and uses debounced timers (2s for code,
+     3s for whiteboard) to persist state to PostgreSQL only when changes settle,
+     or immediately when a session ends or the room empties.
+
+3. Unauthorized Socket Event Interception:
+   - Client-side code can be modified or inspected in browser DevTools.
+   - The backend never trusts client events:
+     * 'code:update' verifies if socket.data.userId === activePenHolder.
+     * 'whiteboard:draw' checks if socket.data.permissions.can_whiteboard === true.
+     * 'screenshare:start' checks if another presenter is already active.
+   - Violating packets are dropped at the gateway layer and log a warning.
+
+4. Host Disconnection Without Ending Meeting:
+   - If the teacher accidentally closes their laptop or loses power, the live
+     session remains active for a 5-minute safety threshold.
+   - Students remain connected in audio/video and the session is not terminated
+     abruptly.
+   - When the teacher logs back in, they immediately re-assume the Host mantle
+     with full control over participants and meeting termination.
+
+
+================================================================================
+7. CONCLUSION & ENGINEERING IMPACT
+================================================================================
+
+LinkUp establishes a new paradigm in educational technology by combining
+high-performance real-time media with rigid, teacher-governed classroom discipline.
+By unifying WebRTC mesh media, Monaco code editing, Piston sandboxed execution,
+Excalidraw diagramming, and automated attendance under a single Express/Socket.IO
+architecture, LinkUp eliminates cognitive context switching, protects learning
+environments from online disruptions, and delivers an uncompromising, professional
+grade virtual engineering classroom.
+
+================================================================================
+                           END OF SPECIFICATION FILE
+================================================================================
