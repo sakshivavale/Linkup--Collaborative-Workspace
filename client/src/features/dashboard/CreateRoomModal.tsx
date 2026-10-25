@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
   X, 
   Mic, 
@@ -75,6 +76,7 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
   onClose,
   onSuccess,
 }) => {
+  const navigate = useNavigate();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [permissions, setPermissions] = useState<Permissions>(DEFAULT_PERMISSIONS);
@@ -184,12 +186,22 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
             'Your session has expired. Please refresh the page and sign in again.'
           );
         } else if (err.status === 403) {
-          const isTeacherPending = err.code === 'TEACHER_ONLY' && err.message?.includes('pending');
-          setErrorMessage(
-            isTeacherPending
-              ? 'Your teacher account is pending review. Rooms can only be created once your account is approved.'
-              : 'Permission denied: Only approved teachers can create classroom rooms.'
-          );
+          const isTeacherPending =
+            err.code === 'TEACHER_NOT_APPROVED' ||
+            (err.code === 'TEACHER_ONLY' && err.message?.includes('pending'));
+          if (isTeacherPending) {
+            setErrorMessage(
+              'Your teacher account is pending administrator verification. Room creation is disabled.'
+            );
+            setTimeout(() => {
+              onClose();
+              navigate('/pending-approval');
+            }, 1200);
+          } else {
+            setErrorMessage(
+              'Permission denied: Only approved teachers can create classroom rooms.'
+            );
+          }
         } else if (err.status === 400) {
           setErrorMessage(
             err.message || 'Invalid room details. Please check the room name and description.'

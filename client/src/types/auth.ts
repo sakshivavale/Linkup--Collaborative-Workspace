@@ -17,7 +17,7 @@ export interface SignUpFormData {
   fullName: string;
   email: string;
   password: string;
-  role: 'teacher' | 'student' | '';
+  role: UserRole | '';
 }
 
 export interface SignUpFormErrors {

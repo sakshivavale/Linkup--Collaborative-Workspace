@@ -239,22 +239,35 @@ export const requireApprovedTeacher: RequestHandler = (
   }
 
   const roleLower = (user.role || '').toLowerCase();
-  const isAdmin = roleLower === 'admin' || user.email?.toLowerCase() === 'support@gmail.com';
+  const isAdmin = user.isAdmin || roleLower === 'admin' || user.email?.toLowerCase() === 'support@gmail.com';
+  if (isAdmin) {
+    return next();
+  }
+
+  const isTeacher = roleLower === 'teacher';
   const isApproved =
-    isAdmin ||
     user.isApproved === true ||
     (user as any).is_verified === true ||
     user.status === 'approved' ||
     user.status === 'APPROVED';
 
-  if ((roleLower !== 'teacher' && !isAdmin) || !isApproved) {
+  const isApprovedTeacher = isTeacher && user.isApproved !== false && user.status !== 'PENDING_TEACHER' && isApproved;
+
+  // US-2.1 AC 2.1.3: Server-side API enforcement for unapproved teacher
+  if (isTeacher && !isApprovedTeacher) {
+    return res.status(403).json({
+      statusCode: 403,
+      error: 'TEACHER_NOT_APPROVED',
+      message: 'Your teacher account is pending administrator verification. Room creation is disabled.',
+    } as any);
+  }
+
+  // Non-teacher role rejection (e.g. students)
+  if (!isTeacher) {
     return res.status(403).json({
       error: {
         code: 'TEACHER_ONLY',
-        message:
-          user.status === 'pending' || user.status === 'PENDING_TEACHER' || !isApproved
-            ? 'Your teacher account is pending administrator verification. Resource access is restricted.'
-            : 'Only verified teachers can perform this action',
+        message: 'Only teachers can create rooms',
       },
     });
   }
