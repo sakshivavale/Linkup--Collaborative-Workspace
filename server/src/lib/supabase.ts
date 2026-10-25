@@ -20,6 +20,13 @@ interface CachedUser {
 const tokenCache = new Map<string, CachedUser>();
 const CACHE_TTL_MS = 60 * 1000;
 
+// In-memory set of suspended user IDs for instant real-time revocation
+const suspendedUsersSet = new Set<string>();
+
+export function isUserSuspended(userId: string): boolean {
+  return suspendedUsersSet.has(userId);
+}
+
 export async function verifyToken(token: string): Promise<Me | null> {
   if (!token) return null;
 
@@ -72,7 +79,7 @@ export async function verifyToken(token: string): Promise<Me | null> {
     try {
       const { data: profile } = await supabase
         .from('profiles')
-        .select('full_name, role, is_approved, status')
+        .select('full_name, role, is_approved, status, is_suspended, "isSuspended"')
         .eq('id', user.id)
         .single();
 
@@ -108,14 +115,25 @@ export async function verifyToken(token: string): Promise<Me | null> {
 
     const resolvedRole: any = isAdmin ? 'ADMIN' : isTeacher ? 'teacher' : 'student';
 
+    // Suspension detection (AC 3.4.3)
+    const isSuspended =
+      suspendedUsersSet.has(user.id) ||
+      profileData?.is_suspended === true ||
+      profileData?.isSuspended === true ||
+      user.user_metadata?.isSuspended === true ||
+      user.user_metadata?.is_suspended === true ||
+      rawStatus === 'SUSPENDED' ||
+      rawStatus === 'suspended';
+
+    if (isSuspended) {
+      suspendedUsersSet.add(user.id);
+    }
+
     // Status extraction
-    const rawStatus =
-      statusFromDb ||
-      profileData?.status ||
-      user.user_metadata?.status ||
-      user.user_metadata?.teacher_status;
-    let status: 'PENDING_TEACHER' | 'APPROVED' | 'REJECTED' | 'NONE' = 'NONE';
-    if (rawStatus === 'PENDING_TEACHER' || rawStatus === 'pending') {
+    let status: 'PENDING_TEACHER' | 'APPROVED' | 'REJECTED' | 'SUSPENDED' | 'NONE' = 'NONE';
+    if (isSuspended) {
+      status = 'SUSPENDED';
+    } else if (rawStatus === 'PENDING_TEACHER' || rawStatus === 'pending') {
       status = 'PENDING_TEACHER';
     } else if (rawStatus === 'APPROVED' || rawStatus === 'approved') {
       status = 'APPROVED';
@@ -161,6 +179,7 @@ export async function verifyToken(token: string): Promise<Me | null> {
       status,
       requestedRole: (user.user_metadata?.requested_role || user.user_metadata?.requestedRole || profileData?.role || role) as any,
       isAdmin,
+      isSuspended,
     };
 
     tokenCache.set(token, {
@@ -197,6 +216,42 @@ export function updateUserApprovalInCache(userId: string, isApproved: boolean, s
       cached.user.isApproved = isApproved;
       cached.user.status = status;
       cached.user.role = isApproved ? 'teacher' : 'student';
+    }
+  }
+}
+
+export function updateUserRoleInCache(userId: string, newRole: string, isApproved: boolean) {
+  const normRole = (newRole || '').toLowerCase();
+  for (const [, cached] of tokenCache.entries()) {
+    if (cached.user.id === userId) {
+      cached.user.role = (normRole === 'admin' ? 'ADMIN' : normRole === 'teacher' ? 'teacher' : 'student') as any;
+      cached.user.isApproved = isApproved;
+      if (normRole === 'admin') {
+        cached.user.isAdmin = true;
+      }
+      if (cached.user.status !== 'SUSPENDED') {
+        cached.user.status = isApproved ? 'APPROVED' : 'PENDING_TEACHER';
+      }
+    }
+  }
+}
+
+export function setUserSuspension(userId: string, isSuspended: boolean) {
+  if (isSuspended) {
+    suspendedUsersSet.add(userId);
+    for (const [, cached] of tokenCache.entries()) {
+      if (cached.user.id === userId) {
+        cached.user.isSuspended = true;
+        cached.user.status = 'SUSPENDED' as any;
+      }
+    }
+  } else {
+    suspendedUsersSet.delete(userId);
+    for (const [, cached] of tokenCache.entries()) {
+      if (cached.user.id === userId) {
+        cached.user.isSuspended = false;
+        cached.user.status = 'APPROVED';
+      }
     }
   }
 }

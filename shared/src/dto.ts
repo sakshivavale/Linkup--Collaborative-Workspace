@@ -1,7 +1,7 @@
 export type UserRole = 'teacher' | 'student' | 'admin' | 'TEACHER' | 'STUDENT' | 'ADMIN';
 export type MemberRole = 'host' | 'participant';
 
-export type TeacherApprovalStatus = 'PENDING_TEACHER' | 'APPROVED' | 'REJECTED' | 'NONE';
+export type TeacherApprovalStatus = 'PENDING_TEACHER' | 'APPROVED' | 'REJECTED' | 'SUSPENDED' | 'NONE';
 
 export const PERMISSION_KEYS = [
   'canMic',
@@ -22,9 +22,10 @@ export interface Me {
   email: string;
   isApproved?: boolean;
   is_verified?: boolean;
-  status?: TeacherApprovalStatus;
+  status?: TeacherApprovalStatus | string;
   requestedRole?: UserRole;
   isAdmin?: boolean;
+  isSuspended?: boolean;
 }
 
 /** US-3.1: Platform Analytics Overview DTO */
@@ -69,6 +70,34 @@ export interface ProvisionTeacherResponse {
     email: string;
     temporaryPassword?: string;
   };
+}
+
+/** US-3.4: Platform User Directory DTOs */
+export interface PlatformUserItem {
+  id: string;
+  fullName: string;
+  email: string;
+  role: 'STUDENT' | 'TEACHER' | 'ADMIN' | string;
+  status: 'APPROVED' | 'PENDING' | 'SUSPENDED' | 'REJECTED' | string;
+  isApproved: boolean;
+  isSuspended: boolean;
+  createdAt: string;
+  department?: string;
+}
+
+export interface PlatformUserDirectoryResponse {
+  users: PlatformUserItem[];
+  total: number;
+}
+
+export interface UpdateUserRoleDto {
+  role: 'STUDENT' | 'TEACHER' | 'ADMIN' | 'student' | 'teacher' | 'admin';
+}
+
+export interface UpdateUserStatusDto {
+  isSuspended?: boolean;
+  status?: 'APPROVED' | 'PENDING' | 'SUSPENDED' | string;
+  action?: 'suspend' | 'unsuspend' | 'approve' | 'reject';
 }
 
 export interface UpdateProfileDto {
