@@ -4,7 +4,7 @@ import helmet from 'helmet';
 import { Socket } from 'socket.io';
 import { RoomSummary } from '@linkup/shared';
 import { env } from './config/env';
-import { requireAuth, requireMember, requireHost, requireApprovedTeacher } from './middleware/auth';
+import { requireAuth, requireMember, requireHost, requireApprovedTeacher, requireAdmin } from './middleware/auth';
 import { supabase, updateTokenCacheUserName, invalidateUserCache } from './lib/supabase';
 import {
   getRoomsForUser,
@@ -91,7 +91,17 @@ app.get('/health', (_req: Request, res: Response) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// requireAuth middleware is applied to every route except GET /health, execution health check, and registration/verification hooks
+// US-2.2 AC 2.2.3: Administrative API Route Middleware (requireAdmin)
+// Applied to all endpoints under /api/admin/* and /admin/*
+app.use(['/api/admin', '/admin'], (req: Request, res: Response, next: NextFunction) => {
+  // Allow elevate endpoint to pass through for passkey promotion
+  if (req.path === '/elevate' || req.path === '/api/admin/elevate') {
+    return next();
+  }
+  return requireAdmin(req, res, next);
+});
+
+// requireAuth middleware is applied to every route except GET /health, execution health check, registration hooks, and admin routes (handled by requireAdmin)
 app.use((req: Request, res: Response, next: NextFunction) => {
   if (
     (req.method === 'GET' &&
@@ -101,8 +111,8 @@ app.use((req: Request, res: Response, next: NextFunction) => {
         req.path === '/api/health/execution')) ||
     req.path.startsWith('/api/auth/register') ||
     req.path.startsWith('/auth/register') ||
-    req.path.includes('/verify-teacher') ||
-    req.path.includes('/pending-teachers')
+    req.path.startsWith('/api/admin') ||
+    req.path.startsWith('/admin')
   ) {
     return next();
   }

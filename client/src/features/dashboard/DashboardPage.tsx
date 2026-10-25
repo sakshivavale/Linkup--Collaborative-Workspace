@@ -125,6 +125,12 @@ export const DashboardPage: React.FC = () => {
       const timer = window.setTimeout(() => setSuccessNotification(null), 4000);
       return () => window.clearTimeout(timer);
     }
+    if (flash === 'ADMIN_ACCESS_DENIED' || flash === 'ACCESS_DENIED') {
+      const msg = (location.state as { message?: string })?.message || 'Access Denied: Administrator privileges required.';
+      setSuccessNotification(msg);
+      const timer = window.setTimeout(() => setSuccessNotification(null), 5000);
+      return () => window.clearTimeout(timer);
+    }
   }, [location.state]);
 
   const toggleFirstRoomLiveStatus = () => {

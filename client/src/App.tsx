@@ -17,6 +17,7 @@ import { AdminDashboardPage } from './features/admin/AdminDashboardPage';
 import { PendingApprovalPage } from './features/auth/PendingApprovalPage';
 import { CreateRoomPage } from './features/rooms/CreateRoomPage';
 import { TeacherRouteGuard } from './components/auth/TeacherRouteGuard';
+import { AdminRouteGuard } from './components/auth/AdminRouteGuard';
 
 export const App: React.FC = () => {
   return (
@@ -65,6 +66,40 @@ export const App: React.FC = () => {
               element={<ResetPasswordPage />}
             />
 
+            {/* US-2.2: Dedicated Administrative Routes with Route Guarding (AC 2.2.1, AC 2.2.2) */}
+            <Route
+              path="/admin"
+              element={
+                <AdminRouteGuard>
+                  <AdminDashboardPage />
+                </AdminRouteGuard>
+              }
+            />
+            <Route
+              path="/admin/users"
+              element={
+                <AdminRouteGuard>
+                  <AdminDashboardPage />
+                </AdminRouteGuard>
+              }
+            />
+            <Route
+              path="/admin/approvals"
+              element={
+                <AdminRouteGuard>
+                  <AdminDashboardPage />
+                </AdminRouteGuard>
+              }
+            />
+            <Route
+              path="/admin/*"
+              element={
+                <AdminRouteGuard>
+                  <AdminDashboardPage />
+                </AdminRouteGuard>
+              }
+            />
+
             {/* Standalone protected route for unapproved teacher gating screen (AC 2.1.2) */}
             <Route element={<ProtectedRoute />}>
               <Route path="/pending-approval" element={<PendingApprovalPage />} />
@@ -83,8 +118,6 @@ export const App: React.FC = () => {
                     </TeacherRouteGuard>
                   }
                 />
-                {/* Dedicated Admin Route (AC 1.1.3) */}
-                <Route path="/admin" element={<AdminDashboardPage />} />
                 <Route path="/rooms/:id" element={<RoomPage />} />
                 <Route path="/rooms/:id/attendance" element={<AttendancePage />} />
                 <Route path="/rooms/:roomId/attendance" element={<AttendancePage />} />

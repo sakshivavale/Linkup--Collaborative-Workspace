@@ -30,17 +30,22 @@ export const LoginPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // Where to redirect after login (default to '/')
+  // Where to redirect after login (default to '/', respects ?redirect= query param for AC 2.2.2 or location.state?.from)
+  const searchParams = new URLSearchParams(location.search);
+  const redirectParam = searchParams.get('redirect');
   const fromState = (location.state as { from?: any })?.from;
-  let from = '/';
-  if (typeof fromState === 'string') {
-    from = fromState;
-  } else if (fromState && typeof fromState === 'object' && fromState.pathname) {
-    from = `${fromState.pathname}${fromState.search || ''}${fromState.hash || ''}`;
+  let from = redirectParam || '/';
+
+  if (!redirectParam) {
+    if (typeof fromState === 'string') {
+      from = fromState;
+    } else if (fromState && typeof fromState === 'object' && fromState.pathname) {
+      from = `${fromState.pathname}${fromState.search || ''}${fromState.hash || ''}`;
+    }
   }
 
   // Safety check: Avoid redirect loop if from points to auth pages
-  if (from === '/login' || from === '/signup') {
+  if (from === '/login' || from === '/signup' || from === '/signin') {
     from = '/';
   }
 

@@ -275,3 +275,76 @@ export const requireApprovedTeacher: RequestHandler = (
   next();
 };
 
+/**
+ * Express middleware to enforce admin privileges on administrative API routes (US-2.2 AC 2.2.3).
+ * Given an HTTP request directed at any endpoint under /api/admin/*
+ * When processed by requireAdmin Express middleware:
+ * - If token is missing or invalid: responds with HTTP 401 Unauthorized ({ "error": "UNAUTHORIZED" }).
+ * - If user.role !== 'ADMIN' or user.isApproved !== true: responds with HTTP 403 Forbidden ({ "error": "FORBIDDEN_ADMIN_ONLY" }).
+ * - If valid admin: attaches req.user and calls next().
+ */
+export const requireAdmin: RequestHandler = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader) {
+    return res.status(401).json({
+      error: 'UNAUTHORIZED',
+      message: 'Authorization header is required',
+    } as any);
+  }
+
+  const match = authHeader.match(/^Bearer\s+(.+)$/i);
+  if (!match) {
+    return res.status(401).json({
+      error: 'UNAUTHORIZED',
+      message: 'Malformed Authorization header. Format must be: Bearer <token>',
+    } as any);
+  }
+
+  const token = match[1].trim();
+  if (!token) {
+    return res.status(401).json({
+      error: 'UNAUTHORIZED',
+      message: 'Access token is empty',
+    } as any);
+  }
+
+  let user = req.user;
+  if (!user) {
+    const verified = await verifyToken(token);
+    if (!verified) {
+      return res.status(401).json({
+        error: 'UNAUTHORIZED',
+        message: 'Invalid or expired access token',
+      } as any);
+    }
+    user = verified;
+  }
+
+  // AC 2.2.3: Check user role and approval status
+  // If user.role !== 'ADMIN' or user.isApproved !== true: responds with HTTP 403 Forbidden
+  const roleUpper = (user.role || '').toUpperCase();
+  const isAdminRole = roleUpper === 'ADMIN' || user.isAdmin === true;
+  const isApproved =
+    (user.isApproved === true ||
+      (user as any).is_approved === true ||
+      (user.isAdmin === true && user.isApproved !== false)) &&
+    user.isApproved !== false;
+
+  if (!isAdminRole || !isApproved) {
+    return res.status(403).json({
+      error: 'FORBIDDEN_ADMIN_ONLY',
+      message: 'Access Denied: Administrator privileges required.',
+    } as any);
+  }
+
+  // Ensure role is normalized to 'ADMIN'
+  user.role = 'ADMIN' as any;
+  req.user = user;
+  next();
+};
+
