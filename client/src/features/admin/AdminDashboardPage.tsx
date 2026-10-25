@@ -93,7 +93,7 @@ export const AdminDashboardPage: React.FC = () => {
   return (
     <div className="min-h-screen ambient-bg flex flex-col transition-colors duration-300">
       {/* Minimal Header */}
-      <header className="border-b border-slate-200/80 dark:border-slate-800/80 bg-white/80 dark:bg-[#090d16]/80 backdrop-blur-md sticky top-0 z-50">
+      <header className="border-b border-slate-200/80 dark:border-slate-800/80 bg-white/80 dark:bg-[#090d16]/80 backdrop-blur-md sticky top-0 z-20">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Logo size="sm" showText={true} />

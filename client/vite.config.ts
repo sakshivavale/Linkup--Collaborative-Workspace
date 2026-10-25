@@ -93,6 +93,7 @@ export default defineConfig({
   },
   plugins: [react(), preventSecretLeakPlugin()],
   resolve: {
+    extensions: ['.ts', '.tsx', '.mjs', '.js', '.jsx', '.json'],
     alias: {
       '@linkup/shared': path.resolve(__dirname, '../shared/src/index.ts'),
     },
