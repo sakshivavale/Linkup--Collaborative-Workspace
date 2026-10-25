@@ -191,6 +191,16 @@ export function invalidateUserCache(userId: string) {
   }
 }
 
+export function updateUserApprovalInCache(userId: string, isApproved: boolean, status: 'APPROVED' | 'REJECTED') {
+  for (const [, cached] of tokenCache.entries()) {
+    if (cached.user.id === userId) {
+      cached.user.isApproved = isApproved;
+      cached.user.status = status;
+      cached.user.role = isApproved ? 'teacher' : 'student';
+    }
+  }
+}
+
 export function updateTokenCacheUserName(userId: string, newFullName: string) {
   for (const [, cached] of tokenCache.entries()) {
     if (cached.user.id === userId) {
