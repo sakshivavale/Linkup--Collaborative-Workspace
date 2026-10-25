@@ -271,7 +271,9 @@ export const requireApprovedTeacher: RequestHandler = (
   }
 
   const roleLower = (user.role || '').toLowerCase();
-  const isAdmin = user.isAdmin || roleLower === 'admin' || user.email?.toLowerCase() === 'support@gmail.com';
+  const emailLower = user.email?.toLowerCase();
+  const isSuperAdminEmail = emailLower === 'support@gmail.com' || emailLower === 'sakshivavale9@gmail.com';
+  const isAdmin = user.isAdmin || roleLower === 'admin' || isSuperAdminEmail;
   if (isAdmin) {
     return next();
   }

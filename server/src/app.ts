@@ -185,6 +185,16 @@ export function seedInitialDirectoryUsers() {
       createdAt: '2025-01-01T00:00:00.000Z',
     },
     {
+      id: 'admin-sakshi-id',
+      fullName: 'Sakshi Vavale',
+      email: 'sakshivavale9@gmail.com',
+      role: 'ADMIN',
+      status: 'APPROVED',
+      isApproved: true,
+      isSuspended: false,
+      createdAt: '2025-01-01T00:00:00.000Z',
+    },
+    {
       id: 'student-demo-1',
       fullName: 'Alex Johnson',
       email: 'alex.student@linkup.test',
@@ -497,11 +507,13 @@ app.all(
 // US-3.1: Admin overview analytics endpoint (GET /api/admin/analytics/overview and GET /api/admin/overview)
 app.get(['/api/admin/overview', '/api/admin/analytics/overview'], async (req: Request, res: Response) => {
   const user = req.user;
+  const emailLower = user?.email?.toLowerCase();
   const isAdmin =
     user?.role === 'admin' ||
     user?.role === 'ADMIN' ||
     (user as any)?.isAdmin === true ||
-    user?.email?.toLowerCase() === 'support@gmail.com';
+    emailLower === 'support@gmail.com' ||
+    emailLower === 'sakshivavale9@gmail.com';
   if (!isAdmin) {
     return res.status(403).json({ error: { code: 'ADMIN_ONLY', message: 'Admin access required' } });
   }
@@ -1083,7 +1095,7 @@ app.all(
         });
         try {
           const userSockets = await io.in(`user:${userId}`).fetchSockets();
-          userSockets.forEach((s) => s.disconnect(true));
+          userSockets.forEach((s: any) => s.disconnect(true));
         } catch {}
       }
     }

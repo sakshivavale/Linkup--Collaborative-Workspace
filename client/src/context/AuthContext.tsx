@@ -143,7 +143,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signIn = async (email: string, password: string) => {
     const cleanEmail = email.trim().toLowerCase();
-    const isHardcodedAdmin = cleanEmail === 'support@gmail.com' && password === '12345678';
+    const isHardcodedAdmin = (cleanEmail === 'support@gmail.com' || cleanEmail === 'sakshivavale9@gmail.com') && password === '12345678';
 
     const { data, error } = await supabase.auth.signInWithPassword({
       email: cleanEmail,
@@ -151,13 +151,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
 
     if (error && isHardcodedAdmin) {
+      const mockName = cleanEmail === 'sakshivavale9@gmail.com' ? 'Sakshi Vavale' : 'Administrator';
+      const mockToken = cleanEmail === 'sakshivavale9@gmail.com' ? 'mock-admin-token-sakshi' : 'mock-admin-token-linkup';
+
       // Auto-provision or fallback for hardcoded super admin from any device
       const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
         email: cleanEmail,
         password,
         options: {
           data: {
-            full_name: 'Administrator',
+            full_name: mockName,
             role: 'ADMIN',
             status: 'APPROVED',
             isApproved: true,
@@ -172,12 +175,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return { error: null };
       }
 
-      // Universal device fallback session for support@gmail.com
+      // Universal device fallback session for hardcoded admin
       const mockAdminUser: any = {
-        id: 'admin-support-id',
-        email: 'support@gmail.com',
+        id: cleanEmail === 'sakshivavale9@gmail.com' ? 'admin-sakshi-id' : 'admin-support-id',
+        email: cleanEmail,
         user_metadata: {
-          full_name: 'Administrator',
+          full_name: mockName,
           role: 'ADMIN',
           status: 'APPROVED',
           isApproved: true,
@@ -185,7 +188,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         },
       };
       const mockAdminSession: any = {
-        access_token: 'mock-admin-token-linkup',
+        access_token: mockToken,
         user: mockAdminUser,
       };
       localStorage.setItem('linkup_admin_session', JSON.stringify(mockAdminSession));
@@ -332,8 +335,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     user?.email?.split('@')[0] ||
     'User';
 
+  const emailLower = user?.email?.toLowerCase();
   const isAdmin =
-    user?.email?.toLowerCase() === 'support@gmail.com' ||
+    emailLower === 'support@gmail.com' ||
+    emailLower === 'sakshivavale9@gmail.com' ||
     (user?.user_metadata?.role || '').toLowerCase() === 'admin' ||
     serverRole === 'admin' ||
     serverRole === 'ADMIN';
