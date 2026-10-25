@@ -15,6 +15,8 @@
     "test:create-room": "tsx scripts/test-create-room-teacher.ts",
     "test:teacher-approval": "tsx scripts/test-teacher-approval-workflow.ts",
     "test:teacher-protection": "tsx scripts/test-teacher-feature-protection.ts",
+    "test:admin-guard": "tsx scripts/test-admin-route-guarding-rbac.ts",
+    "test:admin-rbac": "tsx scripts/test-admin-route-guarding-rbac.ts",
     "test:regenerate": "tsx scripts/test-regenerate-join-code.ts",
     "test:edit-archive": "tsx scripts/test-edit-archive-room.ts",
     "test:presence": "tsx scripts/test-room-presence.ts",
