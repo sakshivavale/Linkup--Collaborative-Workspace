@@ -245,6 +245,16 @@ async function runTests() {
     console.log('\n\x1b[34m[Test 5]\x1b[0m Verifying dynamic pending queue urgency & status transitions (AC 3.1.2)...\n');
 
     // 5a. When pending count > 0 -> Urgency badge with direct link "Review Queue →"
+    if (pendingTeachersStore.size === 0) {
+      pendingTeachersStore.set('test-pending-urgency-check', {
+        id: 'test-pending-urgency-check',
+        fullName: 'Test Pending Teacher',
+        email: 'test.pending@analytics.edu',
+        createdAt: new Date().toISOString(),
+        status: 'pending',
+        is_verified: false,
+      });
+    }
     const currentPending = pendingTeachersStore.size;
     assert(
       currentPending > 0,
