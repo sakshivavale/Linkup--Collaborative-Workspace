@@ -62,8 +62,8 @@ export const DashboardPage: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const { fullName, role, isApproved, status, refreshProfile, session } = useAuth();
-  const isTeacherRole = (role || '').toLowerCase() === 'teacher';
-  const isApprovedTeacher = isTeacherRole && Boolean(isApproved);
+  const isTeacherRole = role?.toLowerCase() === 'teacher';
+  const isApprovedTeacher = isTeacherRole && isApproved;
   const isPendingTeacher = (isTeacherRole && !isApproved) || status === 'PENDING_TEACHER';
   const isTeacher = isApprovedTeacher;
 

@@ -97,9 +97,10 @@ export const SignupPage: React.FC = () => {
 
       // Role and approval provisioning (US-1.1 AC 1.1.1 & AC 1.1.2)
       const isTeacherChoice = formData.role === 'teacher';
-      const assignedRole = isTeacherChoice ? 'TEACHER' : 'STUDENT';
-      const assignedApproval = !isTeacherChoice;
-      const assignedStatus = isTeacherChoice ? 'PENDING_TEACHER' : 'APPROVED';
+      const initialRole = isTeacherChoice ? 'TEACHER' : 'STUDENT';
+      const isApproved = !isTeacherChoice;
+      const initialStatus = isTeacherChoice ? 'PENDING_TEACHER' : 'APPROVED';
+      const initialTeacherStatus = isTeacherChoice ? 'pending' : 'approved';
 
       const { data, error } = await supabase.auth.signUp({
         email: cleanEmail,
@@ -107,12 +108,12 @@ export const SignupPage: React.FC = () => {
         options: {
           data: {
             full_name: cleanFullName,
-            role: assignedRole,
-            requested_role: assignedRole,
-            status: assignedStatus,
-            isApproved: assignedApproval,
-            is_approved: assignedApproval,
-            teacher_status: isTeacherChoice ? 'pending' : 'approved',
+            role: initialRole,
+            requested_role: initialRole,
+            status: initialStatus,
+            isApproved,
+            is_approved: isApproved,
+            teacher_status: initialTeacherStatus,
             applied_at: new Date().toISOString(),
           },
         },
@@ -149,9 +150,9 @@ export const SignupPage: React.FC = () => {
             id: data.user.id,
             full_name: cleanFullName,
             role: isTeacherChoice ? 'teacher' : 'student',
-            isApproved: assignedApproval,
-            is_approved: assignedApproval,
-            status: assignedStatus,
+            isApproved,
+            is_approved: isApproved,
+            status: initialStatus,
           });
         } catch {
           // Handled by database triggers if profiles schema is locked

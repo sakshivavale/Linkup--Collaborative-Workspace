@@ -58,6 +58,16 @@ export async function verifyToken(token: string): Promise<Me | null> {
     const isHardcodedAdmin = user.email?.toLowerCase() === 'support@gmail.com';
 
     let profileData: any = null;
+    let isApprovedFromMeta: boolean | undefined = undefined;
+    if (user.user_metadata?.isApproved !== undefined) {
+      isApprovedFromMeta = Boolean(user.user_metadata.isApproved);
+    } else if (user.user_metadata?.is_approved !== undefined) {
+      isApprovedFromMeta = Boolean(user.user_metadata.is_approved);
+    }
+
+    let isApprovedFromDb: boolean | undefined = undefined;
+    let statusFromDb: any = undefined;
+
     // If database profile exists, fetch it
     try {
       const { data: profile } = await supabase
@@ -70,6 +80,12 @@ export async function verifyToken(token: string): Promise<Me | null> {
         profileData = profile;
         if (profile.full_name) fullName = profile.full_name;
         if (profile.role) role = profile.role;
+        statusFromDb = profile.status;
+        if (profile.isApproved !== undefined && profile.isApproved !== null) {
+          isApprovedFromDb = Boolean(profile.isApproved);
+        } else if (profile.is_approved !== undefined && profile.is_approved !== null) {
+          isApprovedFromDb = Boolean(profile.is_approved);
+        }
       }
     } catch {
       // Profile table might not have row yet, fallback to user_metadata is safe
@@ -91,6 +107,7 @@ export async function verifyToken(token: string): Promise<Me | null> {
 
     // Status extraction
     const rawStatus =
+      statusFromDb ||
       profileData?.status ||
       user.user_metadata?.status ||
       user.user_metadata?.teacher_status;
@@ -110,14 +127,10 @@ export async function verifyToken(token: string): Promise<Me | null> {
       isApproved = true;
       status = 'APPROVED';
     } else if (isTeacher) {
-      if (profileData?.isApproved !== undefined && profileData?.isApproved !== null) {
-        isApproved = Boolean(profileData.isApproved);
-      } else if (profileData?.is_approved !== undefined && profileData?.is_approved !== null) {
-        isApproved = Boolean(profileData.is_approved);
-      } else if (user.user_metadata?.isApproved !== undefined) {
-        isApproved = Boolean(user.user_metadata.isApproved);
-      } else if (user.user_metadata?.is_approved !== undefined) {
-        isApproved = Boolean(user.user_metadata.is_approved);
+      if (isApprovedFromDb !== undefined) {
+        isApproved = isApprovedFromDb;
+      } else if (isApprovedFromMeta !== undefined) {
+        isApproved = isApprovedFromMeta;
       } else if (status === 'PENDING_TEACHER') {
         isApproved = false;
       } else {
@@ -130,14 +143,10 @@ export async function verifyToken(token: string): Promise<Me | null> {
         status = 'APPROVED';
       }
     } else {
-      if (profileData?.is_approved !== undefined && profileData?.is_approved !== null) {
-        isApproved = Boolean(profileData.is_approved);
-      } else if (profileData?.isApproved !== undefined && profileData?.isApproved !== null) {
-        isApproved = Boolean(profileData.isApproved);
-      } else if (user.user_metadata?.is_approved !== undefined) {
-        isApproved = Boolean(user.user_metadata.is_approved);
-      } else if (user.user_metadata?.isApproved !== undefined) {
-        isApproved = Boolean(user.user_metadata.isApproved);
+      if (isApprovedFromDb !== undefined) {
+        isApproved = isApprovedFromDb;
+      } else if (isApprovedFromMeta !== undefined) {
+        isApproved = isApprovedFromMeta;
       } else {
         isApproved = true;
       }
