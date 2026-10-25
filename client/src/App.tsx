@@ -13,6 +13,9 @@ import { DashboardPage } from './features/dashboard/DashboardPage';
 import { RoomPage } from './features/rooms/RoomPage';
 import { PlaygroundPage } from './features/playground/PlaygroundPage';
 import { AttendancePage } from './features/attendance/AttendancePage';
+import { PendingApprovalPage } from './features/auth/PendingApprovalPage';
+import { CreateRoomPage } from './features/rooms/CreateRoomPage';
+import { TeacherRouteGuard } from './components/auth/TeacherRouteGuard';
 
 export const App: React.FC = () => {
   return (
@@ -52,10 +55,24 @@ export const App: React.FC = () => {
               element={<ResetPasswordPage />}
             />
 
+            {/* Standalone protected route for unapproved teacher gating screen (AC 2.1.2) */}
+            <Route element={<ProtectedRoute />}>
+              <Route path="/pending-approval" element={<PendingApprovalPage />} />
+            </Route>
+
             {/* Protected routes wrapped with authentication check and layout */}
             <Route element={<ProtectedRoute />}>
               <Route element={<AppLayout />}>
                 <Route path="/" element={<DashboardPage />} />
+                {/* US-2.1 AC 2.1.1: Teacher feature protection & pending approval gate */}
+                <Route
+                  path="/create-room"
+                  element={
+                    <TeacherRouteGuard>
+                      <CreateRoomPage />
+                    </TeacherRouteGuard>
+                  }
+                />
                 <Route path="/rooms/:id" element={<RoomPage />} />
                 <Route path="/rooms/:id/attendance" element={<AttendancePage />} />
                 <Route path="/rooms/:roomId/attendance" element={<AttendancePage />} />

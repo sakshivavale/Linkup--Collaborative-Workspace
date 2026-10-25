@@ -95,11 +95,11 @@ export const SignupPage: React.FC = () => {
 
       // Teacher role workflow:
       // When user selects 'Teacher', account is created with Status: PENDING_TEACHER and Role: STUDENT.
-      // Once approved, role is updated to TEACHER.
       const isTeacherChoice = formData.role === 'teacher';
-      const initialRole = 'student';
-      const initialStatus = isTeacherChoice ? 'PENDING_TEACHER' : 'NONE';
-      const initialTeacherStatus = isTeacherChoice ? 'pending' : 'none';
+      const initialRole = formData.role || 'student';
+      const isApproved = !isTeacherChoice;
+      const initialStatus = isTeacherChoice ? 'PENDING_TEACHER' : 'APPROVED';
+      const initialTeacherStatus = isTeacherChoice ? 'pending' : 'approved';
 
       const { data, error } = await supabase.auth.signUp({
         email: cleanEmail,
@@ -108,6 +108,8 @@ export const SignupPage: React.FC = () => {
           data: {
             full_name: cleanFullName,
             role: initialRole,
+            isApproved,
+            is_approved: isApproved,
             requested_role: formData.role,
             status: initialStatus,
             teacher_status: initialTeacherStatus,

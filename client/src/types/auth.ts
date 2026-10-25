@@ -6,7 +6,9 @@ export interface UserProfile {
   email: string;
   fullName: string;
   role: UserRole;
+  isApproved?: boolean;
   status?: TeacherApprovalStatus;
+  requestedRole?: UserRole;
   createdAt?: string;
 }
 

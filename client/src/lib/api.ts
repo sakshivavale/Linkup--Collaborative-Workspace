@@ -187,9 +187,17 @@ async function handleResponse<T>(res: Response): Promise<T> {
       // not JSON
     }
 
-    const code = errorData?.error?.code || (res.status === 401 ? 'UNAUTHENTICATED' : 'UNKNOWN_ERROR');
-    const message = errorData?.error?.message || res.statusText;
-    const details = errorData?.error?.details;
+    const code =
+      (typeof (errorData as any)?.error === 'string'
+        ? (errorData as any).error
+        : errorData?.error?.code) ||
+      (errorData as any)?.code ||
+      (res.status === 401 ? 'UNAUTHENTICATED' : 'UNKNOWN_ERROR');
+    const message =
+      (typeof errorData?.error === 'object'
+        ? errorData?.error?.message
+        : (errorData as any)?.message) || res.statusText;
+    const details = typeof errorData?.error === 'object' ? errorData?.error?.details : undefined;
 
     throw new HttpError(res.status, code, message, details, errorData);
   }

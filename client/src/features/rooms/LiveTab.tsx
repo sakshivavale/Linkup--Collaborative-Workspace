@@ -60,7 +60,7 @@ export const LiveTab: React.FC<LiveTabProps> = ({
   onMediaPermissionError,
 }) => {
   const isControlsDisabled = Boolean(disabled || isReconnecting);
-  const { user } = useAuth();
+  const { user, fullName } = useAuth();
   const { room } = useRoom(roomId);
 
   const [micOn, setMicOn] = useState(true);
@@ -142,7 +142,7 @@ export const LiveTab: React.FC<LiveTabProps> = ({
         ...list,
         {
           id: user.id,
-          name: user.fullName || 'You',
+          name: fullName || 'You',
           isMuted: !micOn,
           cameraOff: !camOn,
           isSpeaking: false,
@@ -164,7 +164,7 @@ export const LiveTab: React.FC<LiveTabProps> = ({
           : (remoteStreams.get(p.id) || null),
       };
     });
-  }, [participants, user?.id, user?.fullName, inCall, camOn, micOn, isHandRaised, mediaDevices.localStream, remoteStreams]);
+  }, [participants, user?.id, fullName, inCall, camOn, micOn, isHandRaised, mediaDevices.localStream, remoteStreams]);
 
   // Sync handRaised status when room loads or presence updates
   useEffect(() => {

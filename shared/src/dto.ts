@@ -20,8 +20,10 @@ export interface Me {
   fullName: string;
   role: UserRole;
   email: string;
+  isApproved?: boolean;
   status?: TeacherApprovalStatus;
   requestedRole?: UserRole;
+  isAdmin?: boolean;
 }
 
 export interface UpdateProfileDto {
