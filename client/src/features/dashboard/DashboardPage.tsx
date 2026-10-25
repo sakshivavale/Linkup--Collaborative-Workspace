@@ -468,9 +468,7 @@ export const DashboardPage: React.FC = () => {
                 Source: {roomsFetchSource === 'server' ? 'Live API (/api/rooms)' : 'Demo Samples'}
               </span>
             </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-              Rooms with active sessions display a <span className="font-bold text-rose-600 dark:text-rose-400">"Live"</span> badge and instant <span className="font-semibold text-slate-800 dark:text-slate-200">Join</span> button (US-DASH-02). Hosts also see their <span className="font-bold text-indigo-600 dark:text-indigo-400">join code</span> with a copy button (US-DASH-05).
-            </p>
+
           </div>
 
           <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">

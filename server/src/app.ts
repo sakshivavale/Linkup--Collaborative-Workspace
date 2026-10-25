@@ -159,23 +159,8 @@ export function clearMockAnalytics() {
   mockAnalyticsOverride = null;
 }
 
-// Pre-seed sample pending teachers for admin verification review
-pendingTeachersStore.set('t-seed-1', {
-  id: 't-seed-1',
-  fullName: 'Dr. Evelyn Reed',
-  email: 'evelyn.reed@university.edu',
-  createdAt: new Date(Date.now() - 3600000).toISOString(),
-  status: 'pending',
-  is_verified: false,
-});
-pendingTeachersStore.set('t-seed-2', {
-  id: 't-seed-2',
-  fullName: 'Prof. Arthur Davies',
-  email: 'arthur.davies@polytech.org',
-  createdAt: new Date(Date.now() - 7200000).toISOString(),
-  status: 'pending',
-  is_verified: false,
-});
+// Real-time pending teachers store: populated only upon actual teacher registration or database query
+
 
 /**
  * Real-Time Registration Notification:
@@ -247,21 +232,22 @@ app.get(
       if (dbProfiles && dbProfiles.length > 0) {
         dbProfiles.forEach((p: any) => {
           const role = (p.role || '').toString().toLowerCase();
+          const statusLower = (p.status || '').toString().toLowerCase();
           const isApproved =
             p.isApproved === true ||
             p.is_approved === true ||
-            p.status === 'approved' ||
-            p.status === 'APPROVED';
-          const isPending =
-            (role === 'teacher' && !isApproved) ||
-            p.status === 'PENDING_TEACHER' ||
-            p.status === 'pending';
+            statusLower === 'approved';
+          const isRejected = statusLower === 'rejected';
+          const isPendingTeacher =
+            !isApproved &&
+            !isRejected &&
+            (role === 'teacher' || p.status === 'PENDING_TEACHER');
 
-          if (isPending && !pendingTeachersStore.has(p.id)) {
+          if (isPendingTeacher && !pendingTeachersStore.has(p.id)) {
             pendingTeachersStore.set(p.id, {
               id: p.id,
-              fullName: p.full_name || 'Instructor Candidate',
-              email: p.id.includes('@') ? p.id : `teacher-${p.id.slice(0, 5)}@university.edu`,
+              fullName: p.full_name || 'Teacher Applicant',
+              email: p.email || (p.id.includes('@') ? p.id : `teacher-${p.id.slice(0, 5)}@linkup.edu`),
               createdAt: p.created_at || new Date().toISOString(),
               status: 'pending',
               is_verified: false,
@@ -446,25 +432,22 @@ app.get(['/api/admin/overview', '/api/admin/analytics/overview'], async (req: Re
 
         profiles.forEach((p) => {
           const role = (p.role || '').toString().toLowerCase();
+          const statusLower = (p.status || '').toString().toLowerCase();
           const isApproved =
             p.isApproved === true ||
             p.is_approved === true ||
-            p.status?.toString().toLowerCase() === 'approved';
-          const isPending =
-            p.isApproved === false ||
-            p.is_approved === false ||
-            p.status?.toString().toLowerCase() === 'pending' ||
-            p.status === 'PENDING_TEACHER';
+            statusLower === 'approved';
+          const isRejected = statusLower === 'rejected';
 
           if (role === 'student') {
             activeStudents++;
           } else if (role === 'teacher') {
             if (isApproved) {
               approvedTeachers++;
+            } else if (!isRejected) {
+              pendingApprovals++;
             }
-          }
-
-          if (isPending) {
+          } else if (p.status === 'PENDING_TEACHER' && !isApproved && !isRejected) {
             pendingApprovals++;
           }
         });
@@ -475,7 +458,7 @@ app.get(['/api/admin/overview', '/api/admin/analytics/overview'], async (req: Re
 
     // 3. Reconcile with in-memory pendingTeachersStore
     const inMemoryPendingCount = Array.from(pendingTeachersStore.values()).filter(
-      (t) => t.status === 'pending' || !t.is_verified
+      (t) => t.status === 'pending' && !t.is_verified
     ).length;
 
     if (!dbConnected) {
@@ -484,7 +467,6 @@ app.get(['/api/admin/overview', '/api/admin/analytics/overview'], async (req: Re
       approvedTeachers = Array.from(pendingTeachersStore.values()).filter(
         (t) => t.status === 'approved' || t.is_verified
       ).length;
-      if (approvedTeachers === 0) approvedTeachers = 2; // Baseline verified instructors
       activeStudents = 8; // Baseline student users
       totalUsers = activeStudents + approvedTeachers + pendingApprovals;
     } else if (inMemoryPendingCount > pendingApprovals) {
