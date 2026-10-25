@@ -17,6 +17,7 @@
     "test:teacher-protection": "tsx scripts/test-teacher-feature-protection.ts",
     "test:admin-guard": "tsx scripts/test-admin-route-guarding-rbac.ts",
     "test:admin-rbac": "tsx scripts/test-admin-route-guarding-rbac.ts",
+    "test:admin-analytics": "tsx scripts/test-platform-analytics-overview.ts",
     "test:regenerate": "tsx scripts/test-regenerate-join-code.ts",
     "test:edit-archive": "tsx scripts/test-edit-archive-room.ts",
     "test:presence": "tsx scripts/test-room-presence.ts",

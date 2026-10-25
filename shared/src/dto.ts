@@ -27,6 +27,21 @@ export interface Me {
   isAdmin?: boolean;
 }
 
+/** US-3.1: Platform Analytics Overview DTO */
+export interface PlatformAnalyticsOverview {
+  totalUsers: number;
+  activeStudents: number;
+  approvedTeachers: number;
+  pendingApprovals: number;
+  activeRooms: number;
+  // Backward compatibility aliases
+  usersCount?: number;
+  studentsCount?: number;
+  approvedTeachersCount?: number;
+  pendingApprovalsCount?: number;
+  activeRoomsCount?: number;
+}
+
 export interface UpdateProfileDto {
   fullName: string;
 }
