@@ -142,6 +142,21 @@ export interface PendingTeacherRecord {
 
 export const pendingTeachersStore = new Map<string, PendingTeacherRecord>();
 
+// US-3.3: Direct "+ Add Teacher" Pre-Approved Provisioning Store
+export interface ProvisionedTeacherRecord {
+  id: string;
+  fullName: string;
+  email: string;
+  role: 'teacher';
+  isApproved: boolean;
+  status: 'APPROVED' | 'PENDING_TEACHER';
+  department?: string;
+  createdAt: string;
+  temporaryPassword?: string;
+}
+
+export const provisionedTeachersStore = new Map<string, ProvisionedTeacherRecord>();
+
 export interface MockAnalyticsOverride {
   totalUsers?: number;
   activeStudents?: number;
@@ -539,6 +554,165 @@ app.get(['/api/admin/overview', '/api/admin/analytics/overview'], async (req: Re
     console.error('[Admin Analytics] Error building overview:', error);
     return res.status(500).json({ error: { code: 'SERVER_ERROR', message: error.message } });
   }
+});
+
+// US-3.3: Direct "+ Add Teacher" Pre-Approved Provisioning (AC 3.3.1, AC 3.3.2, AC 3.3.3)
+app.post(['/api/admin/teachers/provision', '/admin/teachers/provision'], async (req: Request, res: Response) => {
+  const { fullName, email, password, department, subject, preApprove = true } = req.body || {};
+
+  if (!fullName || typeof fullName !== 'string' || !fullName.trim()) {
+    return res.status(400).json({
+      error: { code: 'VALIDATION', message: 'Full Name is required.' },
+    });
+  }
+
+  if (!email || typeof email !== 'string' || !email.trim()) {
+    return res.status(400).json({
+      error: { code: 'VALIDATION', message: 'Institutional Email is required.' },
+    });
+  }
+
+  const normalizedEmail = email.trim().toLowerCase();
+  const trimmedName = fullName.trim();
+  const trimmedDept = (department || subject || '').toString().trim();
+  const shouldPreApprove = preApprove !== false;
+
+  // 1. Check duplicate email in in-memory pendingTeachersStore and provisioned store
+  const existingPending = Array.from(pendingTeachersStore.values()).find(
+    (t) => t.email.toLowerCase() === normalizedEmail
+  );
+  if (existingPending) {
+    return res.status(409).json({
+      error: {
+        code: 'DUPLICATE_EMAIL',
+        message: 'A user with this email address already exists in the system.',
+      },
+    });
+  }
+
+  const existingProvisioned = Array.from(provisionedTeachersStore.values()).find(
+    (t) => t.email.toLowerCase() === normalizedEmail
+  );
+  if (existingProvisioned) {
+    return res.status(409).json({
+      error: {
+        code: 'DUPLICATE_EMAIL',
+        message: 'A user with this email address already exists in the system.',
+      },
+    });
+  }
+
+  // 2. Generate temporary password if not provided
+  const temporaryPassword =
+    password && password.trim().length >= 8
+      ? password.trim()
+      : `Teacher_${Math.random().toString(36).slice(2, 6).toUpperCase()}_${Date.now().toString().slice(-4)}!`;
+
+  let teacherId = `teacher-prov-${Date.now()}`;
+
+  // 3. Attempt Supabase Auth user creation if Supabase service role is active
+  try {
+    const { data: authUser, error: authErr } = await supabase.auth.admin.createUser({
+      email: normalizedEmail,
+      password: temporaryPassword,
+      email_confirm: true,
+      user_metadata: {
+        full_name: trimmedName,
+        fullName: trimmedName,
+        role: 'teacher',
+        isApproved: shouldPreApprove,
+        is_approved: shouldPreApprove,
+        status: shouldPreApprove ? 'APPROVED' : 'PENDING_TEACHER',
+        department: trimmedDept || undefined,
+      },
+    });
+
+    if (authErr) {
+      const msg = authErr.message?.toLowerCase() || '';
+      if (msg.includes('already') || msg.includes('exists') || (authErr as any).status === 422) {
+        return res.status(409).json({
+          error: {
+            code: 'DUPLICATE_EMAIL',
+            message: 'A user with this email address already exists in the system.',
+          },
+        });
+      }
+    } else if (authUser?.user?.id) {
+      teacherId = authUser.user.id;
+    }
+  } catch (err: any) {
+    console.warn('[Teacher Provisioning] Supabase Auth creation note:', err.message);
+  }
+
+  // 4. Upsert into public.profiles database table
+  try {
+    await supabase.from('profiles').upsert({
+      id: teacherId,
+      full_name: trimmedName,
+      role: 'teacher',
+      is_approved: shouldPreApprove,
+      isApproved: shouldPreApprove,
+      status: shouldPreApprove ? 'APPROVED' : 'PENDING_TEACHER',
+    });
+  } catch (dbErr: any) {
+    console.warn('[Teacher Provisioning] Database profiles upsert note:', dbErr.message);
+  }
+
+  // 5. Store record in in-memory store
+  const record: ProvisionedTeacherRecord = {
+    id: teacherId,
+    fullName: trimmedName,
+    email: normalizedEmail,
+    role: 'teacher',
+    isApproved: shouldPreApprove,
+    status: shouldPreApprove ? 'APPROVED' : 'PENDING_TEACHER',
+    department: trimmedDept || undefined,
+    createdAt: new Date().toISOString(),
+    temporaryPassword,
+  };
+  provisionedTeachersStore.set(teacherId, record);
+
+  if (!shouldPreApprove) {
+    pendingTeachersStore.set(teacherId, {
+      id: teacherId,
+      fullName: trimmedName,
+      email: normalizedEmail,
+      createdAt: record.createdAt,
+      status: 'pending',
+      is_verified: false,
+    });
+  }
+
+  // 6. Broadcast real-time updates
+  const io = req.app.get('io');
+  if (io) {
+    io.to('admin').emit('analytics_updated');
+    io.to('admin').emit('teacher_provisioned', record);
+    if (!shouldPreApprove) {
+      io.to('admin').emit('teacher_created', record);
+    }
+  }
+
+  return res.status(201).json({
+    success: true,
+    message: shouldPreApprove
+      ? 'Teacher account created and pre-approved. Credentials ready to share.'
+      : 'Teacher account created and added to approval queue.',
+    teacher: {
+      id: teacherId,
+      fullName: trimmedName,
+      email: normalizedEmail,
+      role: 'teacher',
+      isApproved: shouldPreApprove,
+      status: shouldPreApprove ? 'APPROVED' : 'PENDING_TEACHER',
+      department: trimmedDept || undefined,
+      temporaryPassword,
+    },
+    credentials: {
+      email: normalizedEmail,
+      temporaryPassword,
+    },
+  });
 });
 
 // Admin elevation endpoint

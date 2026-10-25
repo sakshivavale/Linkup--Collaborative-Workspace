@@ -42,6 +42,35 @@ export interface PlatformAnalyticsOverview {
   activeRoomsCount?: number;
 }
 
+/** US-3.3: Direct "+ Add Teacher" Pre-Approved Provisioning DTO */
+export interface ProvisionTeacherDto {
+  fullName: string;
+  email: string;
+  password?: string;
+  department?: string;
+  subject?: string;
+  preApprove?: boolean;
+}
+
+export interface ProvisionTeacherResponse {
+  success: boolean;
+  message: string;
+  teacher: {
+    id: string;
+    fullName: string;
+    email: string;
+    role: string;
+    isApproved: boolean;
+    status: string;
+    department?: string;
+    temporaryPassword?: string;
+  };
+  credentials?: {
+    email: string;
+    temporaryPassword?: string;
+  };
+}
+
 export interface UpdateProfileDto {
   fullName: string;
 }
