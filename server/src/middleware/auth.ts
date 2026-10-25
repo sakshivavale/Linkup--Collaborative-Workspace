@@ -248,7 +248,7 @@ export const requireApprovedTeacher: RequestHandler = (
   const isApproved =
     user.isApproved === true ||
     (user as any).is_verified === true ||
-    user.status === 'approved' ||
+    (user.status as any) === 'approved' ||
     user.status === 'APPROVED';
 
   const isApprovedTeacher = isTeacher && user.isApproved !== false && user.status !== 'PENDING_TEACHER' && isApproved;

@@ -472,7 +472,7 @@ app.get('/api/rooms', async (req: Request, res: Response) => {
   }
 });
 
-// Create room endpoint (FR-8.3, FR-2.1, US-DASH-03) — approved teacher only
+// Create room endpoint (FR-8.3, FR-2.1, US-DASH-03, US-2.1) — approved teacher only
 app.post('/api/rooms', requireApprovedTeacher, async (req: Request, res: Response) => {
   const user = req.user!;
 

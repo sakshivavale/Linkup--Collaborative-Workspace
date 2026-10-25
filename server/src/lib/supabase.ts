@@ -72,7 +72,7 @@ export async function verifyToken(token: string): Promise<Me | null> {
     try {
       const { data: profile } = await supabase
         .from('profiles')
-        .select('full_name, role, status, is_approved, "isApproved"')
+        .select('full_name, role, is_approved, status')
         .eq('id', user.id)
         .single();
 
@@ -80,11 +80,13 @@ export async function verifyToken(token: string): Promise<Me | null> {
         profileData = profile;
         if (profile.full_name) fullName = profile.full_name;
         if (profile.role) role = profile.role;
-        statusFromDb = profile.status;
-        if (profile.isApproved !== undefined && profile.isApproved !== null) {
-          isApprovedFromDb = Boolean(profile.isApproved);
-        } else if (profile.is_approved !== undefined && profile.is_approved !== null) {
-          isApprovedFromDb = Boolean(profile.is_approved);
+        if ((profile as any).is_approved !== undefined && (profile as any).is_approved !== null) {
+          isApprovedFromDb = Boolean((profile as any).is_approved);
+        } else if ((profile as any).isApproved !== undefined && (profile as any).isApproved !== null) {
+          isApprovedFromDb = Boolean((profile as any).isApproved);
+        }
+        if ((profile as any).status) {
+          statusFromDb = (profile as any).status;
         }
       }
     } catch {
@@ -92,15 +94,16 @@ export async function verifyToken(token: string): Promise<Me | null> {
     }
 
     // Role detection
+    const roleLower = (role || '').toString().toLowerCase();
     const isTeacher =
-      role?.toString().toLowerCase() === 'teacher' ||
+      roleLower === 'teacher' ||
       user.user_metadata?.role?.toString().toLowerCase() === 'teacher' ||
       user.user_metadata?.requested_role?.toString().toLowerCase() === 'teacher' ||
       user.user_metadata?.requestedRole?.toString().toLowerCase() === 'teacher';
 
     const isAdmin =
       isHardcodedAdmin ||
-      role?.toString().toLowerCase() === 'admin' ||
+      roleLower === 'admin' ||
       user.user_metadata?.role?.toString().toLowerCase() === 'admin';
 
     const resolvedRole: any = isAdmin ? 'ADMIN' : isTeacher ? 'teacher' : 'student';
@@ -111,7 +114,6 @@ export async function verifyToken(token: string): Promise<Me | null> {
       profileData?.status ||
       user.user_metadata?.status ||
       user.user_metadata?.teacher_status;
-
     let status: 'PENDING_TEACHER' | 'APPROVED' | 'REJECTED' | 'NONE' = 'NONE';
     if (rawStatus === 'PENDING_TEACHER' || rawStatus === 'pending') {
       status = 'PENDING_TEACHER';
@@ -134,6 +136,7 @@ export async function verifyToken(token: string): Promise<Me | null> {
       } else if (status === 'PENDING_TEACHER') {
         isApproved = false;
       } else {
+        // Unapproved teacher defaults to false pending admin verification
         isApproved = false;
       }
 
@@ -143,14 +146,10 @@ export async function verifyToken(token: string): Promise<Me | null> {
         status = 'APPROVED';
       }
     } else {
-      if (isApprovedFromDb !== undefined) {
-        isApproved = isApprovedFromDb;
-      } else if (isApprovedFromMeta !== undefined) {
-        isApproved = isApprovedFromMeta;
-      } else {
-        isApproved = true;
+      isApproved = isApprovedFromDb !== undefined ? isApprovedFromDb : isApprovedFromMeta !== undefined ? isApprovedFromMeta : true;
+      if (status === 'NONE') {
+        status = 'APPROVED';
       }
-      status = status === 'REJECTED' ? 'REJECTED' : 'APPROVED';
     }
 
     const authUser: Me = {

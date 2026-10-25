@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { api } from '../../lib/api';
-import { socket } from '../../lib/socket';
 import { SignUpFormData, SignUpFormErrors } from '../../types/auth';
 import { ThemeToggle } from '../../components/ui/ThemeToggle';
 import { Logo } from '../../components/ui/Logo';
@@ -109,7 +108,7 @@ export const SignupPage: React.FC = () => {
           data: {
             full_name: cleanFullName,
             role: initialRole,
-            requested_role: initialRole,
+            requested_role: formData.role,
             status: initialStatus,
             isApproved,
             is_approved: isApproved,

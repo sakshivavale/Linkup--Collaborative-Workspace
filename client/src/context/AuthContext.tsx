@@ -358,19 +358,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     ''
   ).toString().toLowerCase();
 
-  const isTeacherUser = requestedRole === 'teacher';
+  const isTeacherUser = requestedRole === 'teacher' || (serverRole || '').toLowerCase() === 'teacher';
 
-  const effectiveRole: UserRole = isAdmin
+  // Declared role from server, metadata, or admin check
+  const role: UserRole = isAdmin
     ? 'ADMIN'
-    : status === 'PENDING_TEACHER'
-    ? 'student'
-    : status === 'APPROVED' && isTeacherUser
-    ? 'teacher'
     : serverRole
     ? serverRole
-    : isTeacherUser
-    ? 'teacher'
-    : 'student';
+    : (user?.user_metadata?.role as UserRole) ||
+      (user?.user_metadata?.requested_role as UserRole) ||
+      (isTeacherUser ? 'teacher' : 'student');
 
   const isApproved: boolean =
     isAdmin ||
@@ -384,14 +381,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             ? true
             : status === 'PENDING_TEACHER'
               ? false
-              : effectiveRole.toLowerCase() !== 'teacher');
+              : role.toLowerCase() !== 'teacher');
 
   return (
     <AuthContext.Provider
       value={{
         user,
         session,
-        role: effectiveRole,
+        role,
         isApproved,
         status,
         fullName,
