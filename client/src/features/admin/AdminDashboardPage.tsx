@@ -21,8 +21,14 @@ import {
   Search,
   UserCheck,
   LayoutDashboard,
+  UserPlus,
+  Key,
+  Copy,
+  Check,
+  X,
 } from 'lucide-react';
 import { PlatformAnalyticsOverview } from '@linkup/shared';
+import { AddTeacherModal } from './AddTeacherModal';
 
 interface PendingTeacher {
   id: string;
@@ -77,6 +83,16 @@ export const AdminDashboardPage: React.FC = () => {
   const [actionType, setActionType] = useState<'approved' | 'rejected' | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [notification, setNotification] = useState<NotificationState | null>(null);
+
+  // State: Direct Teacher Provisioning (US-3.3)
+  const [isAddTeacherOpen, setIsAddTeacherOpen] = useState(false);
+  const [provisionedCredentials, setProvisionedCredentials] = useState<{
+    fullName: string;
+    email: string;
+    temporaryPassword?: string;
+    department?: string;
+  } | null>(null);
+  const [copiedCredentials, setCopiedCredentials] = useState(false);
 
   // 1. Fetch Analytics Overview (AC 3.1.1, AC 3.1.3)
   const fetchAnalytics = useCallback(async (isBackground = false) => {
@@ -316,6 +332,18 @@ export const AdminDashboardPage: React.FC = () => {
 
           <div className="flex items-center gap-2">
             <button
+              id="add-teacher-btn"
+              data-testid="add-teacher-btn"
+              onClick={() => setIsAddTeacherOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm transition-all active:scale-95"
+            >
+              <UserPlus className="w-3.5 h-3.5" />
+              <span>+ Add Teacher</span>
+            </button>
+
+            <button
+              id="refresh-btn"
+              data-testid="refresh-btn"
               onClick={() => {
                 fetchAnalytics(false);
                 fetchPendingTeachers();
@@ -328,6 +356,84 @@ export const AdminDashboardPage: React.FC = () => {
             </button>
           </div>
         </div>
+
+        {/* AC 3.3.2: Provisioned Credentials Banner */}
+        {provisionedCredentials && (
+          <div
+            id="provisioned-credentials-card"
+            data-testid="provisioned-credentials-card"
+            className="mb-6 p-5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-950 dark:text-emerald-100 animate-fadeIn"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-600 dark:text-emerald-400">
+                  <Key className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold">New Teacher Provisioned Successfully</h3>
+                  <p className="text-xs text-emerald-700 dark:text-emerald-300 mt-0.5">
+                    Share these temporary credentials with the instructor. They are pre-approved and can log in immediately.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setProvisionedCredentials(null)}
+                className="p-1 rounded-lg hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 transition-colors"
+                aria-label="Dismiss credentials"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="p-3 rounded-xl bg-white/80 dark:bg-slate-900/70 border border-emerald-500/20 shadow-sm">
+                <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
+                  Full Name
+                </span>
+                <span className="text-xs font-bold text-slate-900 dark:text-white mt-1 block">
+                  {provisionedCredentials.fullName}
+                </span>
+              </div>
+              <div className="p-3 rounded-xl bg-white/80 dark:bg-slate-900/70 border border-emerald-500/20 shadow-sm">
+                <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
+                  Institutional Email
+                </span>
+                <span className="text-xs font-bold text-slate-900 dark:text-white mt-1 block select-all">
+                  {provisionedCredentials.email}
+                </span>
+              </div>
+              <div className="p-3 rounded-xl bg-white/80 dark:bg-slate-900/70 border border-emerald-500/20 shadow-sm flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
+                    Temporary Password
+                  </span>
+                  <span className="text-xs font-mono font-bold text-emerald-700 dark:text-emerald-300 mt-1 block select-all">
+                    {provisionedCredentials.temporaryPassword || '••••••••'}
+                  </span>
+                </div>
+                {provisionedCredentials.temporaryPassword && (
+                  <button
+                    id="copy-provisioned-creds-btn"
+                    data-testid="copy-provisioned-creds-btn"
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(
+                          `Email: ${provisionedCredentials.email}\nTemporary Password: ${provisionedCredentials.temporaryPassword}`
+                        );
+                        setCopiedCredentials(true);
+                        setTimeout(() => setCopiedCredentials(false), 2000);
+                      } catch {}
+                    }}
+                    className="p-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-all active:scale-95 shadow-sm"
+                    title="Copy email and temporary password"
+                  >
+                    {copiedCredentials ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Global Notification Banner (AC 3.2.2, AC 3.2.3) */}
         {notification && (
@@ -741,6 +847,21 @@ export const AdminDashboardPage: React.FC = () => {
           </div>
         </section>
       </main>
+
+      {/* AC 3.3.1: Direct + Add Teacher Modal */}
+      <AddTeacherModal
+        isOpen={isAddTeacherOpen}
+        onClose={() => setIsAddTeacherOpen(false)}
+        onSuccess={(creds) => {
+          setProvisionedCredentials(creds);
+          setNotification({
+            type: 'success',
+            message: `Teacher ${creds.fullName} has been provisioned and pre-approved successfully!`,
+          });
+          fetchAnalytics(true);
+          fetchPendingTeachers();
+        }}
+      />
     </div>
   );
 };
