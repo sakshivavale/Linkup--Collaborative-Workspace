@@ -14,6 +14,9 @@ import { RoomPage } from './features/rooms/RoomPage';
 import { PlaygroundPage } from './features/playground/PlaygroundPage';
 import { AttendancePage } from './features/attendance/AttendancePage';
 import { AdminDashboardPage } from './features/admin/AdminDashboardPage';
+import { PendingApprovalPage } from './features/auth/PendingApprovalPage';
+import { CreateRoomPage } from './features/rooms/CreateRoomPage';
+import { TeacherRouteGuard } from './components/auth/TeacherRouteGuard';
 
 export const App: React.FC = () => {
   return (
@@ -62,16 +65,30 @@ export const App: React.FC = () => {
               element={<ResetPasswordPage />}
             />
 
+            {/* Standalone protected route for unapproved teacher gating screen (AC 2.1.2) */}
+            <Route element={<ProtectedRoute />}>
+              <Route path="/pending-approval" element={<PendingApprovalPage />} />
+            </Route>
+
             {/* Protected routes wrapped with authentication check and layout */}
             <Route element={<ProtectedRoute />}>
               <Route element={<AppLayout />}>
                 <Route path="/" element={<DashboardPage />} />
+                {/* US-2.1 AC 2.1.1: Teacher feature protection & pending approval gate */}
+                <Route
+                  path="/create-room"
+                  element={
+                    <TeacherRouteGuard>
+                      <CreateRoomPage />
+                    </TeacherRouteGuard>
+                  }
+                />
+                {/* Dedicated Admin Route (AC 1.1.3) */}
+                <Route path="/admin" element={<AdminDashboardPage />} />
                 <Route path="/rooms/:id" element={<RoomPage />} />
                 <Route path="/rooms/:id/attendance" element={<AttendancePage />} />
                 <Route path="/rooms/:roomId/attendance" element={<AttendancePage />} />
                 <Route path="/playground" element={<PlaygroundPage />} />
-                {/* Dedicated Admin Route (AC 1.1.3) */}
-                <Route path="/admin" element={<AdminDashboardPage />} />
                 {/* Fallback for logged-in unknown routes */}
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Route>

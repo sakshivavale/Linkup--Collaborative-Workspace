@@ -14,6 +14,7 @@ interface AuthContextType {
   fullName: string;
   loading: boolean;
   refreshProfile: () => Promise<void>;
+  checkStatus: () => Promise<{ isApproved: boolean; role: UserRole; status: TeacherApprovalStatus } | null>;
   signIn: (email: string, password: string) => Promise<{ error: AuthError | null }>;
   signOut: () => Promise<void>;
   logout: () => Promise<void>;
@@ -31,14 +32,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [customFullName, setCustomFullName] = useState<string | null>(null);
   const [serverRole, setServerRole] = useState<UserRole | null>(null);
   const [serverStatus, setServerStatus] = useState<TeacherApprovalStatus | null>(null);
+  const [serverIsApproved, setServerIsApproved] = useState<boolean | null>(null);
 
-  const refreshProfile = useCallback(async () => {
+  const checkStatus = useCallback(async () => {
     try {
       const res = await api.get<{
         user: {
           id: string;
           fullName: string;
           role: UserRole;
+          isApproved?: boolean;
           status?: TeacherApprovalStatus;
         };
       }>('/api/me');
@@ -46,12 +49,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (res?.user) {
         if (res.user.role) setServerRole(res.user.role);
         if (res.user.status) setServerStatus(res.user.status);
+        if (res.user.isApproved !== undefined) setServerIsApproved(res.user.isApproved);
         if (res.user.fullName) setCustomFullName(res.user.fullName);
+
+        const currentRole = res.user.role;
+        const currentStatus = res.user.status || 'NONE';
+        const currentApproved = res.user.isApproved !== undefined
+          ? res.user.isApproved
+          : currentRole.toLowerCase() !== 'teacher' || currentStatus === 'APPROVED';
+
+        return {
+          isApproved: currentApproved,
+          role: currentRole,
+          status: currentStatus,
+        };
       }
-    } catch {
-      // Ignore background refresh failure on network drop
+      return null;
+    } catch (err) {
+      console.warn('[LinkUp Auth] checkStatus query failed:', err);
+      return null;
     }
   }, []);
+
+  const refreshProfile = useCallback(async () => {
+    await checkStatus();
+  }, [checkStatus]);
 
   useEffect(() => {
     // 1. Initial session check from local storage
@@ -350,12 +372,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     ? 'teacher'
     : 'student';
 
-  const isApproved =
+  const isApproved: boolean =
     isAdmin ||
-    user?.user_metadata?.isApproved === true ||
-    user?.user_metadata?.is_approved === true ||
-    status === 'APPROVED' ||
-    (effectiveRole.toLowerCase() === 'student' && status !== 'PENDING_TEACHER');
+    (serverIsApproved !== null
+      ? serverIsApproved
+      : user?.user_metadata?.isApproved !== undefined
+        ? Boolean(user.user_metadata.isApproved)
+        : user?.user_metadata?.is_approved !== undefined
+          ? Boolean(user.user_metadata.is_approved)
+          : status === 'APPROVED'
+            ? true
+            : status === 'PENDING_TEACHER'
+              ? false
+              : effectiveRole.toLowerCase() !== 'teacher');
 
   return (
     <AuthContext.Provider
@@ -368,6 +397,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         fullName,
         loading,
         refreshProfile,
+        checkStatus,
         signIn,
         signOut,
         logout: signOut,

@@ -24,6 +24,7 @@ export interface Me {
   is_verified?: boolean;
   status?: TeacherApprovalStatus;
   requestedRole?: UserRole;
+  isAdmin?: boolean;
 }
 
 export interface UpdateProfileDto {

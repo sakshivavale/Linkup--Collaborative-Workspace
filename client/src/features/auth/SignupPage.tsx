@@ -112,7 +112,7 @@ export const SignupPage: React.FC = () => {
             status: assignedStatus,
             isApproved: assignedApproval,
             is_approved: assignedApproval,
-            teacher_status: isTeacherChoice ? 'pending' : 'none',
+            teacher_status: isTeacherChoice ? 'pending' : 'approved',
             applied_at: new Date().toISOString(),
           },
         },

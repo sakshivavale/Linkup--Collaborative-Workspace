@@ -9,6 +9,7 @@ export interface UserProfile {
   isApproved?: boolean;
   is_verified?: boolean;
   status?: TeacherApprovalStatus;
+  requestedRole?: UserRole;
   createdAt?: string;
 }
 

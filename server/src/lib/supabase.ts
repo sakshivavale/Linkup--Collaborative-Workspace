@@ -32,6 +32,7 @@ export async function verifyToken(token: string): Promise<Me | null> {
       isApproved: true,
       status: 'APPROVED',
       requestedRole: 'ADMIN' as any,
+      isAdmin: true,
     };
   }
 
@@ -74,65 +75,84 @@ export async function verifyToken(token: string): Promise<Me | null> {
       // Profile table might not have row yet, fallback to user_metadata is safe
     }
 
-    if (isHardcodedAdmin) {
-      role = 'ADMIN';
-    }
+    // Role detection
+    const isTeacher =
+      role?.toString().toLowerCase() === 'teacher' ||
+      user.user_metadata?.role?.toString().toLowerCase() === 'teacher' ||
+      user.user_metadata?.requested_role?.toString().toLowerCase() === 'teacher' ||
+      user.user_metadata?.requestedRole?.toString().toLowerCase() === 'teacher';
 
-    // Extract status from profile first, then fallback to user_metadata
+    const isAdmin =
+      isHardcodedAdmin ||
+      role?.toString().toLowerCase() === 'admin' ||
+      user.user_metadata?.role?.toString().toLowerCase() === 'admin';
+
+    const resolvedRole: any = isAdmin ? 'ADMIN' : isTeacher ? 'teacher' : 'student';
+
+    // Status extraction
     const rawStatus =
       profileData?.status ||
       user.user_metadata?.status ||
       user.user_metadata?.teacher_status;
 
-    const isProfileApproved =
-      profileData?.isApproved === true ||
-      profileData?.is_approved === true ||
-      rawStatus === 'APPROVED' ||
-      rawStatus === 'approved';
-
     let status: 'PENDING_TEACHER' | 'APPROVED' | 'REJECTED' | 'NONE' = 'NONE';
-    if (isHardcodedAdmin || isProfileApproved) {
-      status = 'APPROVED';
-    } else if (rawStatus === 'PENDING_TEACHER' || rawStatus === 'pending') {
+    if (rawStatus === 'PENDING_TEACHER' || rawStatus === 'pending') {
       status = 'PENDING_TEACHER';
+    } else if (rawStatus === 'APPROVED' || rawStatus === 'approved') {
+      status = 'APPROVED';
     } else if (rawStatus === 'REJECTED' || rawStatus === 'rejected') {
       status = 'REJECTED';
     }
 
-    const requestedRole = (
-      user.user_metadata?.requested_role ||
-      user.user_metadata?.requestedRole ||
-      user.user_metadata?.role ||
-      profileData?.role ||
-      role
-    )?.toString().toLowerCase();
+    // Determine isApproved status
+    let isApproved = true;
+    if (isAdmin) {
+      isApproved = true;
+      status = 'APPROVED';
+    } else if (isTeacher) {
+      if (profileData?.isApproved !== undefined && profileData?.isApproved !== null) {
+        isApproved = Boolean(profileData.isApproved);
+      } else if (profileData?.is_approved !== undefined && profileData?.is_approved !== null) {
+        isApproved = Boolean(profileData.is_approved);
+      } else if (user.user_metadata?.isApproved !== undefined) {
+        isApproved = Boolean(user.user_metadata.isApproved);
+      } else if (user.user_metadata?.is_approved !== undefined) {
+        isApproved = Boolean(user.user_metadata.is_approved);
+      } else if (status === 'PENDING_TEACHER') {
+        isApproved = false;
+      } else {
+        isApproved = false;
+      }
 
-    // If teacher approval is pending, effective operational role remains student.
-    // Once approved, correctly assign teacher role.
-    const effectiveRole = isHardcodedAdmin
-      ? 'ADMIN'
-      : status === 'PENDING_TEACHER'
-      ? 'student'
-      : requestedRole === 'teacher' || role.toString().toLowerCase() === 'teacher'
-      ? 'teacher'
-      : role;
-
-    const isApproved =
-      isHardcodedAdmin ||
-      isProfileApproved ||
-      user.user_metadata?.isApproved === true ||
-      user.user_metadata?.is_approved === true ||
-      status === 'APPROVED' ||
-      effectiveRole.toString().toLowerCase() === 'student';
+      if (!isApproved) {
+        status = status === 'REJECTED' ? 'REJECTED' : 'PENDING_TEACHER';
+      } else {
+        status = 'APPROVED';
+      }
+    } else {
+      if (profileData?.is_approved !== undefined && profileData?.is_approved !== null) {
+        isApproved = Boolean(profileData.is_approved);
+      } else if (profileData?.isApproved !== undefined && profileData?.isApproved !== null) {
+        isApproved = Boolean(profileData.isApproved);
+      } else if (user.user_metadata?.is_approved !== undefined) {
+        isApproved = Boolean(user.user_metadata.is_approved);
+      } else if (user.user_metadata?.isApproved !== undefined) {
+        isApproved = Boolean(user.user_metadata.isApproved);
+      } else {
+        isApproved = true;
+      }
+      status = status === 'REJECTED' ? 'REJECTED' : 'APPROVED';
+    }
 
     const authUser: Me = {
       id: user.id,
       email: user.email || '',
       fullName,
-      role: effectiveRole as any,
+      role: resolvedRole,
       isApproved,
       status,
-      requestedRole: (user.user_metadata?.requested_role || user.user_metadata?.requestedRole) as any,
+      requestedRole: (user.user_metadata?.requested_role || user.user_metadata?.requestedRole || profileData?.role || role) as any,
+      isAdmin,
     };
 
     tokenCache.set(token, {
