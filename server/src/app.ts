@@ -5,7 +5,7 @@ import { Socket } from 'socket.io';
 import { RoomSummary } from '@linkup/shared';
 import { env } from './config/env';
 import { requireAuth, requireMember, requireHost, requireApprovedTeacher, requireAdmin } from './middleware/auth';
-import { supabase, updateTokenCacheUserName, invalidateUserCache } from './lib/supabase';
+import { supabase, updateTokenCacheUserName, invalidateUserCache, updateUserApprovalInCache } from './lib/supabase';
 import {
   getRoomsForUser,
   createRoom,
@@ -229,128 +229,166 @@ app.post(['/api/auth/register-teacher', '/api/auth/register', '/auth/register-te
 /**
  * Fetch pending teacher verification requests for Admin Dashboard
  */
-app.get(['/api/admin/pending-teachers', '/admin/pending-teachers', '/api/admin/verify-teacher'], async (_req: Request, res: Response) => {
-  try {
-    const { data: dbProfiles } = await supabase
-      .from('profiles')
-      .select('id, full_name, role, status, created_at, is_approved, "isApproved"')
-      .eq('role', 'teacher');
+app.get(
+  [
+    '/api/admin/pending-teachers',
+    '/admin/pending-teachers',
+    '/api/admin/verify-teacher',
+    '/api/admin/approvals',
+    '/admin/approvals/list',
+    '/api/admin/teacher-requests',
+  ],
+  async (_req: Request, res: Response) => {
+    try {
+      const { data: dbProfiles } = await supabase
+        .from('profiles')
+        .select('id, full_name, role, status, created_at, is_approved, "isApproved"');
 
-    if (dbProfiles && dbProfiles.length > 0) {
-      dbProfiles.forEach((p: any) => {
-        const isApproved = p.isApproved === true || p.is_approved === true || p.status === 'approved' || p.status === 'APPROVED';
-        if (!isApproved && !pendingTeachersStore.has(p.id)) {
-          pendingTeachersStore.set(p.id, {
-            id: p.id,
-            fullName: p.full_name,
-            email: p.id.includes('@') ? p.id : `teacher-${p.id.slice(0, 5)}@university.edu`,
-            createdAt: p.created_at || new Date().toISOString(),
-            status: 'pending',
-            is_verified: false,
-          });
-        }
-      });
-    }
-  } catch {}
+      if (dbProfiles && dbProfiles.length > 0) {
+        dbProfiles.forEach((p: any) => {
+          const role = (p.role || '').toString().toLowerCase();
+          const isApproved =
+            p.isApproved === true ||
+            p.is_approved === true ||
+            p.status === 'approved' ||
+            p.status === 'APPROVED';
+          const isPending =
+            (role === 'teacher' && !isApproved) ||
+            p.status === 'PENDING_TEACHER' ||
+            p.status === 'pending';
 
-  const pending = Array.from(pendingTeachersStore.values()).filter((t) => t.status === 'pending');
-  return res.status(200).json({ pendingTeachers: pending });
-});
+          if (isPending && !pendingTeachersStore.has(p.id)) {
+            pendingTeachersStore.set(p.id, {
+              id: p.id,
+              fullName: p.full_name || 'Instructor Candidate',
+              email: p.id.includes('@') ? p.id : `teacher-${p.id.slice(0, 5)}@university.edu`,
+              createdAt: p.created_at || new Date().toISOString(),
+              status: 'pending',
+              is_verified: false,
+            });
+          }
+        });
+      }
+    } catch {}
+
+    const pending = Array.from(pendingTeachersStore.values()).filter((t) => t.status === 'pending');
+    return res.status(200).json({
+      pendingTeachers: pending,
+      teachers: pending,
+      users: pending,
+      count: pending.length,
+    });
+  }
+);
 
 /**
  * Update teacher verification status (Approve or Reject)
- * PATCH /admin/verify-teacher/:id
+ * US-3.2: PATCH /api/admin/users/:userId/approval or PATCH /api/admin/verify-teacher/:id
  */
 app.all(
   [
+    '/api/admin/users/:userId/approval',
+    '/api/admin/users/:id/approval',
+    '/admin/users/:userId/approval',
+    '/admin/users/:id/approval',
     '/api/admin/verify-teacher/:id',
     '/admin/verify-teacher/:id',
     '/api/admin/teacher-requests/:id/approve',
-    '/api/admin/users/:id/approval',
   ],
   async (req: Request, res: Response) => {
-  const { id } = req.params;
-  const { status, action } = req.body || {};
+    const teacherId = req.params.userId || req.params.id;
+    const { status, action, isApproved: isApprovedField, is_approved: isApprovedSnake } = req.body || {};
 
-  const resolvedStatus: 'approved' | 'rejected' =
-    status === 'approved' || status === 'rejected'
-      ? status
-      : action === 'reject'
-      ? 'rejected'
-      : 'approved';
+    let isApproved = true;
+    if (isApprovedField !== undefined) {
+      isApproved = Boolean(isApprovedField);
+    } else if (isApprovedSnake !== undefined) {
+      isApproved = Boolean(isApprovedSnake);
+    } else if (status) {
+      const s = String(status).toLowerCase();
+      isApproved = s === 'approved' || s === 'true';
+    } else if (action === 'reject') {
+      isApproved = false;
+    }
 
-  const isApproved = resolvedStatus === 'approved';
+    const resolvedStatus: 'approved' | 'rejected' = isApproved ? 'approved' : 'rejected';
 
-  let record = pendingTeachersStore.get(id);
-  if (record) {
-    record.status = resolvedStatus;
-    record.is_verified = isApproved;
-    pendingTeachersStore.set(id, record);
-  } else {
-    record = {
-      id,
-      fullName: 'Teacher',
-      email: `${id}@linkup.edu`,
-      createdAt: new Date().toISOString(),
-      status: resolvedStatus,
-      is_verified: isApproved,
-    };
-    pendingTeachersStore.set(id, record);
-  }
-
-  // Update Supabase profiles and auth metadata
-  try {
-    await supabase
-      .from('profiles')
-      .update({
+    let record = pendingTeachersStore.get(teacherId);
+    if (record) {
+      record.status = resolvedStatus;
+      record.is_verified = isApproved;
+      pendingTeachersStore.set(teacherId, record);
+    } else {
+      record = {
+        id: teacherId,
+        fullName: 'Teacher',
+        email: `${teacherId}@linkup.edu`,
+        createdAt: new Date().toISOString(),
         status: resolvedStatus,
-        isApproved: isApproved,
-        is_approved: isApproved,
+        is_verified: isApproved,
+      };
+      pendingTeachersStore.set(teacherId, record);
+    }
+
+    // Update Supabase profiles and auth metadata
+    try {
+      await supabase
+        .from('profiles')
+        .update({
+          status: isApproved ? 'APPROVED' : 'REJECTED',
+          isApproved: isApproved,
+          is_approved: isApproved,
+          role: isApproved ? 'teacher' : 'student',
+        })
+        .eq('id', teacherId);
+
+      await supabase.auth.admin.updateUserById(teacherId, {
+        user_metadata: {
+          status: isApproved ? 'APPROVED' : 'REJECTED',
+          teacher_status: isApproved ? 'APPROVED' : 'REJECTED',
+          isApproved: isApproved,
+          is_approved: isApproved,
+          role: isApproved ? 'teacher' : 'student',
+        },
+      });
+    } catch (err: any) {
+      console.warn('[Verify Teacher] DB update notice:', err.message);
+    }
+
+    // Update user cache for immediate permissions unlocking
+    updateUserApprovalInCache(teacherId, isApproved, isApproved ? 'APPROVED' : 'REJECTED');
+
+    // Real-time broadcast to admin room, direct user socket room, and global broadcast
+    const io = req.app.get('io');
+    if (io) {
+      const payload = {
+        id: teacherId,
+        userId: teacherId,
+        status: isApproved ? 'APPROVED' : 'REJECTED',
         role: isApproved ? 'teacher' : 'student',
-      })
-      .eq('id', id);
+        is_verified: isApproved,
+        isApproved,
+      };
+      io.to('admin').emit('teacher_verified', payload);
+      io.to('admin').emit('analytics_updated');
+      io.to(`user:${teacherId}`).emit('teacher_verified', payload);
+      io.emit('teacher_verified', payload);
+      io.emit('teacher_status_updated', payload);
+      console.log(`[RealTime] Pushed teacher verification update for: ${teacherId} -> ${resolvedStatus}`);
+    }
 
-    await supabase.auth.admin.updateUserById(id, {
-      user_metadata: {
-        status: resolvedStatus,
-        teacher_status: resolvedStatus,
-        isApproved: isApproved,
-        is_approved: isApproved,
-        role: isApproved ? 'teacher' : 'student',
-      },
-    });
-  } catch (err: any) {
-    console.warn('[Verify Teacher] DB update notice:', err.message);
-  }
-
-  // Invalidate any cached user token for real-time permission transition
-  invalidateUserCache(id);
-
-  // Real-time broadcast to admin room, direct user socket room, and global broadcast
-  const io = req.app.get('io');
-  if (io) {
-    const payload = {
-      id,
-      status: isApproved ? 'APPROVED' : 'REJECTED',
+    return res.status(200).json({
+      success: true,
+      message: isApproved
+        ? `Teacher ${record.fullName} has been approved successfully.`
+        : `Teacher application has been rejected.`,
+      teacher: record,
       role: isApproved ? 'teacher' : 'student',
-      is_verified: isApproved,
-    };
-    io.to('admin').emit('teacher_verified', payload);
-    io.to('admin').emit('analytics_updated');
-    io.to(`user:${id}`).emit('teacher_verified', payload);
-    io.emit('teacher_verified', payload);
-    io.emit('teacher_status_updated', payload);
-    console.log(`[RealTime] Pushed teacher verification update for: ${id} -> ${resolvedStatus}`);
+      status: isApproved ? 'APPROVED' : 'REJECTED',
+      isApproved,
+    });
   }
-
-  return res.status(200).json({
-    success: true,
-    message: `Teacher ${resolvedStatus} successfully.`,
-    teacher: record,
-    role: isApproved ? 'teacher' : 'student',
-    status: isApproved ? 'APPROVED' : 'REJECTED',
-  });
-});
+);
 
 // US-3.1: Admin overview analytics endpoint (GET /api/admin/analytics/overview and GET /api/admin/overview)
 app.get(['/api/admin/overview', '/api/admin/analytics/overview'], async (req: Request, res: Response) => {
