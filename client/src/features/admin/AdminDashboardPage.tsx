@@ -1,11 +1,28 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { socket } from '../../lib/socket';
 import { api } from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import { ThemeToggle } from '../../components/ui/ThemeToggle';
 import { Logo } from '../../components/ui/Logo';
-import { CheckCircle2, XCircle, LogOut, Radio, Loader2 } from 'lucide-react';
+import {
+  CheckCircle2,
+  XCircle,
+  LogOut,
+  Radio,
+  Loader2,
+  Users,
+  GraduationCap,
+  ShieldCheck,
+  Clock,
+  ArrowRight,
+  AlertCircle,
+  RefreshCw,
+  Search,
+  UserCheck,
+  LayoutDashboard,
+} from 'lucide-react';
+import { PlatformAnalyticsOverview } from '@linkup/shared';
 
 interface PendingTeacher {
   id: string;
@@ -13,75 +30,194 @@ interface PendingTeacher {
   email: string;
   createdAt: string;
   status?: string;
+  subject?: string;
+  notes?: string;
+}
+
+interface NotificationState {
+  type: 'success' | 'info' | 'error';
+  message: string;
 }
 
 export const AdminDashboardPage: React.FC = () => {
   const { logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
-  const [teachers, setTeachers] = useState<PendingTeacher[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [processingId, setProcessingId] = useState<string | null>(null);
+  // Active Tab: /admin vs /admin/approvals vs /admin/users
+  const isApprovalsOnly = location.pathname.includes('/approvals');
+  const [activeTab, setActiveTab] = useState<'overview' | 'approvals'>(
+    isApprovalsOnly ? 'approvals' : 'overview'
+  );
 
-  // 1. Initial fetch & real-time WebSocket setup
   useEffect(() => {
-    // Fetch current pending teacher verification requests
-    const fetchPending = async () => {
-      try {
-        const res = await api.get<{ pendingTeachers: PendingTeacher[] }>('/api/admin/pending-teachers');
-        if (res?.pendingTeachers) {
-          setTeachers(res.pendingTeachers);
-        }
-      } catch (err) {
-        console.warn('[Admin] Failed to load pending teachers from API, using local fallback:', err);
-      } finally {
-        setLoading(false);
+    if (location.pathname.includes('/approvals')) {
+      setActiveTab('approvals');
+    } else {
+      setActiveTab('overview');
+    }
+  }, [location.pathname]);
+
+  // State: Platform Analytics (US-3.1)
+  const [analytics, setAnalytics] = useState<PlatformAnalyticsOverview>({
+    totalUsers: 0,
+    activeStudents: 0,
+    approvedTeachers: 0,
+    pendingApprovals: 0,
+    activeRooms: 0,
+  });
+  const [analyticsLoading, setAnalyticsLoading] = useState(true);
+  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
+  const [isUsingCached, setIsUsingCached] = useState(false);
+
+  // State: Pending Teacher Verifications (US-3.2)
+  const [teachers, setTeachers] = useState<PendingTeacher[]>([]);
+  const [teachersLoading, setTeachersLoading] = useState(true);
+  const [processingId, setProcessingId] = useState<string | null>(null);
+  const [actionType, setActionType] = useState<'approved' | 'rejected' | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [notification, setNotification] = useState<NotificationState | null>(null);
+
+  // 1. Fetch Analytics Overview (AC 3.1.1, AC 3.1.3)
+  const fetchAnalytics = useCallback(async (isBackground = false) => {
+    if (!isBackground) {
+      setAnalyticsLoading(true);
+    }
+    try {
+      const data = await api.get<PlatformAnalyticsOverview>('/api/admin/analytics/overview');
+      if (data) {
+        setAnalytics({
+          totalUsers: Number(data.totalUsers ?? data.usersCount ?? 0),
+          activeStudents: Number(data.activeStudents ?? data.studentsCount ?? 0),
+          approvedTeachers: Number(data.approvedTeachers ?? data.approvedTeachersCount ?? 0),
+          pendingApprovals: Number(data.pendingApprovals ?? data.pendingApprovalsCount ?? 0),
+          activeRooms: Number(data.activeRooms ?? data.activeRoomsCount ?? 0),
+        });
+        setAnalyticsError(null);
+        setIsUsingCached(false);
       }
-    };
+    } catch (err: any) {
+      console.warn('[Admin] Failed to fetch analytics overview:', err);
+      setAnalyticsError('Unable to refresh real-time metrics.');
+      setIsUsingCached(true);
+    } finally {
+      if (!isBackground) {
+        setAnalyticsLoading(false);
+      }
+    }
+  }, []);
 
-    fetchPending();
+  // 2. Fetch Pending Teachers Queue (AC 3.2.1)
+  const fetchPendingTeachers = useCallback(async () => {
+    try {
+      const res = await api.get<{ pendingTeachers?: PendingTeacher[]; teachers?: PendingTeacher[] }>(
+        '/api/admin/pending-teachers'
+      );
+      const list = res?.pendingTeachers || res?.teachers || [];
+      setTeachers(list);
+    } catch (err) {
+      console.warn('[Admin] Failed to load pending teachers from API:', err);
+    } finally {
+      setTeachersLoading(false);
+    }
+  }, []);
 
-    // Connect socket and join the admin room for real-time notifications
+  // 3. Initial Load, 30s Periodic Auto-Refresh, & Real-Time WebSocket Events (AC 3.1.3, AC 3.2.1)
+  useEffect(() => {
+    fetchAnalytics(false);
+    fetchPendingTeachers();
+
+    const pollInterval = setInterval(() => {
+      fetchAnalytics(true);
+      fetchPendingTeachers();
+    }, 30000);
+
     if (!socket.connected) {
       socket.connect();
     }
     socket.emit('admin:join');
 
-    // Real-Time Notification: listen for teacher_created event from backend
     const onTeacherCreated = (newTeacher: PendingTeacher) => {
       setTeachers((prev) => {
-        // Prevent duplicate entries
         if (prev.some((t) => t.id === newTeacher.id)) return prev;
         return [newTeacher, ...prev];
       });
+      fetchAnalytics(true);
     };
 
-    // Real-Time Update: listen for teacher_verified event
     const onTeacherVerified = ({ id }: { id: string }) => {
       setTeachers((prev) => prev.filter((t) => t.id !== id));
+      fetchAnalytics(true);
+    };
+
+    const onAnalyticsRefresh = () => {
+      fetchAnalytics(true);
+      fetchPendingTeachers();
     };
 
     socket.on('teacher_created', onTeacherCreated);
     socket.on('teacher_verified', onTeacherVerified);
+    socket.on('analytics_updated', onAnalyticsRefresh);
+    socket.on('session:started', onAnalyticsRefresh);
+    socket.on('session:ended', onAnalyticsRefresh);
 
     return () => {
+      clearInterval(pollInterval);
       socket.off('teacher_created', onTeacherCreated);
       socket.off('teacher_verified', onTeacherVerified);
+      socket.off('analytics_updated', onAnalyticsRefresh);
+      socket.off('session:started', onAnalyticsRefresh);
+      socket.off('session:ended', onAnalyticsRefresh);
     };
-  }, []);
+  }, [fetchAnalytics, fetchPendingTeachers]);
 
-  // 2. Action Handlers (PATCH /admin/verify-teacher/:id)
-  const handleVerify = async (id: string, status: 'approved' | 'rejected') => {
-    setProcessingId(id);
-    // Optimistic UI update
-    setTeachers((prev) => prev.filter((t) => t.id !== id));
+  // 4. Action Handlers: Admin Approves / Rejects Teacher Application (AC 3.2.2, AC 3.2.3)
+  const handleVerify = async (teacher: PendingTeacher, targetStatus: 'approved' | 'rejected') => {
+    setProcessingId(teacher.id);
+    setActionType(targetStatus);
+
+    const isApprove = targetStatus === 'approved';
+
+    // Optimistic UI updates
+    setTeachers((prev) => prev.filter((t) => t.id !== teacher.id));
+    setAnalytics((prev) => ({
+      ...prev,
+      pendingApprovals: Math.max(0, prev.pendingApprovals - 1),
+      approvedTeachers: isApprove ? prev.approvedTeachers + 1 : prev.approvedTeachers,
+    }));
 
     try {
-      await api.patch(`/api/admin/verify-teacher/${id}`, { status });
-    } catch (err) {
-      console.error(`[Admin] Failed to set status ${status} for teacher ${id}:`, err);
+      const payload = {
+        isApproved: isApprove,
+        status: isApprove ? 'APPROVED' : 'REJECTED',
+      };
+
+      // AC 3.2.2: PATCH /api/admin/users/:userId/approval
+      await api.patch(`/api/admin/users/${teacher.id}/approval`, payload);
+
+      if (isApprove) {
+        setNotification({
+          type: 'success',
+          message: `Teacher ${teacher.fullName} has been approved successfully.`,
+        });
+      } else {
+        setNotification({
+          type: 'info',
+          message: 'Teacher application has been rejected.',
+        });
+      }
+    } catch (err: any) {
+      console.error(`[Admin] Failed to ${targetStatus} teacher ${teacher.id}:`, err);
+      // Revert optimistic removal if error
+      setTeachers((prev) => [teacher, ...prev]);
+      setNotification({
+        type: 'error',
+        message: `Failed to update approval for ${teacher.fullName}. Please try again.`,
+      });
     } finally {
       setProcessingId(null);
+      setActionType(null);
+      fetchAnalytics(true);
     }
   };
 
@@ -89,6 +225,16 @@ export const AdminDashboardPage: React.FC = () => {
     await logout();
     navigate('/login', { replace: true });
   };
+
+  const filteredTeachers = teachers.filter((t) => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      t.fullName?.toLowerCase().includes(q) ||
+      t.email?.toLowerCase().includes(q) ||
+      t.subject?.toLowerCase().includes(q)
+    );
+  });
 
   return (
     <div className="min-h-screen ambient-bg flex flex-col transition-colors duration-300">
@@ -116,105 +262,484 @@ export const AdminDashboardPage: React.FC = () => {
         </div>
       </header>
 
-      {/* Main Content: Pending Teacher Verifications Only */}
-      <main className="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-6 py-8">
-        <div className="mb-6 flex items-center justify-between">
-          <div>
-            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">
-              Pending Teacher Verifications
-            </h1>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-              Real-time approval requests for incoming teacher registrations.
-            </p>
+      {/* Main Content */}
+      <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-8">
+        {/* Navigation Tabs (AC 3.2.1) */}
+        <div className="flex items-center justify-between flex-wrap gap-4 mb-6 border-b border-slate-200/80 dark:border-slate-800/80 pb-3">
+          <div className="flex items-center gap-2">
+            <button
+              id="overview-tab-btn"
+              data-testid="overview-tab"
+              onClick={() => {
+                setActiveTab('overview');
+                navigate('/admin');
+              }}
+              className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                activeTab === 'overview'
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/60'
+              }`}
+            >
+              <LayoutDashboard className="w-4 h-4" />
+              <span>Platform Overview</span>
+            </button>
+
+            <button
+              id="approvals-tab-btn"
+              data-testid="approvals-tab"
+              onClick={() => {
+                setActiveTab('approvals');
+                navigate('/admin/approvals');
+              }}
+              className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                activeTab === 'approvals'
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/60'
+              }`}
+            >
+              <UserCheck className="w-4 h-4" />
+              <span>Teacher Approvals</span>
+              {teachers.length > 0 && (
+                <span
+                  id="tab-pending-badge"
+                  className={`px-1.5 py-0.5 rounded-full text-[10px] font-extrabold ${
+                    activeTab === 'approvals'
+                      ? 'bg-white/20 text-white'
+                      : 'bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300'
+                  }`}
+                >
+                  {teachers.length}
+                </span>
+              )}
+            </button>
           </div>
-          <span className="px-3 py-1 rounded-xl text-xs font-bold bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300">
-            {teachers.length} Pending
-          </span>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                fetchAnalytics(false);
+                fetchPendingTeachers();
+              }}
+              disabled={analyticsLoading || teachersLoading}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-white dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/60 shadow-sm transition-all disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${analyticsLoading || teachersLoading ? 'animate-spin' : ''}`} />
+              <span>Refresh</span>
+            </button>
+          </div>
         </div>
 
-        {/* Minimal Table */}
-        <div className="glass-panel rounded-2xl border border-slate-200/80 dark:border-slate-800/80 overflow-hidden shadow-sm">
-          {loading ? (
-            <div className="p-12 flex flex-col items-center justify-center gap-3 text-slate-400">
-              <Loader2 className="w-6 h-6 animate-spin text-indigo-500" />
-              <span className="text-xs font-medium">Loading requests...</span>
+        {/* Global Notification Banner (AC 3.2.2, AC 3.2.3) */}
+        {notification && (
+          <div
+            id="admin-notification-toast"
+            data-testid="admin-notification-toast"
+            className={`mb-6 p-4 rounded-2xl flex items-center justify-between gap-3 text-xs font-semibold animate-fadeIn border ${
+              notification.type === 'success'
+                ? 'bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 border-emerald-500/30'
+                : notification.type === 'error'
+                ? 'bg-red-500/10 text-red-800 dark:text-red-300 border-red-500/30'
+                : 'bg-amber-500/10 text-amber-800 dark:text-amber-300 border-amber-500/30'
+            }`}
+          >
+            <div className="flex items-center gap-2.5">
+              {notification.type === 'success' ? (
+                <CheckCircle2 className="w-5 h-5 text-emerald-500 flex-shrink-0" />
+              ) : notification.type === 'error' ? (
+                <XCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+              ) : (
+                <AlertCircle className="w-5 h-5 text-amber-500 flex-shrink-0" />
+              )}
+              <span id="admin-notification-message" data-testid="admin-notification-message">
+                {notification.message}
+              </span>
             </div>
-          ) : teachers.length === 0 ? (
-            <div className="p-12 text-center text-slate-500 dark:text-slate-400">
-              <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto mb-2 opacity-80" />
-              <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
-                No pending teacher verification requests
-              </p>
-              <p className="text-xs text-slate-400 mt-1">
-                New teacher signups will appear here automatically via real-time WebSocket.
-              </p>
+            <button
+              id="dismiss-notification-btn"
+              onClick={() => setNotification(null)}
+              className="p-1 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 opacity-70 hover:opacity-100 transition-opacity"
+              aria-label="Dismiss notification"
+            >
+              <XCircle className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        {/* AC 3.1.3: Error & Retry Banner if analytics query fails */}
+        {analyticsError && (
+          <div
+            id="analytics-error-banner"
+            className="mb-6 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between gap-4 text-xs text-amber-800 dark:text-amber-200 animate-fadeIn"
+          >
+            <div className="flex items-center gap-2.5">
+              <AlertCircle className="w-5 h-5 text-amber-500 flex-shrink-0" />
+              <div>
+                <span className="font-semibold">{analyticsError}</span>
+                {isUsingCached && (
+                  <span className="ml-1 opacity-90">(Displaying cached platform values)</span>
+                )}
+              </div>
             </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead>
-                  <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider">
-                    <th className="py-3 px-4">Teacher Name</th>
-                    <th className="py-3 px-4">Email</th>
-                    <th className="py-3 px-4">Registration Timestamp</th>
-                    <th className="py-3 px-4 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium">
-                  {teachers.map((teacher) => {
-                    const formattedDate = teacher.createdAt
-                      ? new Date(teacher.createdAt).toLocaleString(undefined, {
-                          dateStyle: 'short',
-                          timeStyle: 'short',
-                        })
-                      : 'Just now';
+            <button
+              id="analytics-retry-btn"
+              onClick={() => fetchAnalytics(false)}
+              className="px-3 py-1.5 rounded-lg font-semibold bg-amber-500/20 hover:bg-amber-500/30 text-amber-900 dark:text-amber-100 transition-colors"
+            >
+              Retry
+            </button>
+          </div>
+        )}
 
-                    const isBusy = processingId === teacher.id;
+        {/* Platform Analytics Overview (Shown on Overview tab) */}
+        {activeTab === 'overview' && (
+          <section className="mb-10" aria-label="Platform Analytics Overview">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                Core Platform Metrics
+              </h2>
+              <span className="text-[11px] text-slate-400 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                Auto-refreshes every 30s
+              </span>
+            </div>
 
-                    return (
-                      <tr
-                        key={teacher.id}
-                        className="hover:bg-slate-50/60 dark:hover:bg-slate-800/30 transition-colors animate-fadeIn"
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+              {/* Card 1: Total Users */}
+              <div
+                id="card-total-users"
+                className="glass-panel p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 shadow-sm flex flex-col justify-between hover:border-slate-300 dark:hover:border-slate-700 transition-all"
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Total Users</span>
+                  <div className="p-2 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400">
+                    <Users className="w-4 h-4" />
+                  </div>
+                </div>
+                <div>
+                  <div
+                    id="stat-total-users"
+                    data-testid="analytics-total-users"
+                    className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white"
+                  >
+                    {analyticsLoading && !isUsingCached ? (
+                      <div className="h-8 w-16 bg-slate-200 dark:bg-slate-700 animate-pulse rounded-lg" />
+                    ) : (
+                      analytics.totalUsers
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                    Registered profiles across all roles
+                  </p>
+                </div>
+              </div>
+
+              {/* Card 2: Active Students */}
+              <div
+                id="card-active-students"
+                className="glass-panel p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 shadow-sm flex flex-col justify-between hover:border-slate-300 dark:hover:border-slate-700 transition-all"
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Active Students</span>
+                  <div className="p-2 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
+                    <GraduationCap className="w-4 h-4" />
+                  </div>
+                </div>
+                <div>
+                  <div
+                    id="stat-active-students"
+                    data-testid="analytics-active-students"
+                    className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white"
+                  >
+                    {analyticsLoading && !isUsingCached ? (
+                      <div className="h-8 w-16 bg-slate-200 dark:bg-slate-700 animate-pulse rounded-lg" />
+                    ) : (
+                      analytics.activeStudents
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                    Users where role === 'STUDENT'
+                  </p>
+                </div>
+              </div>
+
+              {/* Card 3: Approved Teachers */}
+              <div
+                id="card-approved-teachers"
+                className="glass-panel p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 shadow-sm flex flex-col justify-between hover:border-slate-300 dark:hover:border-slate-700 transition-all"
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Approved Teachers</span>
+                  <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                    <ShieldCheck className="w-4 h-4" />
+                  </div>
+                </div>
+                <div>
+                  <div
+                    id="stat-approved-teachers"
+                    data-testid="analytics-approved-teachers"
+                    className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white"
+                  >
+                    {analyticsLoading && !isUsingCached ? (
+                      <div className="h-8 w-16 bg-slate-200 dark:bg-slate-700 animate-pulse rounded-lg" />
+                    ) : (
+                      analytics.approvedTeachers
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                    Teachers with isApproved === true
+                  </p>
+                </div>
+              </div>
+
+              {/* Card 4: Pending Approvals (AC 3.1.2) */}
+              <div
+                id="card-pending-approvals"
+                className="glass-panel p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 shadow-sm flex flex-col justify-between hover:border-slate-300 dark:hover:border-slate-700 transition-all"
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Pending Approvals</span>
+                  <div className="p-2 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                    <Clock className="w-4 h-4" />
+                  </div>
+                </div>
+                <div>
+                  <div
+                    id="stat-pending-approvals"
+                    data-testid="analytics-pending-approvals"
+                    className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white"
+                  >
+                    {analyticsLoading && !isUsingCached ? (
+                      <div className="h-8 w-16 bg-slate-200 dark:bg-slate-700 animate-pulse rounded-lg" />
+                    ) : (
+                      analytics.pendingApprovals
+                    )}
+                  </div>
+
+                  <div className="mt-2.5">
+                    {analytics.pendingApprovals > 0 ? (
+                      <div className="flex flex-col gap-1.5">
+                        <span
+                          id="pending-urgency-badge"
+                          data-testid="pending-urgency-badge"
+                          className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300 border border-amber-300/40 dark:border-amber-500/30 w-fit"
+                        >
+                          {analytics.pendingApprovals} Pending Review
+                        </span>
+                        <button
+                          id="review-queue-link"
+                          data-testid="review-queue-link"
+                          onClick={() => {
+                            setActiveTab('approvals');
+                            navigate('/admin/approvals');
+                          }}
+                          className="inline-flex items-center gap-1 text-xs font-bold text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300 hover:underline transition-all group w-fit"
+                        >
+                          <span>Review Queue</span>
+                          <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5" />
+                        </button>
+                      </div>
+                    ) : (
+                      <div
+                        id="all-caught-up"
+                        data-testid="all-caught-up"
+                        className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-600 dark:text-emerald-400"
                       >
-                        <td className="py-3.5 px-4 font-semibold text-slate-900 dark:text-white">
-                          {teacher.fullName}
-                        </td>
-                        <td className="py-3.5 px-4 text-slate-600 dark:text-slate-300">
-                          {teacher.email}
-                        </td>
-                        <td className="py-3.5 px-4 text-slate-500 dark:text-slate-400 whitespace-nowrap">
-                          {formattedDate}
-                        </td>
-                        <td className="py-3.5 px-4 text-right">
-                          <div className="inline-flex items-center gap-2">
-                            <button
-                              id={`approve-${teacher.id}`}
-                              disabled={isBusy}
-                              onClick={() => handleVerify(teacher.id, 'approved')}
-                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition-all active:scale-95 disabled:opacity-50"
-                            >
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                              <span>Approve</span>
-                            </button>
-                            <button
-                              id={`reject-${teacher.id}`}
-                              disabled={isBusy}
-                              onClick={() => handleVerify(teacher.id, 'rejected')}
-                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 hover:bg-red-50 text-slate-700 hover:text-red-600 dark:bg-slate-800 dark:hover:bg-red-500/20 dark:text-slate-300 dark:hover:text-red-400 transition-all active:scale-95 disabled:opacity-50"
-                            >
-                              <XCircle className="w-3.5 h-3.5" />
-                              <span>Reject</span>
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                        <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                        <span>All Caught Up</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Card 5: Active Rooms */}
+              <div
+                id="card-active-rooms"
+                className="glass-panel p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 shadow-sm flex flex-col justify-between hover:border-slate-300 dark:hover:border-slate-700 transition-all"
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Active Rooms</span>
+                  <div className="p-2 rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400">
+                    <Radio className="w-4 h-4" />
+                  </div>
+                </div>
+                <div>
+                  <div
+                    id="stat-active-rooms"
+                    data-testid="analytics-active-rooms"
+                    className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white"
+                  >
+                    {analyticsLoading && !isUsingCached ? (
+                      <div className="h-8 w-16 bg-slate-200 dark:bg-slate-700 animate-pulse rounded-lg" />
+                    ) : (
+                      analytics.activeRooms
+                    )}
+                  </div>
+                  <div className="mt-2.5 flex items-center gap-1.5 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                    <span>Live Workspaces</span>
+                  </div>
+                </div>
+              </div>
             </div>
-          )}
-        </div>
+          </section>
+        )}
+
+        {/* Teacher Approval Queue Section (AC 3.2.1, AC 3.2.2, AC 3.2.3) */}
+        <section id="approvals-queue" className="scroll-mt-20">
+          <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">
+                  Teacher Approval Queue
+                </h2>
+                <span
+                  id="queue-count-badge"
+                  data-testid="queue-count-badge"
+                  className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300 border border-amber-300/40 dark:border-amber-500/30"
+                >
+                  {teachers.length} Pending
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                Review pending instructor applications with real-time verification and instant privilege provisioning.
+              </p>
+            </div>
+
+            {/* Search Filter Input */}
+            <div className="relative min-w-[240px]">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                id="teacher-search-input"
+                data-testid="teacher-search-input"
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search teacher by name or email..."
+                className="w-full pl-9 pr-3 py-1.5 rounded-xl text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+          </div>
+
+          {/* Teacher Queue Table (AC 3.2.1) */}
+          <div className="glass-panel rounded-2xl border border-slate-200/80 dark:border-slate-800/80 overflow-hidden shadow-sm">
+            {teachersLoading ? (
+              <div className="p-12 flex flex-col items-center justify-center gap-3 text-slate-400">
+                <Loader2 className="w-6 h-6 animate-spin text-indigo-500" />
+                <span className="text-xs font-medium">Loading approval queue...</span>
+              </div>
+            ) : filteredTeachers.length === 0 ? (
+              <div className="p-12 text-center text-slate-500 dark:text-slate-400">
+                <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto mb-2 opacity-80" />
+                <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                  {searchQuery ? 'No teacher applications match your filter' : 'No pending teacher applications'}
+                </p>
+                <p className="text-xs text-slate-400 mt-1">
+                  {searchQuery
+                    ? 'Try clearing the search query to see all applications.'
+                    : 'All teacher applications have been reviewed! New requests will appear automatically.'}
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider">
+                      <th className="py-3 px-4">Instructor Name</th>
+                      <th className="py-3 px-4">Email Address</th>
+                      <th className="py-3 px-4">Registration Timestamp</th>
+                      <th className="py-3 px-4">Status</th>
+                      <th className="py-3 px-4 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium">
+                    {filteredTeachers.map((teacher) => {
+                      const formattedDate = teacher.createdAt
+                        ? new Date(teacher.createdAt).toLocaleString(undefined, {
+                            dateStyle: 'short',
+                            timeStyle: 'short',
+                          })
+                        : 'Just now';
+
+                      const isBusy = processingId === teacher.id;
+
+                      return (
+                        <tr
+                          key={teacher.id}
+                          id={`teacher-row-${teacher.id}`}
+                          data-testid={`teacher-row-${teacher.id}`}
+                          className="hover:bg-slate-50/60 dark:hover:bg-slate-800/30 transition-colors animate-fadeIn"
+                        >
+                          <td className="py-3.5 px-4 font-semibold text-slate-900 dark:text-white">
+                            <div className="flex items-center gap-2">
+                              <div className="w-7 h-7 rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold text-[11px]">
+                                {teacher.fullName?.charAt(0)?.toUpperCase() || 'T'}
+                              </div>
+                              <div>
+                                <div>{teacher.fullName}</div>
+                                {teacher.subject && (
+                                  <span className="text-[10px] text-slate-400">{teacher.subject}</span>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+                          <td className="py-3.5 px-4 text-slate-600 dark:text-slate-300">
+                            {teacher.email}
+                          </td>
+                          <td className="py-3.5 px-4 text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                            {formattedDate}
+                          </td>
+                          <td className="py-3.5 px-4 whitespace-nowrap">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300 border border-amber-300/40 dark:border-amber-500/30">
+                              Pending Review
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 text-right">
+                            <div className="inline-flex items-center gap-2">
+                              {/* AC 3.2.2: Approve Button */}
+                              <button
+                                id={`approve-${teacher.id}`}
+                                data-testid={`approve-btn-${teacher.id}`}
+                                disabled={isBusy}
+                                onClick={() => handleVerify(teacher, 'approved')}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition-all active:scale-95 disabled:opacity-50"
+                                title="Approve instructor application"
+                              >
+                                {isBusy && actionType === 'approved' ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                )}
+                                <span>Approve</span>
+                              </button>
+
+                              {/* AC 3.2.3: Reject Button */}
+                              <button
+                                id={`reject-${teacher.id}`}
+                                data-testid={`reject-btn-${teacher.id}`}
+                                disabled={isBusy}
+                                onClick={() => handleVerify(teacher, 'rejected')}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 hover:bg-red-50 text-slate-700 hover:text-red-600 dark:bg-slate-800 dark:hover:bg-red-500/20 dark:text-slate-300 dark:hover:text-red-400 transition-all active:scale-95 disabled:opacity-50"
+                                title="Reject instructor application"
+                              >
+                                {isBusy && actionType === 'rejected' ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                  <XCircle className="w-3.5 h-3.5" />
+                                )}
+                                <span>Reject</span>
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </section>
       </main>
     </div>
   );
