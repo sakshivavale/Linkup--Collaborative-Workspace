@@ -41,24 +41,40 @@ export async function verifyToken(token: string): Promise<Me | null> {
     let fullName = (user.user_metadata?.full_name as string) || (user.user_metadata?.fullName as string) || user.email?.split('@')[0] || 'User';
     let role = (user.user_metadata?.role as 'teacher' | 'student') || 'student';
 
+    let isApprovedFromMeta: boolean | undefined = undefined;
+    if (user.user_metadata?.isApproved !== undefined) {
+      isApprovedFromMeta = Boolean(user.user_metadata.isApproved);
+    } else if (user.user_metadata?.is_approved !== undefined) {
+      isApprovedFromMeta = Boolean(user.user_metadata.is_approved);
+    }
+
+    let isApprovedFromDb: boolean | undefined = undefined;
+    let statusFromDb: any = undefined;
+
     // If database profile exists, fetch it
     try {
       const { data: profile } = await supabase
         .from('profiles')
-        .select('full_name, role')
+        .select('full_name, role, is_approved, status')
         .eq('id', user.id)
         .single();
 
       if (profile) {
         if (profile.full_name) fullName = profile.full_name;
         if (profile.role) role = profile.role as 'teacher' | 'student';
+        if ((profile as any).is_approved !== undefined && (profile as any).is_approved !== null) {
+          isApprovedFromDb = Boolean((profile as any).is_approved);
+        }
+        if ((profile as any).status) {
+          statusFromDb = (profile as any).status;
+        }
       }
     } catch {
       // Profile table might not have row yet, fallback to user_metadata is safe
     }
 
     // Extract status
-    const rawStatus = user.user_metadata?.status || user.user_metadata?.teacher_status;
+    const rawStatus = statusFromDb || user.user_metadata?.status || user.user_metadata?.teacher_status;
     let status: 'PENDING_TEACHER' | 'APPROVED' | 'REJECTED' | 'NONE' = 'NONE';
     if (rawStatus === 'PENDING_TEACHER' || rawStatus === 'pending') {
       status = 'PENDING_TEACHER';
@@ -68,14 +84,33 @@ export async function verifyToken(token: string): Promise<Me | null> {
       status = 'REJECTED';
     }
 
-    // If teacher approval is pending, effective operational role remains student
-    const effectiveRole = (status === 'PENDING_TEACHER' ? 'student' : role) as 'teacher' | 'student';
+    // Determine isApproved status
+    let isApproved = true;
+    if (role === 'teacher') {
+      if (isApprovedFromDb !== undefined) {
+        isApproved = isApprovedFromDb;
+      } else if (isApprovedFromMeta !== undefined) {
+        isApproved = isApprovedFromMeta;
+      } else if (status === 'PENDING_TEACHER') {
+        isApproved = false;
+      } else {
+        // Unapproved teacher defaults to false pending admin verification
+        isApproved = false;
+      }
+    } else {
+      isApproved = isApprovedFromDb !== undefined ? isApprovedFromDb : isApprovedFromMeta !== undefined ? isApprovedFromMeta : true;
+    }
+
+    if (role === 'teacher' && !isApproved && status === 'NONE') {
+      status = 'PENDING_TEACHER';
+    }
 
     const authUser: Me = {
       id: user.id,
       email: user.email || '',
       fullName,
-      role: effectiveRole,
+      role,
+      isApproved,
       status,
       requestedRole: (user.user_metadata?.requested_role || user.user_metadata?.requestedRole) as any,
     };

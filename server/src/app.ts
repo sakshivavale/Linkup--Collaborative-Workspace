@@ -248,13 +248,24 @@ app.post('/api/rooms', async (req: Request, res: Response) => {
     });
   }
 
-  if (user.role !== 'teacher' || user.status === 'PENDING_TEACHER') {
+  const isTeacher = user.role?.toLowerCase() === 'teacher';
+  const isApprovedTeacher = isTeacher && user.isApproved !== false && user.status !== 'PENDING_TEACHER';
+
+  // US-2.1 AC 2.1.3: Server-side API enforcement for unapproved teacher
+  if (isTeacher && !isApprovedTeacher) {
+    return res.status(403).json({
+      statusCode: 403,
+      error: 'TEACHER_NOT_APPROVED',
+      message: 'Your teacher account is pending administrator verification. Room creation is disabled.',
+    });
+  }
+
+  // Non-teacher role rejection (e.g. students)
+  if (!isTeacher) {
     return res.status(403).json({
       error: {
         code: 'TEACHER_ONLY',
-        message: user.status === 'PENDING_TEACHER'
-          ? 'Teacher account is pending review and approval'
-          : 'Only teachers can create rooms',
+        message: 'Only teachers can create rooms',
       },
     });
   }
