@@ -21,6 +21,8 @@
     "test:teacher-queue": "tsx scripts/test-teacher-approval-queue.ts",
     "test:teacher-provision": "tsx scripts/test-add-teacher-provisioning.ts",
     "test:user-directory": "tsx scripts/test-user-directory-role-status.ts",
+    "test:e2e": "tsx scripts/test-e2e-rbac-admin-suite.ts",
+    "test:e2e-rbac-admin": "tsx scripts/test-e2e-rbac-admin-suite.ts",
     "test:regenerate": "tsx scripts/test-regenerate-join-code.ts",
     "test:edit-archive": "tsx scripts/test-edit-archive-room.ts",
     "test:presence": "tsx scripts/test-room-presence.ts",

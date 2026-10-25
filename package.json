@@ -18,6 +18,8 @@
     "start": "node server/dist/index.js",
     "start:server": "node server/dist/index.js",
     "test:auth": "npm run test:auth --workspace=server",
+    "test:e2e": "npm run test:e2e --workspace=server",
+    "test:e2e-rbac-admin": "npm run test:e2e --workspace=server",
     "test:password-reset": "npm run test:password-reset --workspace=server",
     "test:profile": "npm run test:profile --workspace=server",
     "test:rooms": "npm run test:rooms --workspace=server",

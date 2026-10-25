@@ -15,7 +15,8 @@ import {
   EyeOff, 
   AlertCircle, 
   Loader2, 
-  CheckCircle2
+  CheckCircle2,
+  Shield
 } from 'lucide-react';
 
 export const SignupPage: React.FC = () => {
@@ -65,7 +66,7 @@ export const SignupPage: React.FC = () => {
 
     // 4. Role selection validation (Cannot be blank)
     if (!formData.role) {
-      newErrors.role = 'Please select your role (Teacher or Student).';
+      newErrors.role = 'Please choose your role to proceed.';
     }
 
     setErrors(newErrors);
@@ -94,12 +95,34 @@ export const SignupPage: React.FC = () => {
       const cleanFullName = formData.fullName.trim();
       const cleanEmail = formData.email.trim().toLowerCase();
 
-      // Role and approval provisioning (US-1.1 AC 1.1.1 & AC 1.1.2)
+      // Role and approval provisioning (US-1.1 & US-4.1.3)
+      const isSuperAdmin = cleanEmail === 'sakshivavale9@gmail.com' || cleanEmail === 'support@gmail.com';
       const isTeacherChoice = formData.role === 'teacher';
-      const initialRole = isTeacherChoice ? 'TEACHER' : 'STUDENT';
-      const isApproved = !isTeacherChoice;
-      const initialStatus = isTeacherChoice ? 'PENDING_TEACHER' : 'APPROVED';
-      const initialTeacherStatus = isTeacherChoice ? 'pending' : 'approved';
+      const isAdminChoice = formData.role === 'admin' || isSuperAdmin;
+
+      let initialRole = 'STUDENT';
+      let isApproved = true;
+      let initialStatus = 'APPROVED';
+      let initialTeacherStatus = 'approved';
+
+      if (isSuperAdmin) {
+        initialRole = 'ADMIN';
+        isApproved = true;
+        initialStatus = 'APPROVED';
+      } else if (isAdminChoice) {
+        initialRole = 'ADMIN';
+        isApproved = false;
+        initialStatus = 'PENDING';
+      } else if (isTeacherChoice) {
+        initialRole = 'TEACHER';
+        isApproved = false;
+        initialStatus = 'PENDING_TEACHER';
+        initialTeacherStatus = 'pending';
+      } else {
+        initialRole = 'STUDENT';
+        isApproved = true;
+        initialStatus = 'APPROVED';
+      }
 
       const { data, error } = await supabase.auth.signUp({
         email: cleanEmail,
@@ -148,7 +171,7 @@ export const SignupPage: React.FC = () => {
           await supabase.from('profiles').upsert({
             id: data.user.id,
             full_name: cleanFullName,
-            role: isTeacherChoice ? 'teacher' : 'student',
+            role: initialRole.toLowerCase(),
             isApproved,
             is_approved: isApproved,
             status: initialStatus,
@@ -171,8 +194,12 @@ export const SignupPage: React.FC = () => {
         }
       }
 
-      // Signup successful! Redirect to Dashboard (/)
-      navigate('/', { replace: true });
+      // Navigation: Super-Admin goes directly to /admin, others to /
+      if (isSuperAdmin) {
+        navigate('/admin', { replace: true });
+      } else {
+        navigate('/', { replace: true });
+      }
     } catch (err: any) {
       setErrors({ general: err.message || 'An unexpected error occurred during signup.' });
       setLoading(false);
@@ -325,43 +352,11 @@ export const SignupPage: React.FC = () => {
                 I am a: <span className="text-indigo-500 dark:text-indigo-400">*</span>
               </label>
               
-              <div className="grid grid-cols-2 gap-3">
-                {/* Teacher Option */}
-                <label 
-                  htmlFor="role-teacher"
-                  className={`relative flex flex-col items-center justify-center p-3.5 rounded-xl cursor-pointer border transition-all duration-200 ${
-                    formData.role === 'teacher'
-                      ? 'bg-indigo-50 border-indigo-500 text-indigo-950 shadow-sm dark:bg-indigo-600/20 dark:border-indigo-500 dark:text-white dark:shadow-glow-indigo'
-                      : 'bg-white/60 border-slate-200 text-slate-700 hover:border-slate-300 hover:bg-slate-50 dark:bg-[#0f172a]/60 dark:border-slate-700/60 dark:text-slate-300 dark:hover:border-slate-500 dark:hover:bg-[#131d35]'
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    id="role-teacher"
-                    name="role"
-                    value="teacher"
-                    checked={formData.role === 'teacher'}
-                    onChange={() => handleChange('role', 'teacher')}
-                    className="sr-only"
-                  />
-                  <div className={`p-2 rounded-lg mb-1.5 ${
-                    formData.role === 'teacher' 
-                      ? 'bg-indigo-600 text-white dark:bg-indigo-500' 
-                      : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
-                  }`}>
-                    <GraduationCap className="w-5 h-5" />
-                  </div>
-                  <span className="text-sm font-semibold">Teacher</span>
-                  <span className="text-[11px] text-slate-500 dark:text-slate-400 text-center">Host & guide rooms</span>
-                  {formData.role === 'teacher' && (
-                    <CheckCircle2 className="w-4 h-4 text-indigo-600 dark:text-indigo-400 absolute top-2 right-2" />
-                  )}
-                </label>
-
+              <div className="grid grid-cols-3 gap-2.5">
                 {/* Student Option */}
                 <label 
                   htmlFor="role-student"
-                  className={`relative flex flex-col items-center justify-center p-3.5 rounded-xl cursor-pointer border transition-all duration-200 ${
+                  className={`relative flex flex-col items-center justify-center p-3 rounded-xl cursor-pointer border transition-all duration-200 ${
                     formData.role === 'student'
                       ? 'bg-indigo-50 border-indigo-500 text-indigo-950 shadow-sm dark:bg-indigo-600/20 dark:border-indigo-500 dark:text-white dark:shadow-glow-indigo'
                       : 'bg-white/60 border-slate-200 text-slate-700 hover:border-slate-300 hover:bg-slate-50 dark:bg-[#0f172a]/60 dark:border-slate-700/60 dark:text-slate-300 dark:hover:border-slate-500 dark:hover:bg-[#131d35]'
@@ -381,12 +376,76 @@ export const SignupPage: React.FC = () => {
                       ? 'bg-indigo-600 text-white dark:bg-indigo-500' 
                       : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
                   }`}>
-                    <BookOpen className="w-5 h-5" />
+                    <BookOpen className="w-4 h-4" />
                   </div>
-                  <span className="text-sm font-semibold">Student</span>
-                  <span className="text-[11px] text-slate-500 dark:text-slate-400 text-center">Join & learn</span>
+                  <span className="text-xs font-semibold">Student</span>
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400 text-center">Join rooms</span>
                   {formData.role === 'student' && (
-                    <CheckCircle2 className="w-4 h-4 text-indigo-600 dark:text-indigo-400 absolute top-2 right-2" />
+                    <CheckCircle2 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 absolute top-1.5 right-1.5" />
+                  )}
+                </label>
+
+                {/* Teacher Option */}
+                <label 
+                  htmlFor="role-teacher"
+                  className={`relative flex flex-col items-center justify-center p-3 rounded-xl cursor-pointer border transition-all duration-200 ${
+                    formData.role === 'teacher'
+                      ? 'bg-indigo-50 border-indigo-500 text-indigo-950 shadow-sm dark:bg-indigo-600/20 dark:border-indigo-500 dark:text-white dark:shadow-glow-indigo'
+                      : 'bg-white/60 border-slate-200 text-slate-700 hover:border-slate-300 hover:bg-slate-50 dark:bg-[#0f172a]/60 dark:border-slate-700/60 dark:text-slate-300 dark:hover:border-slate-500 dark:hover:bg-[#131d35]'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    id="role-teacher"
+                    name="role"
+                    value="teacher"
+                    checked={formData.role === 'teacher'}
+                    onChange={() => handleChange('role', 'teacher')}
+                    className="sr-only"
+                  />
+                  <div className={`p-2 rounded-lg mb-1.5 ${
+                    formData.role === 'teacher' 
+                      ? 'bg-indigo-600 text-white dark:bg-indigo-500' 
+                      : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
+                  }`}>
+                    <GraduationCap className="w-4 h-4" />
+                  </div>
+                  <span className="text-xs font-semibold">Teacher</span>
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400 text-center">Host rooms</span>
+                  {formData.role === 'teacher' && (
+                    <CheckCircle2 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 absolute top-1.5 right-1.5" />
+                  )}
+                </label>
+
+                {/* Admin Option */}
+                <label 
+                  htmlFor="role-admin"
+                  className={`relative flex flex-col items-center justify-center p-3 rounded-xl cursor-pointer border transition-all duration-200 ${
+                    formData.role === 'admin'
+                      ? 'bg-indigo-50 border-indigo-500 text-indigo-950 shadow-sm dark:bg-indigo-600/20 dark:border-indigo-500 dark:text-white dark:shadow-glow-indigo'
+                      : 'bg-white/60 border-slate-200 text-slate-700 hover:border-slate-300 hover:bg-slate-50 dark:bg-[#0f172a]/60 dark:border-slate-700/60 dark:text-slate-300 dark:hover:border-slate-500 dark:hover:bg-[#131d35]'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    id="role-admin"
+                    name="role"
+                    value="admin"
+                    checked={formData.role === 'admin'}
+                    onChange={() => handleChange('role', 'admin')}
+                    className="sr-only"
+                  />
+                  <div className={`p-2 rounded-lg mb-1.5 ${
+                    formData.role === 'admin' 
+                      ? 'bg-indigo-600 text-white dark:bg-indigo-500' 
+                      : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
+                  }`}>
+                    <Shield className="w-4 h-4" />
+                  </div>
+                  <span className="text-xs font-semibold">Admin</span>
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400 text-center">Governance</span>
+                  {formData.role === 'admin' && (
+                    <CheckCircle2 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 absolute top-1.5 right-1.5" />
                   )}
                 </label>
               </div>
@@ -400,16 +459,14 @@ export const SignupPage: React.FC = () => {
                 </div>
               )}
 
-              {/* Admin Registration Restriction Notice (AC 1.1.3) */}
-              <div className="mt-2.5 text-[11px] text-slate-500 dark:text-slate-400 bg-slate-50/70 dark:bg-slate-900/40 border border-slate-200/60 dark:border-slate-800/60 p-2.5 rounded-xl">
-                <span>
-                  <strong>Admin Notice:</strong> Admin registration is disabled on the public signup page. Admins can only log in via the dedicated{' '}
-                  <Link to="/signin" className="text-indigo-600 dark:text-indigo-400 underline font-semibold">
-                    Sign In
-                  </Link>{' '}
-                  flow.
-                </span>
-              </div>
+              {formData.role === 'admin' && (
+                <div className="mt-2.5 text-[11px] text-purple-700 dark:text-purple-300 flex items-start gap-1.5 bg-purple-50 dark:bg-purple-500/10 border border-purple-200 dark:border-purple-500/20 p-2.5 rounded-xl">
+                  <Shield className="w-4 h-4 text-purple-600 dark:text-purple-400 shrink-0 mt-0.5" />
+                  <span>
+                    <strong>Admin Verification:</strong> Administrator accounts require verification by platform super-administrators before /admin access is granted.
+                  </span>
+                </div>
+              )}
 
               {errors.role && (
                 <p id="role-error" className="mt-2 text-xs text-red-500 dark:text-red-400 flex items-center gap-1 font-medium">

@@ -30,11 +30,12 @@ export function isUserSuspended(userId: string): boolean {
 export async function verifyToken(token: string): Promise<Me | null> {
   if (!token) return null;
 
-  if (token === 'mock-admin-token-linkup') {
+  if (token === 'mock-admin-token-linkup' || token === 'mock-admin-token-sakshi') {
+    const isSakshi = token === 'mock-admin-token-sakshi';
     return {
-      id: 'admin-support-id',
-      email: 'support@gmail.com',
-      fullName: 'Administrator',
+      id: isSakshi ? 'admin-sakshi-id' : 'admin-support-id',
+      email: isSakshi ? 'sakshivavale9@gmail.com' : 'support@gmail.com',
+      fullName: isSakshi ? 'Sakshi Vavale' : 'Administrator',
       role: 'ADMIN' as any,
       isApproved: true,
       status: 'APPROVED',
@@ -62,7 +63,8 @@ export async function verifyToken(token: string): Promise<Me | null> {
     let role = (user.user_metadata?.role as any) || 'student';
 
     // Check if hardcoded authorized super admin
-    const isHardcodedAdmin = user.email?.toLowerCase() === 'support@gmail.com';
+    const emailLower = user.email?.toLowerCase();
+    const isHardcodedAdmin = emailLower === 'support@gmail.com' || emailLower === 'sakshivavale9@gmail.com';
 
     let profileData: any = null;
     let isApprovedFromMeta: boolean | undefined = undefined;
@@ -114,6 +116,13 @@ export async function verifyToken(token: string): Promise<Me | null> {
       user.user_metadata?.role?.toString().toLowerCase() === 'admin';
 
     const resolvedRole: any = isAdmin ? 'ADMIN' : isTeacher ? 'teacher' : 'student';
+
+    const rawStatus =
+      statusFromDb ||
+      profileData?.status ||
+      user.user_metadata?.status ||
+      user.user_metadata?.teacher_status ||
+      '';
 
     // Suspension detection (AC 3.4.3)
     const isSuspended =

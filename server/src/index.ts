@@ -91,7 +91,8 @@ io.on('connection', (socket) => {
   }
 
   // Admin room subscription for real-time teacher registration notifications
-  const isAdmin = user?.role === 'ADMIN' || user?.role === 'admin' || user?.email?.toLowerCase() === 'support@gmail.com';
+  const emailLower = user?.email?.toLowerCase();
+  const isAdmin = user?.role === 'ADMIN' || user?.role === 'admin' || emailLower === 'support@gmail.com' || emailLower === 'sakshivavale9@gmail.com';
   if (isAdmin) {
     socket.join('admin');
   }
