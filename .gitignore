@@ -17,6 +17,9 @@ server/.env.local
 dist/
 build/
 *.tsbuildinfo
+shared/src/**/*.js
+shared/src/**/*.d.ts
+shared/src/**/*.js.map
 
 # IDE & OS
 .vscode/

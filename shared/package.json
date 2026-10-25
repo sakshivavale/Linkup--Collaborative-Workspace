@@ -5,6 +5,7 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
-    "build": "tsc"
+    "clean:src": "node -e \"const fs=require('fs'),p=require('path'); if(fs.existsSync('src')) fs.readdirSync('src').filter(f=>/\\.(js|d\\.ts|js\\.map)$/.test(f)).forEach(f=>fs.unlinkSync(p.join('src',f)))\"",
+    "build": "npm run clean:src && tsc"
   }
 }
