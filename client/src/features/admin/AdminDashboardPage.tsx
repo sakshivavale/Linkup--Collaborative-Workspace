@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { PlatformAnalyticsOverview } from '@linkup/shared';
 import { AddTeacherModal } from './AddTeacherModal';
+import { UserDirectoryView } from './UserDirectoryView';
 
 interface PendingTeacher {
   id: string;
@@ -51,14 +52,17 @@ export const AdminDashboardPage: React.FC = () => {
   const location = useLocation();
 
   // Active Tab: /admin vs /admin/approvals vs /admin/users
-  const isApprovalsOnly = location.pathname.includes('/approvals');
-  const [activeTab, setActiveTab] = useState<'overview' | 'approvals'>(
-    isApprovalsOnly ? 'approvals' : 'overview'
+  const isApprovals = location.pathname.includes('/approvals');
+  const isUsers = location.pathname.includes('/users');
+  const [activeTab, setActiveTab] = useState<'overview' | 'approvals' | 'users'>(
+    isUsers ? 'users' : isApprovals ? 'approvals' : 'overview'
   );
 
   useEffect(() => {
     if (location.pathname.includes('/approvals')) {
       setActiveTab('approvals');
+    } else if (location.pathname.includes('/users')) {
+      setActiveTab('users');
     } else {
       setActiveTab('overview');
     }
@@ -298,6 +302,23 @@ export const AdminDashboardPage: React.FC = () => {
             >
               <LayoutDashboard className="w-4 h-4" />
               <span>Platform Overview</span>
+            </button>
+
+            <button
+              id="users-tab-btn"
+              data-testid="users-tab"
+              onClick={() => {
+                setActiveTab('users');
+                navigate('/admin/users');
+              }}
+              className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                activeTab === 'users'
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/60'
+              }`}
+            >
+              <Users className="w-4 h-4" />
+              <span>User Directory</span>
             </button>
 
             <button
@@ -691,8 +712,17 @@ export const AdminDashboardPage: React.FC = () => {
           </section>
         )}
 
+        {/* AC 3.4.1: User Directory Section */}
+        {activeTab === 'users' && (
+          <UserDirectoryView
+            onNotify={(n) => setNotification(n)}
+            onRefreshAnalytics={() => fetchAnalytics(true)}
+          />
+        )}
+
         {/* Teacher Approval Queue Section (AC 3.2.1, AC 3.2.2, AC 3.2.3) */}
-        <section id="approvals-queue" className="scroll-mt-20">
+        {(activeTab === 'overview' || activeTab === 'approvals') && (
+          <section id="approvals-queue" className="scroll-mt-20">
           <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
               <div className="flex items-center gap-2">
@@ -846,6 +876,7 @@ export const AdminDashboardPage: React.FC = () => {
             )}
           </div>
         </section>
+        )}
       </main>
 
       {/* AC 3.3.1: Direct + Add Teacher Modal */}

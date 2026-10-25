@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction, RequestHandler } from 'express';
 import { Me, ApiErrorResponse, RoomSummary } from '@linkup/shared';
-import { verifyToken } from '../lib/supabase';
+import { verifyToken, isUserSuspended } from '../lib/supabase';
 import { getRoomForUser, NotAMemberError } from '../lib/rooms';
 
 // Augment Express Request type
@@ -63,6 +63,14 @@ export const requireAuth: RequestHandler = async (
     });
   }
 
+  // AC 3.4.3: Account Suspension and Privilege Revocation
+  if (user.isSuspended || user.status === 'SUSPENDED' || isUserSuspended(user.id)) {
+    return res.status(403).json({
+      error: 'ACCOUNT_SUSPENDED',
+      message: 'Your account has been suspended by an administrator.',
+    } as any);
+  }
+
   req.user = user;
   next();
 };
@@ -84,6 +92,14 @@ export const requireMember: RequestHandler = async (
         message: 'Authentication required',
       },
     });
+  }
+
+  // AC 3.4.3: Account Suspension
+  if (user.isSuspended || user.status === 'SUSPENDED' || isUserSuspended(user.id)) {
+    return res.status(403).json({
+      error: 'ACCOUNT_SUSPENDED',
+      message: 'Your account has been suspended by an administrator.',
+    } as any);
   }
 
   const roomId = req.params.roomId || req.params.id;
@@ -164,6 +180,14 @@ export const requireHost: RequestHandler = async (
     });
   }
 
+  // AC 3.4.3: Account Suspension
+  if (user.isSuspended || user.status === 'SUSPENDED' || isUserSuspended(user.id)) {
+    return res.status(403).json({
+      error: 'ACCOUNT_SUSPENDED',
+      message: 'Your account has been suspended by an administrator.',
+    } as any);
+  }
+
   const roomId = req.params.roomId || req.params.id;
   if (!roomId) {
     return res.status(400).json({
@@ -236,6 +260,14 @@ export const requireApprovedTeacher: RequestHandler = (
         message: 'Authentication required',
       },
     });
+  }
+
+  // AC 3.4.3: Account Suspension
+  if (user.isSuspended || user.status === 'SUSPENDED' || isUserSuspended(user.id)) {
+    return res.status(403).json({
+      error: 'ACCOUNT_SUSPENDED',
+      message: 'Your account has been suspended by an administrator.',
+    } as any);
   }
 
   const roleLower = (user.role || '').toLowerCase();
@@ -323,6 +355,13 @@ export const requireAdmin: RequestHandler = async (
       } as any);
     }
     user = verified;
+  }
+
+  if (user.isSuspended || user.status === 'SUSPENDED' || isUserSuspended(user.id)) {
+    return res.status(403).json({
+      error: 'ACCOUNT_SUSPENDED',
+      message: 'Your account has been suspended by an administrator.',
+    } as any);
   }
 
   // AC 2.2.3: Check user role and approval status

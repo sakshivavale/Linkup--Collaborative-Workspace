@@ -5,7 +5,7 @@ import { Socket } from 'socket.io';
 import { RoomSummary } from '@linkup/shared';
 import { env } from './config/env';
 import { requireAuth, requireMember, requireHost, requireApprovedTeacher, requireAdmin } from './middleware/auth';
-import { supabase, updateTokenCacheUserName, invalidateUserCache, updateUserApprovalInCache } from './lib/supabase';
+import { supabase, updateTokenCacheUserName, invalidateUserCache, updateUserApprovalInCache, setUserSuspension, isUserSuspended, updateUserRoleInCache } from './lib/supabase';
 import {
   getRoomsForUser,
   createRoom,
@@ -156,6 +156,109 @@ export interface ProvisionedTeacherRecord {
 }
 
 export const provisionedTeachersStore = new Map<string, ProvisionedTeacherRecord>();
+
+// US-3.4: Platform User Directory Store
+export interface DirectoryUserRecord {
+  id: string;
+  fullName: string;
+  email: string;
+  role: 'STUDENT' | 'TEACHER' | 'ADMIN';
+  status: 'APPROVED' | 'PENDING' | 'SUSPENDED' | 'REJECTED';
+  isApproved: boolean;
+  isSuspended: boolean;
+  createdAt: string;
+  department?: string;
+}
+
+export const userDirectoryStore = new Map<string, DirectoryUserRecord>();
+
+export function seedInitialDirectoryUsers() {
+  const seeds: DirectoryUserRecord[] = [
+    {
+      id: 'admin-support-id',
+      fullName: 'Support Administrator',
+      email: 'support@gmail.com',
+      role: 'ADMIN',
+      status: 'APPROVED',
+      isApproved: true,
+      isSuspended: false,
+      createdAt: '2025-01-01T00:00:00.000Z',
+    },
+    {
+      id: 'student-demo-1',
+      fullName: 'Alex Johnson',
+      email: 'alex.student@linkup.test',
+      role: 'STUDENT',
+      status: 'APPROVED',
+      isApproved: true,
+      isSuspended: false,
+      createdAt: '2025-01-10T10:00:00.000Z',
+      department: 'Computer Science',
+    },
+    {
+      id: 'student-demo-2',
+      fullName: 'Maya Patel',
+      email: 'maya.student@linkup.test',
+      role: 'STUDENT',
+      status: 'APPROVED',
+      isApproved: true,
+      isSuspended: false,
+      createdAt: '2025-01-15T11:30:00.000Z',
+      department: 'Information Technology',
+    },
+    {
+      id: 'student-demo-3',
+      fullName: 'Lucas Garcia',
+      email: 'lucas.student@linkup.test',
+      role: 'STUDENT',
+      status: 'APPROVED',
+      isApproved: true,
+      isSuspended: false,
+      createdAt: '2025-02-01T09:15:00.000Z',
+      department: 'Data Science',
+    },
+    {
+      id: 'teacher-demo-1',
+      fullName: 'Dr. Robert Smith',
+      email: 'robert.smith@university.edu',
+      role: 'TEACHER',
+      status: 'APPROVED',
+      isApproved: true,
+      isSuspended: false,
+      createdAt: '2025-01-05T08:00:00.000Z',
+      department: 'Mathematics',
+    },
+    {
+      id: 'teacher-demo-2',
+      fullName: 'Prof. Clara Oswald',
+      email: 'clara.oswald@university.edu',
+      role: 'TEACHER',
+      status: 'PENDING',
+      isApproved: false,
+      isSuspended: false,
+      createdAt: '2025-02-10T14:20:00.000Z',
+      department: 'Physics',
+    },
+    {
+      id: 'user-suspended-demo',
+      fullName: 'Disruptive BadActor',
+      email: 'spammer@badactors.org',
+      role: 'STUDENT',
+      status: 'SUSPENDED',
+      isApproved: true,
+      isSuspended: true,
+      createdAt: '2025-01-20T16:45:00.000Z',
+    },
+  ];
+
+  seeds.forEach((u) => {
+    userDirectoryStore.set(u.id, u);
+    if (u.isSuspended) {
+      setUserSuspension(u.id, true);
+    }
+  });
+}
+seedInitialDirectoryUsers();
 
 export interface MockAnalyticsOverride {
   totalUsers?: number;
@@ -696,6 +799,304 @@ app.post(['/api/admin/teachers/provision', '/admin/teachers/provision'], async (
     },
   });
 });
+
+// US-3.4: Platform User Directory, Search, Filter & Role/Status Control (AC 3.4.1, AC 3.4.2, AC 3.4.3)
+
+/**
+ * AC 3.4.1: Fetch user directory with multi-criteria filtering (search, role, status)
+ */
+app.get(['/api/admin/users', '/admin/users'], async (req: Request, res: Response) => {
+  try {
+    // 1. Sync from database profiles if Supabase is connected
+    try {
+      const { data: dbProfiles } = await supabase
+        .from('profiles')
+        .select('id, full_name, role, status, is_approved, "isApproved", is_suspended, "isSuspended", created_at');
+
+      if (dbProfiles && Array.isArray(dbProfiles) && dbProfiles.length > 0) {
+        dbProfiles.forEach((p: any) => {
+          const existing = userDirectoryStore.get(p.id);
+          const isSuspended =
+            p.is_suspended === true ||
+            p.isSuspended === true ||
+            p.status === 'SUSPENDED' ||
+            isUserSuspended(p.id);
+          const isApproved =
+            p.is_approved === true ||
+            p.isApproved === true ||
+            p.status === 'APPROVED' ||
+            p.status === 'approved';
+          const roleStr = (p.role || existing?.role || 'STUDENT').toString().toUpperCase();
+          const role = (roleStr === 'ADMIN' ? 'ADMIN' : roleStr === 'TEACHER' ? 'TEACHER' : 'STUDENT') as any;
+
+          let status: 'APPROVED' | 'PENDING' | 'SUSPENDED' | 'REJECTED' = isSuspended
+            ? 'SUSPENDED'
+            : isApproved
+            ? 'APPROVED'
+            : p.status === 'REJECTED'
+            ? 'REJECTED'
+            : 'PENDING';
+
+          userDirectoryStore.set(p.id, {
+            id: p.id,
+            fullName: p.full_name || existing?.fullName || 'User',
+            email: existing?.email || (p.id.includes('@') ? p.id : `${p.id}@linkup.edu`),
+            role,
+            status,
+            isApproved,
+            isSuspended,
+            createdAt: p.created_at || existing?.createdAt || new Date().toISOString(),
+            department: existing?.department,
+          });
+        });
+      }
+    } catch {}
+
+    // 2. Sync from in-memory provisioned & pending stores
+    provisionedTeachersStore.forEach((t) => {
+      const existing = userDirectoryStore.get(t.id);
+      if (!existing) {
+        userDirectoryStore.set(t.id, {
+          id: t.id,
+          fullName: t.fullName,
+          email: t.email,
+          role: 'TEACHER',
+          status: t.isApproved ? 'APPROVED' : 'PENDING',
+          isApproved: t.isApproved,
+          isSuspended: false,
+          createdAt: t.createdAt,
+          department: t.department,
+        });
+      }
+    });
+
+    pendingTeachersStore.forEach((t) => {
+      const existing = userDirectoryStore.get(t.id);
+      if (!existing) {
+        userDirectoryStore.set(t.id, {
+          id: t.id,
+          fullName: t.fullName,
+          email: t.email,
+          role: 'TEACHER',
+          status: t.status === 'approved' ? 'APPROVED' : t.status === 'rejected' ? 'REJECTED' : 'PENDING',
+          isApproved: t.status === 'approved',
+          isSuspended: false,
+          createdAt: t.createdAt,
+        });
+      }
+    });
+
+    // 3. Apply Multi-Criteria Filters
+    let list = Array.from(userDirectoryStore.values());
+
+    // Search query filter (debounced 300ms on frontend)
+    const search = (req.query.search as string || req.query.q as string || '').trim().toLowerCase();
+    if (search) {
+      list = list.filter(
+        (u) =>
+          u.fullName.toLowerCase().includes(search) ||
+          u.email.toLowerCase().includes(search) ||
+          (u.department && u.department.toLowerCase().includes(search))
+      );
+    }
+
+    // Role filter (Student, Teacher, Admin)
+    const roleParam = (req.query.role as string || '').trim().toUpperCase();
+    if (roleParam && roleParam !== 'ALL') {
+      list = list.filter((u) => u.role.toUpperCase() === roleParam);
+    }
+
+    // Status filter (Approved, Pending, Suspended)
+    const statusParam = (req.query.status as string || '').trim().toUpperCase();
+    if (statusParam && statusParam !== 'ALL') {
+      list = list.filter((u) => u.status.toUpperCase() === statusParam);
+    }
+
+    return res.status(200).json({
+      users: list,
+      total: list.length,
+    });
+  } catch (err: any) {
+    console.error('[Admin Users] Failed to list users:', err);
+    return res.status(500).json({ error: { code: 'SERVER_ERROR', message: err.message } });
+  }
+});
+
+/**
+ * AC 3.4.2: Dynamic Role Modification
+ * PATCH /api/admin/users/:userId/role
+ * Updates user role (e.g. STUDENT -> TEACHER) and sets isApproved = true
+ */
+app.patch(
+  [
+    '/api/admin/users/:userId/role',
+    '/admin/users/:userId/role',
+    '/api/admin/users/:id/role',
+    '/admin/users/:id/role',
+  ],
+  async (req: Request, res: Response) => {
+    const userId = req.params.userId || req.params.id;
+    const { role } = req.body || {};
+
+    if (!role || typeof role !== 'string' || !role.trim()) {
+      return res.status(400).json({
+        error: { code: 'VALIDATION', message: 'Role is required.' },
+      });
+    }
+
+    const normRole = role.trim().toUpperCase();
+    if (!['STUDENT', 'TEACHER', 'ADMIN'].includes(normRole)) {
+      return res.status(400).json({
+        error: { code: 'VALIDATION', message: `Invalid role "${role}". Must be STUDENT, TEACHER, or ADMIN.` },
+      });
+    }
+
+    let record = userDirectoryStore.get(userId);
+    if (!record) {
+      record = {
+        id: userId,
+        fullName: 'User',
+        email: `${userId}@linkup.edu`,
+        role: normRole as any,
+        status: 'APPROVED',
+        isApproved: true,
+        isSuspended: false,
+        createdAt: new Date().toISOString(),
+      };
+    } else {
+      record.role = normRole as any;
+      record.isApproved = true;
+      if (record.status !== 'SUSPENDED') {
+        record.status = 'APPROVED';
+      }
+    }
+    userDirectoryStore.set(userId, record);
+
+    // Update database profiles table
+    try {
+      await supabase
+        .from('profiles')
+        .update({
+          role: normRole.toLowerCase(),
+          is_approved: true,
+          isApproved: true,
+          status: record.status,
+        })
+        .eq('id', userId);
+    } catch (err: any) {
+      console.warn('[Admin Role Update] Supabase DB note:', err.message);
+    }
+
+    // Update active token cache
+    updateUserRoleInCache(userId, normRole, true);
+
+    // Push real-time WebSocket updates
+    const io = req.app.get('io');
+    if (io) {
+      io.to('admin').emit('user_updated', record);
+      io.to('admin').emit('analytics_updated');
+      io.to(`user:${userId}`).emit('role_updated', { role: normRole, isApproved: true });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: `User role successfully updated to ${normRole}.`,
+      user: record,
+      role: normRole,
+      isApproved: true,
+    });
+  }
+);
+
+/**
+ * AC 3.4.3: Account Suspension and Privilege Revocation
+ * PATCH /api/admin/users/:userId/status or POST /api/admin/users/:userId/suspend
+ */
+app.all(
+  [
+    '/api/admin/users/:userId/status',
+    '/admin/users/:userId/status',
+    '/api/admin/users/:id/status',
+    '/admin/users/:id/status',
+    '/api/admin/users/:userId/suspend',
+    '/admin/users/:userId/suspend',
+    '/api/admin/users/:id/suspend',
+    '/admin/users/:id/suspend',
+  ],
+  async (req: Request, res: Response) => {
+    const userId = req.params.userId || req.params.id;
+    const { isSuspended: isSuspendedBody, status, action } = req.body || {};
+
+    let targetSuspended = true;
+    if (isSuspendedBody !== undefined) {
+      targetSuspended = Boolean(isSuspendedBody);
+    } else if (action === 'unsuspend' || action === 'restore') {
+      targetSuspended = false;
+    } else if (status) {
+      targetSuspended = String(status).toUpperCase() === 'SUSPENDED';
+    }
+
+    // Update suspension in-memory store and token cache
+    setUserSuspension(userId, targetSuspended);
+
+    let record = userDirectoryStore.get(userId);
+    if (!record) {
+      record = {
+        id: userId,
+        fullName: 'User',
+        email: `${userId}@linkup.edu`,
+        role: 'STUDENT',
+        status: targetSuspended ? 'SUSPENDED' : 'APPROVED',
+        isApproved: !targetSuspended,
+        isSuspended: targetSuspended,
+        createdAt: new Date().toISOString(),
+      };
+    } else {
+      record.isSuspended = targetSuspended;
+      record.status = targetSuspended ? 'SUSPENDED' : (record.isApproved ? 'APPROVED' : 'PENDING');
+    }
+    userDirectoryStore.set(userId, record);
+
+    // Update database profiles
+    try {
+      await supabase
+        .from('profiles')
+        .update({
+          is_suspended: targetSuspended,
+          isSuspended: targetSuspended,
+          status: record.status,
+        })
+        .eq('id', userId);
+    } catch (err: any) {
+      console.warn('[Admin Status Update] Supabase DB note:', err.message);
+    }
+
+    // Revoke active sessions / real-time notifications
+    const io = req.app.get('io');
+    if (io) {
+      io.to('admin').emit('user_updated', record);
+      io.to('admin').emit('analytics_updated');
+      if (targetSuspended) {
+        io.to(`user:${userId}`).emit('account_suspended', {
+          userId,
+          message: 'Your account has been suspended by an administrator.',
+        });
+        try {
+          const userSockets = await io.in(`user:${userId}`).fetchSockets();
+          userSockets.forEach((s) => s.disconnect(true));
+        } catch {}
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: targetSuspended ? 'Account suspended successfully.' : 'Account restored successfully.',
+      user: record,
+      isSuspended: targetSuspended,
+      status: record.status,
+    });
+  }
+);
 
 // Admin elevation endpoint
 app.post('/api/admin/elevate', (req: Request, res: Response) => {
