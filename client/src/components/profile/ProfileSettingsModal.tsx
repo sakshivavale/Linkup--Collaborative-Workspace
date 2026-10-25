@@ -28,7 +28,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({ isOp
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const isTeacher = role === 'teacher';
+  const isTeacher = (role || '').toLowerCase() === 'teacher';
 
   // Synchronize initial value when modal opens
   useEffect(() => {

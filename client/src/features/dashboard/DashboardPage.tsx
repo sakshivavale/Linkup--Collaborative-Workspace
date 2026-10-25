@@ -106,7 +106,7 @@ export const DashboardPage: React.FC = () => {
 
   useEffect(() => {
     fetchRooms();
-  }, [fetchRooms]);
+  }, [fetchRooms, isTeacher]);
 
   useEffect(() => {
     const flash = (location.state as { flash?: string } | null)?.flash;
@@ -233,7 +233,7 @@ export const DashboardPage: React.FC = () => {
                     </span>
                   </div>
                   <p className="text-xs text-slate-600 dark:text-slate-300 mt-1 max-w-2xl leading-relaxed">
-                    You signed up requesting <strong>Teacher</strong> access. Your application is currently pending review. While pending, you have full student access to join and collaborate in rooms. Room Creation and Host Controls will automatically unlock once approved.
+                    <strong>Your teacher account has been created and is currently awaiting administrator verification.</strong> While pending, you have full student access to join and collaborate in rooms. Room Creation and Host Controls will automatically unlock once approved.
                   </p>
                 </div>
               </div>
@@ -335,7 +335,7 @@ export const DashboardPage: React.FC = () => {
                   <Lock className="w-5 h-5" />
                 </div>
                 <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-300/60 dark:border-amber-500/30">
-                  Verification Pending
+                  Pending Approval
                 </span>
               </div>
               <h2 className="text-lg font-bold text-slate-900 dark:text-white mb-1">Create a Room (Locked)</h2>

@@ -219,3 +219,59 @@ export const requireHost: RequestHandler = async (
     });
   }
 };
+
+/**
+ * Authorization middleware to restrict unverified/pending teachers from accessing resources.
+ */
+export const requireApprovedTeacher: RequestHandler = (
+  req: Request,
+  res: Response<ApiErrorResponse>,
+  next: NextFunction
+) => {
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({
+      error: {
+        code: 'UNAUTHENTICATED',
+        message: 'Authentication required',
+      },
+    });
+  }
+
+  const roleLower = (user.role || '').toLowerCase();
+  const isAdmin = user.isAdmin || roleLower === 'admin' || user.email?.toLowerCase() === 'support@gmail.com';
+  if (isAdmin) {
+    return next();
+  }
+
+  const isTeacher = roleLower === 'teacher';
+  const isApproved =
+    user.isApproved === true ||
+    (user as any).is_verified === true ||
+    (user.status as any) === 'approved' ||
+    user.status === 'APPROVED';
+
+  const isApprovedTeacher = isTeacher && user.isApproved !== false && user.status !== 'PENDING_TEACHER' && isApproved;
+
+  // US-2.1 AC 2.1.3: Server-side API enforcement for unapproved teacher
+  if (isTeacher && !isApprovedTeacher) {
+    return res.status(403).json({
+      statusCode: 403,
+      error: 'TEACHER_NOT_APPROVED',
+      message: 'Your teacher account is pending administrator verification. Room creation is disabled.',
+    } as any);
+  }
+
+  // Non-teacher role rejection (e.g. students)
+  if (!isTeacher) {
+    return res.status(403).json({
+      error: {
+        code: 'TEACHER_ONLY',
+        message: 'Only teachers can create rooms',
+      },
+    });
+  }
+
+  next();
+};
+

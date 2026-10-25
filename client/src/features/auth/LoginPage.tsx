@@ -89,8 +89,10 @@ export const LoginPage: React.FC = () => {
         return;
       }
 
-      // Successful login -> Redirect to requested page or Dashboard
-      navigate(from, { replace: true });
+      // Successful login -> Redirect to requested page or Dashboard / Admin (AC 1.1.3)
+      const isAdminLogin = trimmedEmail.toLowerCase() === 'support@gmail.com';
+      const destination = from === '/' && isAdminLogin ? '/admin' : from;
+      navigate(destination, { replace: true });
     } catch (err: any) {
       const msg = err?.message?.toLowerCase() || '';
       if (msg.includes('failed to fetch') || msg.includes('network') || msg.includes('fetch')) {

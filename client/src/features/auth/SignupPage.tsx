@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
+import { api } from '../../lib/api';
 import { SignUpFormData, SignUpFormErrors } from '../../types/auth';
 import { ThemeToggle } from '../../components/ui/ThemeToggle';
 import { Logo } from '../../components/ui/Logo';
@@ -93,10 +94,9 @@ export const SignupPage: React.FC = () => {
       const cleanFullName = formData.fullName.trim();
       const cleanEmail = formData.email.trim().toLowerCase();
 
-      // Teacher role workflow:
-      // When user selects 'Teacher', account is created with Status: PENDING_TEACHER and Role: STUDENT.
+      // Role and approval provisioning (US-1.1 AC 1.1.1 & AC 1.1.2)
       const isTeacherChoice = formData.role === 'teacher';
-      const initialRole = formData.role || 'student';
+      const initialRole = isTeacherChoice ? 'TEACHER' : 'STUDENT';
       const isApproved = !isTeacherChoice;
       const initialStatus = isTeacherChoice ? 'PENDING_TEACHER' : 'APPROVED';
       const initialTeacherStatus = isTeacherChoice ? 'pending' : 'approved';
@@ -108,10 +108,10 @@ export const SignupPage: React.FC = () => {
           data: {
             full_name: cleanFullName,
             role: initialRole,
-            isApproved,
-            is_approved: isApproved,
             requested_role: formData.role,
             status: initialStatus,
+            isApproved,
+            is_approved: isApproved,
             teacher_status: initialTeacherStatus,
             applied_at: new Date().toISOString(),
           },
@@ -120,14 +120,14 @@ export const SignupPage: React.FC = () => {
 
       if (error) {
         const errorMsg = error.message.toLowerCase();
-        // Check for already-registered email
+        // Check for already-registered email (AC 1.1.4)
         if (
           errorMsg.includes('already registered') ||
           errorMsg.includes('user already exists') ||
           errorMsg.includes('unique constraint') ||
           error.status === 422
         ) {
-          setErrors({ general: 'An account with this email already exists.' });
+          setErrors({ general: 'An account with this email address already exists. Please sign in.' });
         } else {
           setErrors({ general: error.message });
         }
@@ -135,11 +135,40 @@ export const SignupPage: React.FC = () => {
         return;
       }
 
-      // Check edge case where Supabase returns existing identity with empty identities array
+      // Check edge case where Supabase returns existing identity with empty identities array (AC 1.1.4)
       if (data?.user && data.user.identities && data.user.identities.length === 0) {
-        setErrors({ general: 'An account with this email already exists.' });
+        setErrors({ general: 'An account with this email address already exists. Please sign in.' });
         setLoading(false);
         return;
+      }
+
+      // Ensure profile is synced to public.profiles
+      if (data?.user) {
+        try {
+          await supabase.from('profiles').upsert({
+            id: data.user.id,
+            full_name: cleanFullName,
+            role: isTeacherChoice ? 'teacher' : 'student',
+            isApproved,
+            is_approved: isApproved,
+            status: initialStatus,
+          });
+        } catch {
+          // Handled by database triggers if profiles schema is locked
+        }
+      }
+
+      // Notify backend via real-time WebSocket hook for instant admin dashboard alert
+      if (isTeacherChoice) {
+        try {
+          await api.post('/api/auth/register-teacher', {
+            id: data?.user?.id,
+            fullName: cleanFullName,
+            email: cleanEmail,
+          });
+        } catch (notifyErr) {
+          console.warn('[Signup] Realtime teacher notify fallback:', notifyErr);
+        }
       }
 
       // Signup successful! Redirect to Dashboard (/)
@@ -370,6 +399,17 @@ export const SignupPage: React.FC = () => {
                   </span>
                 </div>
               )}
+
+              {/* Admin Registration Restriction Notice (AC 1.1.3) */}
+              <div className="mt-2.5 text-[11px] text-slate-500 dark:text-slate-400 bg-slate-50/70 dark:bg-slate-900/40 border border-slate-200/60 dark:border-slate-800/60 p-2.5 rounded-xl">
+                <span>
+                  <strong>Admin Notice:</strong> Admin registration is disabled on the public signup page. Admins can only log in via the dedicated{' '}
+                  <Link to="/signin" className="text-indigo-600 dark:text-indigo-400 underline font-semibold">
+                    Sign In
+                  </Link>{' '}
+                  flow.
+                </span>
+              </div>
 
               {errors.role && (
                 <p id="role-error" className="mt-2 text-xs text-red-500 dark:text-red-400 flex items-center gap-1 font-medium">

@@ -1,4 +1,4 @@
-export type UserRole = 'teacher' | 'student';
+export type UserRole = 'teacher' | 'student' | 'admin' | 'TEACHER' | 'STUDENT' | 'ADMIN';
 export type TeacherApprovalStatus = 'PENDING_TEACHER' | 'APPROVED' | 'REJECTED' | 'NONE';
 
 export interface UserProfile {
@@ -7,6 +7,7 @@ export interface UserProfile {
   fullName: string;
   role: UserRole;
   isApproved?: boolean;
+  is_verified?: boolean;
   status?: TeacherApprovalStatus;
   requestedRole?: UserRole;
   createdAt?: string;

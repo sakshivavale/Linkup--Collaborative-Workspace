@@ -22,7 +22,7 @@ export const Header: React.FC = () => {
   const [loggingOut, setLoggingOut] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const isTeacher = role === 'teacher';
+  const isTeacher = (role || '').toLowerCase() === 'teacher';
   const isPendingTeacher = status === 'PENDING_TEACHER';
 
   // Get initials for avatar fallback (e.g., "SV" or "U")
