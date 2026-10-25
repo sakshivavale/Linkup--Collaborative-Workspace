@@ -32,7 +32,7 @@ export default function ParticipantTile({
   const cameraOff = Boolean(participant?.cameraOff);
   const isSelf = Boolean(participant?.isSelf);
   const isSpeaking = Boolean(participant?.isSpeaking);
-  const handRaised = Boolean(participant?.handRaised);
+  const handRaised = Boolean(participant && participant.handRaised);
   const name = participant?.name || 'Anonymous';
   const isMuted = Boolean(participant?.isMuted);
 
