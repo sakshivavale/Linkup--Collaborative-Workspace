@@ -4,12 +4,17 @@ import { ApiErrorResponse } from '@linkup/shared';
 // Support VITE_API_BASE_URL, VITE_API_URL, and typo fallback VITE_APL_URL.
 // When none are set, requests use relative URLs in local dev (e.g. /api/me) which Vite's dev-server
 // proxy forwards to localhost:3001. In production on Render, fallback to the LinkUp backend URL.
+const PROD_BACKEND_URL = 'https://linkup-collaborative-workspace-r74x.onrender.com';
+
 const RAW_API_BASE_URL = (
   import.meta.env.VITE_API_BASE_URL ||
   import.meta.env.VITE_API_URL ||
   import.meta.env.VITE_APL_URL ||
-  (typeof window !== 'undefined' && window.location.hostname.includes('linkup-collaborative-workspace')
-    ? 'https://linkup-collaborative-workspace-r74x.onrender.com'
+  (typeof window !== 'undefined' &&
+  (window.location.hostname.includes('onrender.com') ||
+   window.location.hostname.includes('linkup-client') ||
+   window.location.hostname.includes('linkup-collaborative-workspace'))
+    ? PROD_BACKEND_URL
     : '')
 ).trim();
 
