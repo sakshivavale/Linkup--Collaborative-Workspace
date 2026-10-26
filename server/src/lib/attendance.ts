@@ -515,7 +515,7 @@ export function aggregateAttendanceRecords(
  * Required columns: Name, First Join, Last Leave, Total Minutes, Number of Joins.
  */
 export function attendanceToCSV(rows: AttendanceRow[]): string {
-  const headers = ['Name', 'First Join', 'Last Leave', 'Total Minutes', 'Number of Joins', 'Status'];
+  const headers = ['Name', 'First Join', 'Last Leave', 'Total Minutes', 'Number of Joins'];
   const headerLine = headers.join(',');
   const lines = [
     headerLine,
@@ -526,7 +526,6 @@ export function attendanceToCSV(rows: AttendanceRow[]): string {
         escapeCsvField(r.lastLeave),
         escapeCsvField(r.minutes),
         escapeCsvField(r.joins),
-        escapeCsvField(r.status === 'present' ? 'Present' : 'Absent'),
       ].join(',')
     ),
   ];

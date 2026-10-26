@@ -15,7 +15,7 @@ import { io as ClientSocketIO, Socket as ClientSocket } from 'socket.io-client';
 import { app } from '../src/app';
 import { io } from '../src/index';
 import { setCachedUser, clearTokenCache } from '../src/lib/supabase';
-import { setMockRooms, clearMockRooms } from '../src/lib/rooms';
+import { setMockRooms, clearMockRooms, setMockSession, clearMockSessions } from '../src/lib/rooms';
 import { clearPresence } from '../src/realtime/presence';
 import { Me, PresenceEntry, RoomSummary } from '@linkup/shared';
 
@@ -232,6 +232,14 @@ async function runTests() {
     // CRITERION 3: In-call indicator updates on live:joined and live:left
     // -------------------------------------------------------------------------
     console.log('\n\x1b[34m[Criterion 3]\x1b[0m Verifying "In call" indicator update on live:joined and live:left...\n');
+
+    setMockSession(roomId, {
+      id: 'session-presence-test',
+      roomId,
+      hostId: teacherUser.id,
+      startedAt: new Date().toISOString(),
+      endedAt: null,
+    } as any);
 
     // 3a. Student enters live call
     const inCallPromise = new Promise<{ inLive: boolean; latencyMs: number }>((resolve, reject) => {

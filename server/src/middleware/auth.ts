@@ -112,7 +112,7 @@ export const requireMember: RequestHandler = async (
   // so the canonical HOST_ONLY / FORBIDDEN response code is returned
   const isHostOnlyEndpoint =
     (req.method === 'DELETE' && req.path.includes('/members/')) ||
-    (req.method === 'PATCH' && req.path.includes('/permissions')) ||
+    req.method === 'PATCH' ||
     (req.method === 'POST' && (
       req.path.includes('/sessions') ||
       req.path.includes('/permissions') ||
@@ -279,16 +279,15 @@ export const requireApprovedTeacher: RequestHandler = (
   }
 
   const isTeacher = roleLower === 'teacher';
-  const isApproved =
-    user.isApproved === true ||
-    (user as any).is_verified === true ||
-    (user.status as any) === 'approved' ||
-    user.status === 'APPROVED';
-
-  const isApprovedTeacher = isTeacher && user.isApproved !== false && user.status !== 'PENDING_TEACHER' && isApproved;
 
   // US-2.1 AC 2.1.3: Server-side API enforcement for unapproved teacher
-  if (isTeacher && !isApprovedTeacher) {
+  const isUnapprovedTeacher =
+    isTeacher &&
+    (user.isApproved === false ||
+      user.status === 'PENDING_TEACHER' ||
+      (user as any).teacher_status === 'pending');
+
+  if (isUnapprovedTeacher) {
     return res.status(403).json({
       statusCode: 403,
       error: 'TEACHER_NOT_APPROVED',

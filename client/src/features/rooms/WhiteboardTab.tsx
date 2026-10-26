@@ -460,7 +460,7 @@ export const WhiteboardTab: React.FC<WhiteboardTabProps> = ({
         <div id="room-whiteboard-canvas" data-testid="room-whiteboard-canvas" className="w-full h-full">
           <Excalidraw
             excalidrawAPI={(api) => setExcalidrawAPI(api)}
-            viewModeEnabled={isReadOnly} /* viewModeEnabled={!canWhiteboard || disabled} */
+            viewModeEnabled={!canWhiteboard}
             theme={theme === 'dark' ? 'dark' : 'light'}
             onChange={handleChange}
             UIOptions={{
