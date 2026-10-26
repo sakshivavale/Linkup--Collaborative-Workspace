@@ -737,9 +737,6 @@ export const AdminDashboardPage: React.FC = () => {
                   {teachers.length} Pending
                 </span>
               </div>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                Review pending instructor applications with real-time verification and instant privilege provisioning.
-              </p>
             </div>
 
             {/* Search Filter Input */}
