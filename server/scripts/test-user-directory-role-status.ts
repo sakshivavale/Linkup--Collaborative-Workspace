@@ -82,6 +82,73 @@ async function runTests() {
     };
     setCachedUser(studentToken, studentUser, 60000);
 
+    // Seed test fixtures in userDirectoryStore for automated test assertions
+    userDirectoryStore.set('student-demo-1', {
+      id: 'student-demo-1',
+      fullName: 'Alex Johnson',
+      email: 'alex.student@linkup.test',
+      role: 'STUDENT',
+      status: 'APPROVED',
+      isApproved: true,
+      isSuspended: false,
+      createdAt: '2025-01-10T10:00:00.000Z',
+      department: 'Computer Science',
+    });
+    userDirectoryStore.set('student-demo-2', {
+      id: 'student-demo-2',
+      fullName: 'Maya Patel',
+      email: 'maya.student@linkup.test',
+      role: 'STUDENT',
+      status: 'APPROVED',
+      isApproved: true,
+      isSuspended: false,
+      createdAt: '2025-01-15T11:30:00.000Z',
+      department: 'Information Technology',
+    });
+    userDirectoryStore.set('student-demo-3', {
+      id: 'student-demo-3',
+      fullName: 'Lucas Garcia',
+      email: 'lucas.student@linkup.test',
+      role: 'STUDENT',
+      status: 'APPROVED',
+      isApproved: true,
+      isSuspended: false,
+      createdAt: '2025-02-01T09:15:00.000Z',
+      department: 'Data Science',
+    });
+    userDirectoryStore.set('teacher-demo-1', {
+      id: 'teacher-demo-1',
+      fullName: 'Dr. Robert Smith',
+      email: 'robert.smith@university.edu',
+      role: 'TEACHER',
+      status: 'APPROVED',
+      isApproved: true,
+      isSuspended: false,
+      createdAt: '2025-01-05T08:00:00.000Z',
+      department: 'Mathematics',
+    });
+    userDirectoryStore.set('teacher-demo-2', {
+      id: 'teacher-demo-2',
+      fullName: 'Prof. Clara Oswald',
+      email: 'clara.oswald@university.edu',
+      role: 'TEACHER',
+      status: 'PENDING',
+      isApproved: false,
+      isSuspended: false,
+      createdAt: '2025-02-10T14:20:00.000Z',
+      department: 'Physics',
+    });
+    userDirectoryStore.set('user-suspended-demo', {
+      id: 'user-suspended-demo',
+      fullName: 'Disruptive BadActor',
+      email: 'spammer@badactors.org',
+      role: 'STUDENT',
+      status: 'SUSPENDED',
+      isApproved: true,
+      isSuspended: true,
+      createdAt: '2025-01-20T16:45:00.000Z',
+    });
+
     // -------------------------------------------------------------------------
     // TEST 1: Access Control on User Directory Endpoints
     // -------------------------------------------------------------------------

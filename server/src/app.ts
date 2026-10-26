@@ -194,71 +194,6 @@ export function seedInitialDirectoryUsers() {
       isSuspended: false,
       createdAt: '2025-01-01T00:00:00.000Z',
     },
-    {
-      id: 'student-demo-1',
-      fullName: 'Alex Johnson',
-      email: 'alex.student@linkup.test',
-      role: 'STUDENT',
-      status: 'APPROVED',
-      isApproved: true,
-      isSuspended: false,
-      createdAt: '2025-01-10T10:00:00.000Z',
-      department: 'Computer Science',
-    },
-    {
-      id: 'student-demo-2',
-      fullName: 'Maya Patel',
-      email: 'maya.student@linkup.test',
-      role: 'STUDENT',
-      status: 'APPROVED',
-      isApproved: true,
-      isSuspended: false,
-      createdAt: '2025-01-15T11:30:00.000Z',
-      department: 'Information Technology',
-    },
-    {
-      id: 'student-demo-3',
-      fullName: 'Lucas Garcia',
-      email: 'lucas.student@linkup.test',
-      role: 'STUDENT',
-      status: 'APPROVED',
-      isApproved: true,
-      isSuspended: false,
-      createdAt: '2025-02-01T09:15:00.000Z',
-      department: 'Data Science',
-    },
-    {
-      id: 'teacher-demo-1',
-      fullName: 'Dr. Robert Smith',
-      email: 'robert.smith@university.edu',
-      role: 'TEACHER',
-      status: 'APPROVED',
-      isApproved: true,
-      isSuspended: false,
-      createdAt: '2025-01-05T08:00:00.000Z',
-      department: 'Mathematics',
-    },
-    {
-      id: 'teacher-demo-2',
-      fullName: 'Prof. Clara Oswald',
-      email: 'clara.oswald@university.edu',
-      role: 'TEACHER',
-      status: 'PENDING',
-      isApproved: false,
-      isSuspended: false,
-      createdAt: '2025-02-10T14:20:00.000Z',
-      department: 'Physics',
-    },
-    {
-      id: 'user-suspended-demo',
-      fullName: 'Disruptive BadActor',
-      email: 'spammer@badactors.org',
-      role: 'STUDENT',
-      status: 'SUSPENDED',
-      isApproved: true,
-      isSuspended: true,
-      createdAt: '2025-01-20T16:45:00.000Z',
-    },
   ];
 
   seeds.forEach((u) => {
@@ -594,11 +529,13 @@ app.get(['/api/admin/overview', '/api/admin/analytics/overview'], async (req: Re
     if (!dbConnected) {
       // In-memory / baseline mode (e.g. dev environment without DB populated)
       pendingApprovals = inMemoryPendingCount;
-      approvedTeachers = Array.from(pendingTeachersStore.values()).filter(
-        (t) => t.status === 'approved' || t.is_verified
+      approvedTeachers = Array.from(userDirectoryStore.values()).filter(
+        (u) => u.role === 'TEACHER' && u.isApproved
       ).length;
-      activeStudents = 8; // Baseline student users
-      totalUsers = activeStudents + approvedTeachers + pendingApprovals;
+      activeStudents = Array.from(userDirectoryStore.values()).filter(
+        (u) => u.role === 'STUDENT' && !u.isSuspended
+      ).length;
+      totalUsers = userDirectoryStore.size;
     } else if (inMemoryPendingCount > pendingApprovals) {
       pendingApprovals = inMemoryPendingCount;
     }

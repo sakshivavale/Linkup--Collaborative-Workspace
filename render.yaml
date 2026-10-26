@@ -11,7 +11,7 @@ services:
     plan: free
     region: oregon
     rootDir: .
-    buildCommand: npm install && npm run build:server
+    buildCommand: npm install --include=dev && npm run build:server
     startCommand: node server/dist/index.js
     healthCheckPath: /health
     envVars:
@@ -26,7 +26,7 @@ services:
       - key: CORS_ORIGIN
         sync: false           # Set to your frontend Render URL after first deploy
       - key: PISTON_URL
-        value: http://localhost:2000   # Override if using external Piston
+        value: https://emkc.org/api/v2/piston   # Public Piston runner (or custom instance)
 
   # ─────────────────────────────────────────────
   # 2. Frontend — Static Site (Vite/React)
@@ -36,7 +36,7 @@ services:
     plan: free
     region: oregon
     rootDir: .
-    buildCommand: npm install && npm run build:client
+    buildCommand: npm install --include=dev && npm run build:client
     staticPublishPath: ./client/dist
     # SPA routing: redirect all 404s back to index.html
     routes:

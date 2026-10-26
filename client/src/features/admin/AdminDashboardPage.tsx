@@ -294,11 +294,10 @@ export const AdminDashboardPage: React.FC = () => {
                 setActiveTab('overview');
                 navigate('/admin');
               }}
-              className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-                activeTab === 'overview'
+              className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === 'overview'
                   ? 'bg-indigo-600 text-white shadow-sm'
                   : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/60'
-              }`}
+                }`}
             >
               <LayoutDashboard className="w-4 h-4" />
               <span>Platform Overview</span>
@@ -311,11 +310,10 @@ export const AdminDashboardPage: React.FC = () => {
                 setActiveTab('users');
                 navigate('/admin/users');
               }}
-              className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-                activeTab === 'users'
+              className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === 'users'
                   ? 'bg-indigo-600 text-white shadow-sm'
                   : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/60'
-              }`}
+                }`}
             >
               <Users className="w-4 h-4" />
               <span>User Directory</span>
@@ -328,22 +326,20 @@ export const AdminDashboardPage: React.FC = () => {
                 setActiveTab('approvals');
                 navigate('/admin/approvals');
               }}
-              className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-                activeTab === 'approvals'
+              className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === 'approvals'
                   ? 'bg-indigo-600 text-white shadow-sm'
                   : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/60'
-              }`}
+                }`}
             >
               <UserCheck className="w-4 h-4" />
               <span>Teacher Approvals</span>
               {teachers.length > 0 && (
                 <span
                   id="tab-pending-badge"
-                  className={`px-1.5 py-0.5 rounded-full text-[10px] font-extrabold ${
-                    activeTab === 'approvals'
+                  className={`px-1.5 py-0.5 rounded-full text-[10px] font-extrabold ${activeTab === 'approvals'
                       ? 'bg-white/20 text-white'
                       : 'bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300'
-                  }`}
+                    }`}
                 >
                   {teachers.length}
                 </span>
@@ -443,7 +439,7 @@ export const AdminDashboardPage: React.FC = () => {
                         );
                         setCopiedCredentials(true);
                         setTimeout(() => setCopiedCredentials(false), 2000);
-                      } catch {}
+                      } catch { }
                     }}
                     className="p-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-all active:scale-95 shadow-sm"
                     title="Copy email and temporary password"
@@ -461,13 +457,12 @@ export const AdminDashboardPage: React.FC = () => {
           <div
             id="admin-notification-toast"
             data-testid="admin-notification-toast"
-            className={`mb-6 p-4 rounded-2xl flex items-center justify-between gap-3 text-xs font-semibold animate-fadeIn border ${
-              notification.type === 'success'
+            className={`mb-6 p-4 rounded-2xl flex items-center justify-between gap-3 text-xs font-semibold animate-fadeIn border ${notification.type === 'success'
                 ? 'bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 border-emerald-500/30'
                 : notification.type === 'error'
-                ? 'bg-red-500/10 text-red-800 dark:text-red-300 border-red-500/30'
-                : 'bg-amber-500/10 text-amber-800 dark:text-amber-300 border-amber-500/30'
-            }`}
+                  ? 'bg-red-500/10 text-red-800 dark:text-red-300 border-red-500/30'
+                  : 'bg-amber-500/10 text-amber-800 dark:text-amber-300 border-amber-500/30'
+              }`}
           >
             <div className="flex items-center gap-2.5">
               {notification.type === 'success' ? (
@@ -723,156 +718,156 @@ export const AdminDashboardPage: React.FC = () => {
         {/* Teacher Approval Queue Section (AC 3.2.1, AC 3.2.2, AC 3.2.3) */}
         {(activeTab === 'overview' || activeTab === 'approvals') && (
           <section id="approvals-queue" className="scroll-mt-20">
-          <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">
-                  Teacher Approval Queue
-                </h2>
-                <span
-                  id="queue-count-badge"
-                  data-testid="queue-count-badge"
-                  className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300 border border-amber-300/40 dark:border-amber-500/30"
-                >
-                  {teachers.length} Pending
-                </span>
+            <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">
+                    Teacher Approval Queue
+                  </h2>
+                  <span
+                    id="queue-count-badge"
+                    data-testid="queue-count-badge"
+                    className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300 border border-amber-300/40 dark:border-amber-500/30"
+                  >
+                    {teachers.length} Pending
+                  </span>
+                </div>
+              </div>
+
+              {/* Search Filter Input */}
+              <div className="relative min-w-[240px]">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  id="teacher-search-input"
+                  data-testid="teacher-search-input"
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search teacher by name or email..."
+                  className="w-full pl-9 pr-3 py-1.5 rounded-xl text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
               </div>
             </div>
 
-            {/* Search Filter Input */}
-            <div className="relative min-w-[240px]">
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                id="teacher-search-input"
-                data-testid="teacher-search-input"
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search teacher by name or email..."
-                className="w-full pl-9 pr-3 py-1.5 rounded-xl text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              />
-            </div>
-          </div>
-
-          {/* Teacher Queue Table (AC 3.2.1) */}
-          <div className="glass-panel rounded-2xl border border-slate-200/80 dark:border-slate-800/80 overflow-hidden shadow-sm">
-            {teachersLoading ? (
-              <div className="p-12 flex flex-col items-center justify-center gap-3 text-slate-400">
-                <Loader2 className="w-6 h-6 animate-spin text-indigo-500" />
-                <span className="text-xs font-medium">Loading approval queue...</span>
-              </div>
-            ) : filteredTeachers.length === 0 ? (
-              <div className="p-12 text-center text-slate-500 dark:text-slate-400">
-                <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto mb-2 opacity-80" />
-                <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
-                  {searchQuery ? 'No teacher applications match your filter' : 'No pending teacher applications'}
-                </p>
-                <p className="text-xs text-slate-400 mt-1">
-                  {searchQuery
-                    ? 'Try clearing the search query to see all applications.'
-                    : 'All teacher applications have been reviewed! New requests will appear automatically.'}
-                </p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead>
-                    <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider">
-                      <th className="py-3 px-4">Instructor Name</th>
-                      <th className="py-3 px-4">Email Address</th>
-                      <th className="py-3 px-4">Registration Timestamp</th>
-                      <th className="py-3 px-4">Status</th>
-                      <th className="py-3 px-4 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium">
-                    {filteredTeachers.map((teacher) => {
-                      const formattedDate = teacher.createdAt
-                        ? new Date(teacher.createdAt).toLocaleString(undefined, {
+            {/* Teacher Queue Table (AC 3.2.1) */}
+            <div className="glass-panel rounded-2xl border border-slate-200/80 dark:border-slate-800/80 overflow-hidden shadow-sm">
+              {teachersLoading ? (
+                <div className="p-12 flex flex-col items-center justify-center gap-3 text-slate-400">
+                  <Loader2 className="w-6 h-6 animate-spin text-indigo-500" />
+                  <span className="text-xs font-medium">Loading approval queue...</span>
+                </div>
+              ) : filteredTeachers.length === 0 ? (
+                <div className="p-12 text-center text-slate-500 dark:text-slate-400">
+                  <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto mb-2 opacity-80" />
+                  <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                    {searchQuery ? 'No teacher applications match your filter' : 'No pending teacher applications'}
+                  </p>
+                  <p className="text-xs text-slate-400 mt-1">
+                    {searchQuery
+                      ? 'Try clearing the search query to see all applications.'
+                      : 'All teacher applications have been reviewed! New requests will appear automatically.'}
+                  </p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider">
+                        <th className="py-3 px-4">Instructor Name</th>
+                        <th className="py-3 px-4">Email Address</th>
+                        <th className="py-3 px-4">Registration Timestamp</th>
+                        <th className="py-3 px-4">Status</th>
+                        <th className="py-3 px-4 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium">
+                      {filteredTeachers.map((teacher) => {
+                        const formattedDate = teacher.createdAt
+                          ? new Date(teacher.createdAt).toLocaleString(undefined, {
                             dateStyle: 'short',
                             timeStyle: 'short',
                           })
-                        : 'Just now';
+                          : 'Just now';
 
-                      const isBusy = processingId === teacher.id;
+                        const isBusy = processingId === teacher.id;
 
-                      return (
-                        <tr
-                          key={teacher.id}
-                          id={`teacher-row-${teacher.id}`}
-                          data-testid={`teacher-row-${teacher.id}`}
-                          className="hover:bg-slate-50/60 dark:hover:bg-slate-800/30 transition-colors animate-fadeIn"
-                        >
-                          <td className="py-3.5 px-4 font-semibold text-slate-900 dark:text-white">
-                            <div className="flex items-center gap-2">
-                              <div className="w-7 h-7 rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold text-[11px]">
-                                {teacher.fullName?.charAt(0)?.toUpperCase() || 'T'}
+                        return (
+                          <tr
+                            key={teacher.id}
+                            id={`teacher-row-${teacher.id}`}
+                            data-testid={`teacher-row-${teacher.id}`}
+                            className="hover:bg-slate-50/60 dark:hover:bg-slate-800/30 transition-colors animate-fadeIn"
+                          >
+                            <td className="py-3.5 px-4 font-semibold text-slate-900 dark:text-white">
+                              <div className="flex items-center gap-2">
+                                <div className="w-7 h-7 rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold text-[11px]">
+                                  {teacher.fullName?.charAt(0)?.toUpperCase() || 'T'}
+                                </div>
+                                <div>
+                                  <div>{teacher.fullName}</div>
+                                  {teacher.subject && (
+                                    <span className="text-[10px] text-slate-400">{teacher.subject}</span>
+                                  )}
+                                </div>
                               </div>
-                              <div>
-                                <div>{teacher.fullName}</div>
-                                {teacher.subject && (
-                                  <span className="text-[10px] text-slate-400">{teacher.subject}</span>
-                                )}
-                              </div>
-                            </div>
-                          </td>
-                          <td className="py-3.5 px-4 text-slate-600 dark:text-slate-300">
-                            {teacher.email}
-                          </td>
-                          <td className="py-3.5 px-4 text-slate-500 dark:text-slate-400 whitespace-nowrap">
-                            {formattedDate}
-                          </td>
-                          <td className="py-3.5 px-4 whitespace-nowrap">
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300 border border-amber-300/40 dark:border-amber-500/30">
-                              Pending Review
-                            </span>
-                          </td>
-                          <td className="py-3.5 px-4 text-right">
-                            <div className="inline-flex items-center gap-2">
-                              {/* AC 3.2.2: Approve Button */}
-                              <button
-                                id={`approve-${teacher.id}`}
-                                data-testid={`approve-btn-${teacher.id}`}
-                                disabled={isBusy}
-                                onClick={() => handleVerify(teacher, 'approved')}
-                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition-all active:scale-95 disabled:opacity-50"
-                                title="Approve instructor application"
-                              >
-                                {isBusy && actionType === 'approved' ? (
-                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                ) : (
-                                  <CheckCircle2 className="w-3.5 h-3.5" />
-                                )}
-                                <span>Approve</span>
-                              </button>
+                            </td>
+                            <td className="py-3.5 px-4 text-slate-600 dark:text-slate-300">
+                              {teacher.email}
+                            </td>
+                            <td className="py-3.5 px-4 text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                              {formattedDate}
+                            </td>
+                            <td className="py-3.5 px-4 whitespace-nowrap">
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300 border border-amber-300/40 dark:border-amber-500/30">
+                                Pending Review
+                              </span>
+                            </td>
+                            <td className="py-3.5 px-4 text-right">
+                              <div className="inline-flex items-center gap-2">
+                                {/* AC 3.2.2: Approve Button */}
+                                <button
+                                  id={`approve-${teacher.id}`}
+                                  data-testid={`approve-btn-${teacher.id}`}
+                                  disabled={isBusy}
+                                  onClick={() => handleVerify(teacher, 'approved')}
+                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition-all active:scale-95 disabled:opacity-50"
+                                  title="Approve instructor application"
+                                >
+                                  {isBusy && actionType === 'approved' ? (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                  ) : (
+                                    <CheckCircle2 className="w-3.5 h-3.5" />
+                                  )}
+                                  <span>Approve</span>
+                                </button>
 
-                              {/* AC 3.2.3: Reject Button */}
-                              <button
-                                id={`reject-${teacher.id}`}
-                                data-testid={`reject-btn-${teacher.id}`}
-                                disabled={isBusy}
-                                onClick={() => handleVerify(teacher, 'rejected')}
-                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 hover:bg-red-50 text-slate-700 hover:text-red-600 dark:bg-slate-800 dark:hover:bg-red-500/20 dark:text-slate-300 dark:hover:text-red-400 transition-all active:scale-95 disabled:opacity-50"
-                                title="Reject instructor application"
-                              >
-                                {isBusy && actionType === 'rejected' ? (
-                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                ) : (
-                                  <XCircle className="w-3.5 h-3.5" />
-                                )}
-                                <span>Reject</span>
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </section>
+                                {/* AC 3.2.3: Reject Button */}
+                                <button
+                                  id={`reject-${teacher.id}`}
+                                  data-testid={`reject-btn-${teacher.id}`}
+                                  disabled={isBusy}
+                                  onClick={() => handleVerify(teacher, 'rejected')}
+                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 hover:bg-red-50 text-slate-700 hover:text-red-600 dark:bg-slate-800 dark:hover:bg-red-500/20 dark:text-slate-300 dark:hover:text-red-400 transition-all active:scale-95 disabled:opacity-50"
+                                  title="Reject instructor application"
+                                >
+                                  {isBusy && actionType === 'rejected' ? (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                  ) : (
+                                    <XCircle className="w-3.5 h-3.5" />
+                                  )}
+                                  <span>Reject</span>
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </section>
         )}
       </main>
 
