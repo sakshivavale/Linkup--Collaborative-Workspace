@@ -9,7 +9,6 @@ import {
   CheckCircle2,
   RefreshCw,
   Edit3,
-  Radio,
   KeyRound,
   ArrowRight,
   AlertCircle,
@@ -73,7 +72,6 @@ export const DashboardPage: React.FC = () => {
 
   const [rooms, setRooms] = useState<RoomSummary[]>([]);
   const [isLoadingRooms, setIsLoadingRooms] = useState(false);
-  const [roomsFetchSource, setRoomsFetchSource] = useState<'server' | 'sample'>('server');
   const [joinCode, setJoinCode] = useState('');
   const [isJoiningRoom, setIsJoiningRoom] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
@@ -85,20 +83,16 @@ export const DashboardPage: React.FC = () => {
       const data = await api.get<RoomSummary[]>('/api/rooms');
       if (Array.isArray(data) && data.length > 0) {
         setRooms(data);
-        setRoomsFetchSource('server');
       } else {
         setRooms([]);
-        setRoomsFetchSource('server');
       }
     } catch {
       if (session) {
         setRooms([]);
-        setRoomsFetchSource('server');
         return;
       }
 
       setRooms(DEFAULT_SAMPLE_ROOMS);
-      setRoomsFetchSource('sample');
     } finally {
       setIsLoadingRooms(false);
     }
@@ -133,19 +127,6 @@ export const DashboardPage: React.FC = () => {
     }
   }, [location.state]);
 
-  const toggleFirstRoomLiveStatus = () => {
-    setRooms((prev) => {
-      if (prev.length === 0) return prev;
-      const updated = [...prev];
-      const target = updated[0];
-      const isCurrentlyLive = Boolean(target.activeSessionId);
-      updated[0] = {
-        ...target,
-        activeSessionId: isCurrentlyLive ? null : `session-live-${Date.now()}`,
-      };
-      return updated;
-    });
-  };
 
   const handleJoinRoom = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -206,7 +187,6 @@ export const DashboardPage: React.FC = () => {
   // US-DASH-03: Room created callback - immediately update room card on dashboard (Acceptance Criterion 5)
   const handleRoomCreated = (newRoom: Room) => {
     setRooms((prev) => [newRoom, ...prev]);
-    setRoomsFetchSource('server');
     setIsCreateRoomModalOpen(false);
     setSuccessNotification(
       `Room "${newRoom.name}" created successfully! Join Code: ${newRoom.joinCode}`
@@ -367,9 +347,6 @@ export const DashboardPage: React.FC = () => {
                 <div>
                   <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
                     <span>Join with Code</span>
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100/80 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300">
-                      US-DASH-04
-                    </span>
                   </h2>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
                     Enter a 6-character room code to join your workspace
@@ -464,9 +441,6 @@ export const DashboardPage: React.FC = () => {
               >
                 {rooms.length} {rooms.length === 1 ? 'room' : 'rooms'}
               </span>
-              <span className="hidden sm:inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
-                Source: {roomsFetchSource === 'server' ? 'Live API (/api/rooms)' : 'Demo Samples'}
-              </span>
             </div>
 
           </div>
@@ -504,21 +478,10 @@ export const DashboardPage: React.FC = () => {
               onClick={fetchRooms}
               disabled={isLoadingRooms}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 transition-all disabled:opacity-50"
-              title="Query GET /api/rooms from backend"
+              title="Refresh classrooms"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isLoadingRooms ? 'animate-spin' : ''}`} />
-              <span>Refresh API</span>
-            </button>
-
-            <button
-              id="toggle-room-live-btn"
-              type="button"
-              onClick={toggleFirstRoomLiveStatus}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 dark:hover:bg-rose-500/20 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-500/30 transition-all shadow-sm"
-              title="US-DASH-02 AC-1/AC-3 Interactive Test: toggle active session on room 1"
-            >
-              <Radio className="w-3.5 h-3.5" />
-              <span>Toggle Room 1 Live (AC Test)</span>
+              <span>Refresh</span>
             </button>
           </div>
         </div>
