@@ -2287,9 +2287,13 @@ export async function getSessionsForRoom(
       error.status = 403;
       throw error;
     }
+    const seenIds = new Set<string>();
     const list: Session[] = [];
     for (const s of mockSessionsStore.values()) {
-      if (s.roomId === normalizedRoomId) list.push(s);
+      if (s.roomId === normalizedRoomId && s.id && !seenIds.has(s.id)) {
+        seenIds.add(s.id);
+        list.push(s);
+      }
     }
     return list.sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
   }

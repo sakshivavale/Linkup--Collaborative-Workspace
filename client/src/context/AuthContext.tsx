@@ -220,11 +220,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const resetPasswordForEmail = async (email: string, customRedirectTo?: string) => {
-    // Determine the frontend base URL (respects VITE_APP_URL, VITE_SITE_URL, or window.location.origin)
-    const rawBaseUrl =
-      import.meta.env.VITE_APP_URL ||
-      import.meta.env.VITE_SITE_URL ||
-      (typeof window !== 'undefined' && window.location.origin ? window.location.origin : 'http://localhost:5173');
+    // Determine the frontend base URL (in production browser always uses origin; in dev uses VITE_APP_URL or localhost:5173)
+    const isProductionBrowser =
+      typeof window !== 'undefined' &&
+      (window.location.origin.includes('onrender.com') || window.location.origin.includes('linkup-client'));
+    const rawBaseUrl = isProductionBrowser
+      ? window.location.origin
+      : (import.meta.env.VITE_APP_URL ||
+         import.meta.env.VITE_SITE_URL ||
+         (typeof window !== 'undefined' && window.location.origin ? window.location.origin : 'http://localhost:5173'));
     const baseUrl = rawBaseUrl.replace(/\/+$/, '');
     const redirectTo = customRedirectTo || `${baseUrl}/reset-password`;
 

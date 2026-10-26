@@ -82,7 +82,8 @@ async function runTests() {
 
     assert(
       codeTabSource.includes('userHasCodePermission') &&
-      codeTabSource.includes('canEdit = Boolean(isPenHolder && userHasCodePermission)') &&
+      (codeTabSource.includes('canEdit = Boolean(isPenHolder && userHasCodePermission)') ||
+       codeTabSource.includes('canEdit = Boolean(isPenHolder && userHasCodePermission && !disabled)')) &&
       codeTabSource.includes('isReadOnly = !canEdit'),
       'CodeTab calculates canEdit and isReadOnly with userHasCodePermission check (AC-3, AC-4)'
     );

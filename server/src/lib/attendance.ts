@@ -1,5 +1,5 @@
 import { supabase, getUserNameFromCache } from './supabase';
-import { getActiveSession } from './rooms';
+import { getActiveSession, getAttendanceSummary } from './rooms';
 import { AttendanceRecord, AttendanceRow } from '@linkup/shared';
 
 export type MockAttendanceRecord = AttendanceRecord;
@@ -471,10 +471,10 @@ export function aggregateAttendanceRecords(
     userRecs.sort((a, b) => new Date(a.joinedAt).getTime() - new Date(b.joinedAt).getTime());
 
     const firstJoin = userRecs[0].joinedAt;
-    let lastLeave = userRecs[userRecs.length - 1].leftAt;
-    if (!lastLeave) {
-      lastLeave = sessionEndedAt || nowIso;
-    }
+    const latestLeave = userRecs[userRecs.length - 1].leftAt;
+    const lastLeave = (latestLeave !== null && latestLeave !== undefined)
+      ? latestLeave
+      : (sessionEndedAt !== null && sessionEndedAt !== undefined ? sessionEndedAt : null);
 
     let totalDurationMs = 0;
     for (const r of userRecs) {
@@ -482,10 +482,6 @@ export function aggregateAttendanceRecords(
       const endMs = new Date(r.leftAt || sessionEndedAt || nowIso).getTime();
       if (!isNaN(startMs) && !isNaN(endMs) && endMs >= startMs) {
         totalDurationMs += (endMs - startMs);
-      }
-      const rLeave = r.leftAt || sessionEndedAt || nowIso;
-      if (new Date(rLeave).getTime() > new Date(lastLeave).getTime()) {
-        lastLeave = rLeave;
       }
     }
 
@@ -499,12 +495,15 @@ export function aggregateAttendanceRecords(
     rows.push({
       userId,
       fullName,
+      name: fullName,
       firstJoin,
-      lastLeave,
+      lastLeave: (lastLeave as any),
       minutes,
+      totalMinutes: minutes,
       joins,
+      joinCount: joins,
       status: computeAttendanceStatus(minutes, sessionStartedAt, sessionEndedAt),
-    });
+    } as any);
   }
 
   return rows.sort((a, b) => a.fullName.localeCompare(b.fullName, undefined, { sensitivity: 'base' }));
@@ -543,4 +542,10 @@ export function calculateMockAttendanceSummary(
   const records = mockAttendanceStore.filter((a) => a.sessionId === sessionId);
   return aggregateAttendanceRecords(records, sessionEndedAt, sessionStartedAt);
 }
+
+/**
+ * Fetch session attendance summary enforcing host privileges (US-ATT-04, FR-6.4).
+ * Re-exports getAttendanceSummary for direct callers.
+ */
+export const getSessionAttendanceSummary = getAttendanceSummary;
 

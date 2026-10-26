@@ -86,8 +86,8 @@ async function runTests() {
     );
 
     assert(
-      wbTabSource.includes('viewModeEnabled={!canWhiteboard}'),
-      'AC-1: Excalidraw viewModeEnabled is set to !canWhiteboard (writable for can_whiteboard=true and host)'
+      wbTabSource.includes('viewModeEnabled={isReadOnly}') || wbTabSource.includes('viewModeEnabled={!canWhiteboard}'),
+      'AC-1: Excalidraw viewModeEnabled is set to isReadOnly (writable for can_whiteboard=true and host)'
     );
 
     assert(

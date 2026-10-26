@@ -9,6 +9,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import { pathToFileURL } from 'url';
 
 let passed = 0;
 let failed = 0;
@@ -204,7 +205,8 @@ async function runTests() {
   }
 
   // 2.3 Verify Vite security plugin blocks forbidden VITE_* variables
-  const { preventSecretLeakPlugin } = await import(path.join(CLIENT_DIR, 'vite.config.ts'));
+  const viteConfigPath = path.join(CLIENT_DIR, 'vite.config.ts');
+  const { preventSecretLeakPlugin } = await import(pathToFileURL(viteConfigPath).href);
   assert(
     typeof preventSecretLeakPlugin === 'function',
     'Vite security plugin preventSecretLeakPlugin is exported'

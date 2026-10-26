@@ -4,12 +4,17 @@ import { supabase } from './supabase';
 // In production the backend lives on a separate Render domain, so we read
 // VITE_API_BASE_URL (or VITE_API_URL / VITE_APL_URL). In local dev Vite's /socket.io proxy forwards to
 // localhost:3001, so same-origin origin fallback works fine.
+const PROD_BACKEND_URL = 'https://linkup-collaborative-workspace-r74x.onrender.com';
+
 const RAW_SOCKET_URL = (
   import.meta.env.VITE_API_BASE_URL ||
   import.meta.env.VITE_API_URL ||
   import.meta.env.VITE_APL_URL ||
-  (typeof window !== 'undefined' && window.location.hostname.includes('linkup-collaborative-workspace')
-    ? 'https://linkup-collaborative-workspace-r74x.onrender.com'
+  (typeof window !== 'undefined' &&
+  (window.location.hostname.includes('onrender.com') ||
+   window.location.hostname.includes('linkup-client') ||
+   window.location.hostname.includes('linkup-collaborative-workspace'))
+    ? PROD_BACKEND_URL
     : typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3001')
 ).trim();
 
