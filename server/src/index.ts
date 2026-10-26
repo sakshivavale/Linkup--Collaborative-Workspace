@@ -704,7 +704,8 @@ io.on('connection', (socket) => {
       const room = await getRoomForUser(user.id, roomId);
       const isHost = room.myRole === 'host';
       const member = room.members?.find((m) => m.userId === user.id);
-      const canWhiteboard = isHost || Boolean(member?.permissions?.canWhiteboard);
+      const isStudent = user.role?.toLowerCase() === 'student';
+      const canWhiteboard = !isStudent && (isHost || Boolean(member?.permissions?.canWhiteboard));
 
       if (!canWhiteboard) {
         console.warn(`[Socket] wb:update dropped: user ${user.id} lacks can_whiteboard in room ${roomId}`);

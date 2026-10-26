@@ -968,7 +968,7 @@ export const RoomPage: React.FC = () => {
             {mainTab === 'whiteboard' && (
               <WhiteboardTab
                 roomId={roomId!}
-                canWhiteboard={room.myRole === 'host' || Boolean(currentMember?.permissions?.canWhiteboard ?? false)}
+                canWhiteboard={user?.role?.toLowerCase() !== 'student' && (room.myRole === 'host' || Boolean(currentMember?.permissions?.canWhiteboard ?? false))}
                 isHost={room.myRole === 'host'}
                 initialElements={boardElements}
                 onElementsChange={setBoardElements}
