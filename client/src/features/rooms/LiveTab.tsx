@@ -269,13 +269,26 @@ export const LiveTab: React.FC<LiveTabProps> = ({
 
       if (typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia) {
         try {
-          const constraints: MediaStreamConstraints = {
-            video:
-              mediaDevices.selectedVideoInput !== 'default'
-                ? { deviceId: { exact: mediaDevices.selectedVideoInput } }
-                : true,
-          };
-          const stream = await navigator.mediaDevices.getUserMedia(constraints);
+          let stream: MediaStream;
+          const exactDeviceId =
+            mediaDevices.selectedVideoInput &&
+            mediaDevices.selectedVideoInput !== 'default' &&
+            !mediaDevices.selectedVideoInput.startsWith('videoinput-')
+              ? mediaDevices.selectedVideoInput
+              : null;
+
+          try {
+            stream = await navigator.mediaDevices.getUserMedia(
+              exactDeviceId ? { video: { deviceId: { exact: exactDeviceId } } } : { video: true }
+            );
+          } catch (deviceErr: any) {
+            if (exactDeviceId && !isPermissionDeniedError(deviceErr)) {
+              console.warn('[LiveTab] Exact camera device constraint failed, falling back to generic camera:', deviceErr);
+              stream = await navigator.mediaDevices.getUserMedia({ video: true });
+            } else {
+              throw deviceErr;
+            }
+          }
           if (active) {
             setMediaPermissionDenied(false);
             mediaDevices.clearPermissionDenied();

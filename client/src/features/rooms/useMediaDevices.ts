@@ -155,7 +155,7 @@ export function useMediaDevices(options: UseMediaDevicesOptions = {}) {
           });
         } else if (d.kind === 'videoinput') {
           vIn.push({
-            deviceId: d.deviceId || `videoinput-${camCounter}`,
+            deviceId: d.deviceId || (hasLabels ? `videoinput-${camCounter}` : 'default'),
             label: d.label || `Camera ${camCounter++}`,
             kind: d.kind,
             groupId: d.groupId,
@@ -407,10 +407,19 @@ export function useMediaDevices(options: UseMediaDevicesOptions = {}) {
         // If video stream or preview is active, replace video track seamlessly
         if (typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia) {
           try {
-            const constraints: MediaStreamConstraints = {
-              video: deviceId !== 'default' ? { deviceId: { exact: deviceId } } : true,
-            };
-            const newStream = await navigator.mediaDevices.getUserMedia(constraints);
+            let newStream: MediaStream;
+            const exactDeviceId = deviceId && deviceId !== 'default' && !deviceId.startsWith('videoinput-') ? deviceId : null;
+            try {
+              newStream = await navigator.mediaDevices.getUserMedia(
+                exactDeviceId ? { video: { deviceId: { exact: exactDeviceId } } } : { video: true }
+              );
+            } catch (devErr: any) {
+              if (exactDeviceId && !isPermissionDeniedError(devErr)) {
+                newStream = await navigator.mediaDevices.getUserMedia({ video: true });
+              } else {
+                throw devErr;
+              }
+            }
             const newVideoTrack = newStream.getVideoTracks()[0];
 
             if (newVideoTrack) {
@@ -525,10 +534,19 @@ export function useMediaDevices(options: UseMediaDevicesOptions = {}) {
       return;
     }
     try {
-      const constraints: MediaStreamConstraints = {
-        video: selectedVideoInput !== 'default' ? { deviceId: { exact: selectedVideoInput } } : true,
-      };
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      let stream: MediaStream;
+      const exactDeviceId = selectedVideoInput && selectedVideoInput !== 'default' && !selectedVideoInput.startsWith('videoinput-') ? selectedVideoInput : null;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(
+          exactDeviceId ? { video: { deviceId: { exact: exactDeviceId } } } : { video: true }
+        );
+      } catch (devErr: any) {
+        if (exactDeviceId && !isPermissionDeniedError(devErr)) {
+          stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        } else {
+          throw devErr;
+        }
+      }
       setPreviewStream(stream);
     } catch (err: any) {
       console.warn('[useMediaDevices] startCameraPreview error:', err);

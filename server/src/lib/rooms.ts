@@ -511,7 +511,7 @@ export async function getRoomForUser(
         canMic: Boolean(member.can_mic),
         canCamera: Boolean(member.can_camera),
         canScreen: Boolean(member.can_screen),
-        canWhiteboard: Boolean(member.can_whiteboard),
+        canWhiteboard: profile?.role === 'teacher' || member.member_role === 'host' ? Boolean(member.can_whiteboard) : false,
         canCode: Boolean(member.can_code),
       },
       joinedAt: member.joined_at,
@@ -547,11 +547,11 @@ export async function createRoom(
   }
 ): Promise<Room> {
   const defaultPermissions: Permissions = {
-    canMic: data.defaultPermissions?.canMic ?? false,
-    canCamera: data.defaultPermissions?.canCamera ?? false,
+    canMic: data.defaultPermissions?.canMic ?? true,
+    canCamera: data.defaultPermissions?.canCamera ?? true,
     canScreen: data.defaultPermissions?.canScreen ?? false,
-    canWhiteboard: data.defaultPermissions?.canWhiteboard ?? false,
-    canCode: data.defaultPermissions?.canCode ?? false,
+    canWhiteboard: false,
+    canCode: data.defaultPermissions?.canCode ?? true,
   };
 
   // Generate unique 6-character join code (characters: A-Z, 2-9; no O, 0, I, 1)
@@ -1663,11 +1663,11 @@ export async function joinRoomByCode(
   // AC 3: User is new to the room — copy default permissions and insert
   const defPerms = (room.default_permissions as any) || {};
   const permissions: Permissions = {
-    canMic: Boolean(defPerms.can_mic ?? defPerms.canMic ?? false),
-    canCamera: Boolean(defPerms.can_camera ?? defPerms.canCamera ?? false),
+    canMic: Boolean(defPerms.can_mic ?? defPerms.canMic ?? true),
+    canCamera: Boolean(defPerms.can_camera ?? defPerms.canCamera ?? true),
     canScreen: Boolean(defPerms.can_screen ?? defPerms.canScreen ?? false),
-    canWhiteboard: Boolean(defPerms.can_whiteboard ?? defPerms.canWhiteboard ?? false),
-    canCode: Boolean(defPerms.can_code ?? defPerms.canCode ?? false),
+    canWhiteboard: false,
+    canCode: Boolean(defPerms.can_code ?? defPerms.canCode ?? true),
   };
   const { error: insertError } = await supabase
     .from('room_members')
