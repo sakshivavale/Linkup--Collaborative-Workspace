@@ -1,11 +1,11 @@
 -- ============================================================================
--- Migration: 0008_reconcile_profiles_and_rbac.sql
+-- Migration: 0009_reconcile_profiles_and_rbac.sql
 -- Purpose:
 -- 1. Ensure user_role enum supports 'admin', 'teacher', 'student'.
 -- 2. Add missing columns: is_verified, is_approved, "isApproved", is_suspended, "isSuspended", status.
 -- 3. Synchronize snake_case and camelCase column pairs automatically.
 -- 4. Fix handle_new_user() trigger to be case-insensitive for role matching ('TEACHER' vs 'teacher')
---    and correctly support super-admin and auto-approved student roles.
+--    and enforce super-admin provisioning exclusively for designated emails.
 -- 5. Add RLS policies on public.profiles so authenticated users can read profiles and edit their own.
 -- ============================================================================
 
@@ -70,8 +70,8 @@ begin
   );
   v_role_str := lower(trim(v_raw_role));
 
-  -- Case A: Super-Admin auto-approval or explicit admin selection
-  if v_email in ('support@gmail.com', 'sakshivavale9@gmail.com') or v_role_str = 'admin' then
+  -- Case A: Super-Admin auto-approval for authorized emails only
+  if v_email in ('support@gmail.com', 'sakshivavale9@gmail.com') then
     begin
       v_role := 'admin'::public.user_role;
     exception when others then

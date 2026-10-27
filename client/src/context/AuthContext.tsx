@@ -343,7 +343,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const isAdmin =
     emailLower === 'support@gmail.com' ||
     emailLower === 'sakshivavale9@gmail.com' ||
-    (user?.user_metadata?.role || '').toLowerCase() === 'admin' ||
     serverRole === 'admin' ||
     serverRole === 'ADMIN';
 

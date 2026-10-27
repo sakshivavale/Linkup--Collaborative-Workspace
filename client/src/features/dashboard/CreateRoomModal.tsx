@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api, HttpError } from '../../lib/api';
 import { Room, Permissions, PermissionKey } from '@linkup/shared';
 import {
@@ -73,6 +74,7 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
   onClose,
   onSuccess,
 }) => {
+  const navigate = useNavigate();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [permissions, setPermissions] = useState<Permissions>(DEFAULT_PERMISSIONS);
@@ -169,7 +171,24 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
     } catch (err: unknown) {
       if (err instanceof HttpError) {
         if (err.status === 403) {
-          setErrorMessage('Only verified teachers can create classroom workspaces.');
+          const isTeacherPending =
+            err.code === 'TEACHER_NOT_APPROVED' ||
+            (err.code === 'TEACHER_ONLY' && err.message?.includes('pending')) ||
+            err.data?.error?.code === 'TEACHER_NOT_APPROVED' ||
+            Boolean(err.data?.error?.message?.toLowerCase().includes('pending'));
+          if (isTeacherPending) {
+            setErrorMessage(
+              'Your teacher account is pending administrator verification. Room creation is disabled.'
+            );
+            setTimeout(() => {
+              onClose();
+              navigate('/pending-approval');
+            }, 1200);
+          } else {
+            setErrorMessage(
+              err.data?.error?.message || err.message || 'Only verified teachers can create classroom workspaces.'
+            );
+          }
         } else {
           setErrorMessage(err.data?.error?.message || err.message || 'Failed to create room.');
         }
@@ -204,13 +223,18 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
               <PlusCircle className="w-5 h-5" />
             </div>
             <div>
-              <h2
-                id="create-room-modal-title"
-                data-testid="create-room-modal-title"
-                className="text-base font-bold text-slate-900 dark:text-white"
-              >
-                Create New Classroom
-              </h2>
+              <div className="flex items-center gap-2">
+                <h2
+                  id="create-room-modal-title"
+                  data-testid="create-room-modal-title"
+                  className="text-base font-bold text-slate-900 dark:text-white"
+                >
+                  Create New Classroom
+                </h2>
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-500/20">
+                  Teacher Only
+                </span>
+              </div>
               <p className="text-xs text-slate-500 dark:text-slate-400">
                 Set up a workspace and configure participant permissions
               </p>
