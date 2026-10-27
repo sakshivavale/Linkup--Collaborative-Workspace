@@ -641,6 +641,8 @@ export const LiveTab: React.FC<LiveTabProps> = ({
             socket.emit('screen:stop', { roomId });
           }
         }
+        // Always reflect latest granted or revoked permissions in local state
+        setMyPermissions((prev) => (prev ? { ...prev, ...data.patch } : null));
       }
     };
 

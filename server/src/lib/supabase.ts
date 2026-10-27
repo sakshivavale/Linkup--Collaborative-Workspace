@@ -102,18 +102,18 @@ export async function verifyToken(token: string): Promise<Me | null> {
       // Profile table might not have row yet, fallback to user_metadata is safe
     }
 
-    // Role detection
+    // Role detection: Never trust client-supplied user_metadata for admin role
+    const dbRoleLower = (profileData?.role || '').toString().toLowerCase();
+    const isDbAdmin = dbRoleLower === 'admin';
+    const isAdmin = isHardcodedAdmin || isDbAdmin;
+
     const roleLower = (role || '').toString().toLowerCase();
     const isTeacher =
-      roleLower === 'teacher' ||
-      user.user_metadata?.role?.toString().toLowerCase() === 'teacher' ||
-      user.user_metadata?.requested_role?.toString().toLowerCase() === 'teacher' ||
-      user.user_metadata?.requestedRole?.toString().toLowerCase() === 'teacher';
-
-    const isAdmin =
-      isHardcodedAdmin ||
-      roleLower === 'admin' ||
-      user.user_metadata?.role?.toString().toLowerCase() === 'admin';
+      !isAdmin &&
+      (roleLower === 'teacher' ||
+        user.user_metadata?.role?.toString().toLowerCase() === 'teacher' ||
+        user.user_metadata?.requested_role?.toString().toLowerCase() === 'teacher' ||
+        user.user_metadata?.requestedRole?.toString().toLowerCase() === 'teacher');
 
     const resolvedRole: any = isAdmin ? 'ADMIN' : isTeacher ? 'teacher' : 'student';
 

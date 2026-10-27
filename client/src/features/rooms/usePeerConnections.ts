@@ -60,23 +60,37 @@ export function usePeerConnections({
     const audioTrack = isMic && stream ? stream.getAudioTracks()[0] ?? null : null;
     const videoTrack = isCam && stream ? stream.getVideoTracks()[0] ?? null : null;
 
+    // Use transceivers where supported to accurately pair media kinds even if sender.track is null
+    const transceivers = typeof pc.getTransceivers === 'function' ? pc.getTransceivers() : [];
     const senders = pc.getSenders();
 
     // 1. Audio track sync
-    const audioSender = senders.find(
+    const audioTransceiver = transceivers.find(
+      (t) => t.sender?.track?.kind === 'audio' || t.receiver?.track?.kind === 'audio'
+    );
+    const audioSender = audioTransceiver?.sender || senders.find(
       (s) => s.track?.kind === 'audio' || (!s.track && (s as any).trackType === 'audio')
     );
     if (audioSender) {
+      if (audioTransceiver && isMic && audioTrack && audioTransceiver.direction !== 'sendrecv') {
+        try { audioTransceiver.direction = 'sendrecv'; } catch {}
+      }
       audioSender.replaceTrack(audioTrack).catch((err) => {
         console.warn('[WebRTC] Error replacing audio track:', err);
       });
     }
 
     // 2. Video track sync
-    const videoSender = senders.find(
+    const videoTransceiver = transceivers.find(
+      (t) => t.sender?.track?.kind === 'video' || t.receiver?.track?.kind === 'video'
+    );
+    const videoSender = videoTransceiver?.sender || senders.find(
       (s) => s.track?.kind === 'video' || (!s.track && (s as any).trackType === 'video')
     );
     if (videoSender) {
+      if (videoTransceiver && isCam && videoTrack && videoTransceiver.direction !== 'sendrecv') {
+        try { videoTransceiver.direction = 'sendrecv'; } catch {}
+      }
       videoSender.replaceTrack(videoTrack).catch((err) => {
         console.warn('[WebRTC] Error replacing video track:', err);
       });
@@ -140,6 +154,19 @@ export function usePeerConnections({
           }
           return next;
         });
+
+        // Trigger remote stream update when track un-mutes (e.g. remote peer turns on camera)
+        event.track.onunmute = () => {
+          console.log(`[WebRTC] Remote track unmuted (${event.track.kind}) from ${remoteUserId}`);
+          setRemoteStreams((prev) => {
+            const next = new Map(prev);
+            const current = next.get(remoteUserId);
+            if (current) {
+              next.set(remoteUserId, new MediaStream(current.getTracks()));
+            }
+            return next;
+          });
+        };
 
         event.track.onended = () => {
           console.log(`[WebRTC] Remote track ended (${event.track.kind}) from ${remoteUserId}`);

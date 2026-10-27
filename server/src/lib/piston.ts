@@ -242,9 +242,14 @@ export function getPistonEndpoints(baseUrl: string) {
  */
 export function resolveSourceFileName(language: Language, code: string): string {
   if (language === 'java') {
-    const classMatch = code.match(/public\s+class\s+([A-Za-z0-9_]+)/);
-    if (classMatch && classMatch[1]) {
-      return `${classMatch[1]}.java`;
+    // Strip comments to prevent commented out code or phrases from altering class name
+    const cleanCode = code
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/\/\/[^\r\n]*/g, '');
+
+    const publicClassMatch = cleanCode.match(/\bpublic\s+(?:final\s+)?class\s+([A-Za-z0-9_]+)/);
+    if (publicClassMatch && publicClassMatch[1]) {
+      return `${publicClassMatch[1]}.java`;
     }
     return 'Main.java';
   }
@@ -437,21 +442,23 @@ async function runWithPiston(
 
     let rawStdout = '';
     let rawStderr = '';
-    let exitCode: number | null = 0;
+    let exitCode: number | null = null;
     let timedOut = false;
 
     if (data.compile) {
       if (data.compile.stdout) rawStdout += data.compile.stdout;
-      if (data.compile.stderr) rawStderr += data.compile.stderr;
-      if (data.compile.code !== 0 && data.compile.code !== null) {
+      const compileErr = data.compile.stderr || (data.compile.code !== 0 ? data.compile.output || '' : '');
+      if (compileErr) rawStderr += compileErr;
+      if (data.compile.code !== 0 && data.compile.code !== null && data.compile.code !== undefined) {
         exitCode = data.compile.code;
       }
     }
 
     if (data.run) {
       if (data.run.stdout) rawStdout += data.run.stdout;
-      if (data.run.stderr) rawStderr += data.run.stderr;
-      if (data.run.code !== null && data.run.code !== undefined) {
+      const runErr = data.run.stderr || (data.run.code !== 0 && !data.run.stdout ? data.run.output || '' : '');
+      if (runErr) rawStderr += rawStderr ? `\n${runErr}` : runErr;
+      if ((exitCode === null || exitCode === 0) && data.run.code !== null && data.run.code !== undefined) {
         exitCode = data.run.code;
       }
       if (
@@ -463,6 +470,10 @@ async function runWithPiston(
       ) {
         timedOut = true;
       }
+    }
+
+    if (exitCode === null) {
+      exitCode = 0;
     }
 
     if (timedOut) {
@@ -751,7 +762,30 @@ async function runWithLocalWorker(options: {
     try {
       await fs.promises.writeFile(filePath, code, 'utf8');
       // In Java 11+, single-file source code programs can be executed directly with `java <file.java>`
-      return await runLocalProcess(javaCmd, [fileName], stdin, tmpDir);
+      const directRun = await runLocalProcess(javaCmd, [fileName], stdin, tmpDir);
+
+      // If direct single-file run is supported and did not error on file loading, return direct run
+      if (
+        !directRun.stderr.includes('Unrecognized option') &&
+        !directRun.stderr.includes('Could not find or load main class ' + fileName)
+      ) {
+        return directRun;
+      }
+
+      // Fallback for Java environments requiring javac compilation
+      const className = fileName.replace(/\.java$/, '');
+      const compileResult = await runLocalProcess('javac', [fileName], undefined, tmpDir);
+      if (compileResult.exitCode !== 0) {
+        return {
+          stdout: '',
+          stderr: compileResult.stderr || compileResult.stdout || 'Compilation failed',
+          exitCode: compileResult.exitCode,
+          timeMs: compileResult.timeMs,
+          timedOut: compileResult.timedOut,
+          truncated: compileResult.truncated,
+        };
+      }
+      return await runLocalProcess(javaCmd, [className], stdin, tmpDir);
     } finally {
       fs.promises.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
     }

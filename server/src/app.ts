@@ -1843,6 +1843,16 @@ export async function handleBulkPermissions(req: Request, res: Response) {
       });
     }
 
+    // Update LiveKit server participant permissions for affected members if session is active
+    getActiveSession(roomId).then((session) => {
+      if (session) {
+        const livekitRoomName = session.livekit_room || (session as any).livekitRoom || `linkup-${session.id}`;
+        for (const member of result.members) {
+          updateLivekitParticipantPermissions(livekitRoomName, member.userId, member.permissions, false).catch(() => {});
+        }
+      }
+    }).catch(() => {});
+
     // api-contract §3.3 200 response: Member[] (all participants)
     return res.status(200).json(result.members);
   } catch (err: any) {
@@ -1925,7 +1935,10 @@ app.post(
         ? { canMic: true, canCamera: true, canScreen: true, canWhiteboard: true, canCode: true }
         : member?.permissions || { canMic: false, canCamera: false, canScreen: false, canWhiteboard: false, canCode: false };
 
-      const livekitRoomName = activeSession.livekit_room || `linkup-${activeSession.id}`;
+      const livekitRoomName =
+        activeSession.livekit_room ||
+        (activeSession as any).livekitRoom ||
+        `linkup-${activeSession.id}`;
       const tokenResult = await mintLivekitToken({
         userId: user.id,
         fullName: user.fullName,

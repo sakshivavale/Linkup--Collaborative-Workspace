@@ -41,15 +41,28 @@ export default function ParticipantTile({
     if (!videoRef.current) return;
     if (participantStream && !cameraOff) {
       try {
-        if (isSelf) {
-          videoRef.current.muted = true;
-        }
+        // Always mute the video element so browser autoplay policy never blocks video rendering
+        // Audio for remote participants is handled independently by the dedicated audioRef element
+        videoRef.current.muted = true;
         if (videoRef.current.srcObject !== participantStream) {
           videoRef.current.srcObject = participantStream as any;
         }
         videoRef.current.play().catch(() => {});
       } catch (err) {
         // ignore attach errors in demo
+      }
+
+      // Listen for track onunmute so when a remote user activates their camera, playback resumes immediately
+      const stream = participantStream as MediaStream;
+      if (stream && typeof stream.getVideoTracks === 'function') {
+        const vTracks = stream.getVideoTracks();
+        vTracks.forEach((t) => {
+          t.onunmute = () => {
+            if (videoRef.current) {
+              videoRef.current.play().catch(() => {});
+            }
+          };
+        });
       }
     } else {
       videoRef.current.srcObject = null;
