@@ -126,8 +126,10 @@ export const SignupPage: React.FC = () => {
         options: {
           data: {
             full_name: cleanFullName,
+            fullName: cleanFullName,
             role: initialRole,
             requested_role: isSuperAdmin ? 'ADMIN' : (isTeacherChoice ? 'teacher' : 'student'),
+            requestedRole: isSuperAdmin ? 'ADMIN' : (isTeacherChoice ? 'teacher' : 'student'),
             status: initialStatus,
             isApproved,
             is_approved: isApproved,

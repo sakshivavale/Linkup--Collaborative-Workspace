@@ -70,7 +70,7 @@ export const io = new SocketIOServer(server, {
       if (allowed.some((re) => re.test(origin))) {
         callback(null, true);
       } else {
-        callback(new Error(`Socket.IO CORS: origin '${origin}' not allowed`));
+        callback(null, false);
       }
     },
     credentials: true,
