@@ -96,9 +96,9 @@ export const SignupPage: React.FC = () => {
       const cleanEmail = formData.email.trim().toLowerCase();
 
       // Role and approval provisioning (US-1.1 & US-4.1.3)
+      // Public users can only register as student or teacher. Never trust a client-supplied role.
       const isSuperAdmin = cleanEmail === 'sakshivavale9@gmail.com' || cleanEmail === 'support@gmail.com';
       const isTeacherChoice = formData.role === 'teacher';
-      const isAdminChoice = formData.role === 'admin' || isSuperAdmin;
 
       let initialRole = 'STUDENT';
       let isApproved = true;
@@ -109,10 +109,6 @@ export const SignupPage: React.FC = () => {
         initialRole = 'ADMIN';
         isApproved = true;
         initialStatus = 'APPROVED';
-      } else if (isAdminChoice) {
-        initialRole = 'ADMIN';
-        isApproved = false;
-        initialStatus = 'PENDING';
       } else if (isTeacherChoice) {
         initialRole = 'TEACHER';
         isApproved = false;
@@ -131,7 +127,7 @@ export const SignupPage: React.FC = () => {
           data: {
             full_name: cleanFullName,
             role: initialRole,
-            requested_role: formData.role,
+            requested_role: isSuperAdmin ? 'ADMIN' : (isTeacherChoice ? 'teacher' : 'student'),
             status: initialStatus,
             isApproved,
             is_approved: isApproved,
@@ -352,7 +348,7 @@ export const SignupPage: React.FC = () => {
                 I am a: <span className="text-indigo-500 dark:text-indigo-400">*</span>
               </label>
               
-              <div className="grid grid-cols-3 gap-2.5">
+              <div className="grid grid-cols-2 gap-3">
                 {/* Student Option */}
                 <label 
                   htmlFor="role-student"
@@ -413,38 +409,6 @@ export const SignupPage: React.FC = () => {
                   <span className="text-xs font-semibold">Teacher</span>
                   <span className="text-[10px] text-slate-500 dark:text-slate-400 text-center">Host rooms</span>
                   {formData.role === 'teacher' && (
-                    <CheckCircle2 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 absolute top-1.5 right-1.5" />
-                  )}
-                </label>
-
-                {/* Admin Option */}
-                <label 
-                  htmlFor="role-admin"
-                  className={`relative flex flex-col items-center justify-center p-3 rounded-xl cursor-pointer border transition-all duration-200 ${
-                    formData.role === 'admin'
-                      ? 'bg-indigo-50 border-indigo-500 text-indigo-950 shadow-sm dark:bg-indigo-600/20 dark:border-indigo-500 dark:text-white dark:shadow-glow-indigo'
-                      : 'bg-white/60 border-slate-200 text-slate-700 hover:border-slate-300 hover:bg-slate-50 dark:bg-[#0f172a]/60 dark:border-slate-700/60 dark:text-slate-300 dark:hover:border-slate-500 dark:hover:bg-[#131d35]'
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    id="role-admin"
-                    name="role"
-                    value="admin"
-                    checked={formData.role === 'admin'}
-                    onChange={() => handleChange('role', 'admin')}
-                    className="sr-only"
-                  />
-                  <div className={`p-2 rounded-lg mb-1.5 ${
-                    formData.role === 'admin' 
-                      ? 'bg-indigo-600 text-white dark:bg-indigo-500' 
-                      : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
-                  }`}>
-                    <Shield className="w-4 h-4" />
-                  </div>
-                  <span className="text-xs font-semibold">Admin</span>
-                  <span className="text-[10px] text-slate-500 dark:text-slate-400 text-center">Governance</span>
-                  {formData.role === 'admin' && (
                     <CheckCircle2 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 absolute top-1.5 right-1.5" />
                   )}
                 </label>

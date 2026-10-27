@@ -205,14 +205,13 @@ async function runTests() {
       id: roomId,
       name: 'Whiteboard Clear Test Room',
       description: 'US-WB-05 Clear Board Room',
+      joinCode: 'WB1234',
       hostName: hostUser.fullName,
       myRole: 'host',
       memberCount: 3,
       createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
       activeSessionId: null,
       members,
-      currentUserPermissions: members[0].permissions,
     };
 
     setMockRooms(hostUser.id, [{ ...mockRoom, myRole: 'host' }]);
@@ -441,20 +440,19 @@ async function runTests() {
     await clearAndPersistWhiteboard(roomId);
     assert(getWhiteboardElements(roomId).length === 0, 'clearAndPersistWhiteboard cleanly resets canvas state');
 
-  } catch (err: any) {
-    console.error('Test execution error:', err);
-    failedCount++;
+    console.log('\n============================================================');
+    console.log(`Test Results: ${passedCount} Passed, ${failedCount} Failed`);
+    console.log('============================================================\n');
+
+    if (failedCount > 0) {
+      process.exitCode = 1;
+    }
   } finally {
     if (hostSocket) hostSocket.disconnect();
     if (student1Socket) student1Socket.disconnect();
     if (student2Socket) student2Socket.disconnect();
 
-    testServer.close(() => {
-      console.log('\n============================================================');
-      console.log(`Test Results: ${passedCount} Passed, ${failedCount} Failed`);
-      console.log('============================================================\n');
-      process.exit(failedCount === 0 ? 0 : 1);
-    });
+    testServer.close();
   }
 }
 
