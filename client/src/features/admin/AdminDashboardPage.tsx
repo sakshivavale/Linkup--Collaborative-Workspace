@@ -238,6 +238,7 @@ export const AdminDashboardPage: React.FC = () => {
       setProcessingId(null);
       setActionType(null);
       fetchAnalytics(true);
+      fetchPendingTeachers();
     }
   };
 

@@ -29,7 +29,14 @@ export const socket: Socket = io(SOCKET_URL, {
   auth: async (cb: (data: { token?: string }) => void) => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      cb({ token: session?.access_token });
+      let token = session?.access_token;
+      if (!token && typeof window !== 'undefined') {
+        const savedAdmin = localStorage.getItem('linkup_admin_session');
+        if (savedAdmin) {
+          token = JSON.parse(savedAdmin)?.access_token;
+        }
+      }
+      cb({ token });
     } catch {
       cb({ token: undefined });
     }
@@ -49,10 +56,12 @@ socket.on('connect_error', async (err: Error) => {
         socket.auth = { token: refreshData.session.access_token };
         socket.connect();
       } else {
-        console.error('[Socket] Failed to refresh token after UNAUTHENTICATED rejection:', refreshError?.message);
+        console.warn('[Socket] Silent refresh unavailable. Halting reconnect until authentication.');
+        socket.disconnect();
       }
     } catch (refreshErr) {
       console.error('[Socket] Unexpected error refreshing socket auth token:', refreshErr);
+      socket.disconnect();
     }
   } else {
     console.error('[Socket] Connection error:', err.message);

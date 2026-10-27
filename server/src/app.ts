@@ -79,7 +79,7 @@ app.use(
       if (isCorsAllowed(origin)) {
         callback(null, true);
       } else {
-        callback(new Error(`CORS: origin '${origin}' not allowed`));
+        callback(null, false);
       }
     },
     credentials: true,
@@ -353,9 +353,20 @@ app.get(
   ],
   async (_req: Request, res: Response) => {
     try {
-      const { data: dbProfiles } = await supabase
+      let dbProfiles: any[] | null = null;
+      const { data: primaryData, error: primaryErr } = await supabase
         .from('profiles')
         .select('id, full_name, role, status, created_at, is_approved, "isApproved"');
+
+      if (!primaryErr && primaryData) {
+        dbProfiles = primaryData;
+      } else {
+        // Fallback without quoted isApproved in case column does not exist
+        const { data: fallbackData } = await supabase
+          .from('profiles')
+          .select('id, full_name, role, status, created_at, is_approved');
+        dbProfiles = fallbackData;
+      }
 
       if (dbProfiles && dbProfiles.length > 0) {
         dbProfiles.forEach((p: any) => {
@@ -446,15 +457,30 @@ app.all(
 
     // Update Supabase profiles and auth metadata
     try {
-      await supabase
+      const updatePayload: Record<string, any> = {
+        status: isApproved ? 'APPROVED' : 'REJECTED',
+        is_approved: isApproved,
+        role: isApproved ? 'teacher' : 'student',
+      };
+      // Include camelCase isApproved if present in DB schema
+      updatePayload.isApproved = isApproved;
+
+      const { error: profileErr } = await supabase
         .from('profiles')
-        .update({
-          status: isApproved ? 'APPROVED' : 'REJECTED',
-          isApproved: isApproved,
-          is_approved: isApproved,
-          role: isApproved ? 'teacher' : 'student',
-        })
+        .update(updatePayload)
         .eq('id', teacherId);
+
+      if (profileErr) {
+        // Fallback without quoted isApproved in case column doesn't exist
+        await supabase
+          .from('profiles')
+          .update({
+            status: isApproved ? 'APPROVED' : 'REJECTED',
+            is_approved: isApproved,
+            role: isApproved ? 'teacher' : 'student',
+          })
+          .eq('id', teacherId);
+      }
 
       await supabase.auth.admin.updateUserById(teacherId, {
         user_metadata: {
@@ -821,9 +847,19 @@ app.get(['/api/admin/users', '/admin/users'], async (req: Request, res: Response
   try {
     // 1. Sync from database profiles if Supabase is connected
     try {
-      const { data: dbProfiles } = await supabase
+      let dbProfiles: any[] | null = null;
+      const { data: primaryData, error: primaryErr } = await supabase
         .from('profiles')
         .select('id, full_name, role, status, is_approved, "isApproved", is_suspended, "isSuspended", created_at');
+
+      if (!primaryErr && primaryData) {
+        dbProfiles = primaryData;
+      } else {
+        const { data: fallbackData } = await supabase
+          .from('profiles')
+          .select('id, full_name, role, status, is_approved, created_at');
+        dbProfiles = fallbackData;
+      }
 
       if (dbProfiles && Array.isArray(dbProfiles) && dbProfiles.length > 0) {
         dbProfiles.forEach((p: any) => {
@@ -2995,6 +3031,20 @@ app.use((_req: Request, res: Response) => {
     error: {
       code: 'NOT_FOUND',
       message: 'Resource not found',
+    },
+  });
+});
+
+// Global error handler for uncaught exceptions
+app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+  console.error('[Unhandled Express Error]:', err);
+  const status = typeof err.status === 'number' ? err.status : typeof err.statusCode === 'number' ? err.statusCode : 500;
+  const code = err.code || 'INTERNAL_SERVER_ERROR';
+  const message = err.message || 'An unexpected internal error occurred';
+  res.status(status).json({
+    error: {
+      code,
+      message,
     },
   });
 });

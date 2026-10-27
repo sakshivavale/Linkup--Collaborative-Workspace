@@ -130,8 +130,10 @@ export const SignupPage: React.FC = () => {
         options: {
           data: {
             full_name: cleanFullName,
-            role: initialRole,
-            requested_role: formData.role,
+            fullName: cleanFullName,
+            role: initialRole.toLowerCase(),
+            requested_role: formData.role?.toLowerCase() || initialRole.toLowerCase(),
+            requestedRole: formData.role?.toLowerCase() || initialRole.toLowerCase(),
             status: initialStatus,
             isApproved,
             is_approved: isApproved,

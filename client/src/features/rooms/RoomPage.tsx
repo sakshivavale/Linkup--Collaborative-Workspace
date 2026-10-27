@@ -120,9 +120,7 @@ export const RoomPage: React.FC = () => {
         const res = await api.get<{ session: Session | null }>(`/api/rooms/${roomId}/sessions/active`);
         if (!cancelled && res?.session) {
           setActiveSession(res.session);
-          if (room) {
-            room.activeSessionId = res.session.id;
-          }
+          setRoom((prev) => (prev ? { ...prev, activeSessionId: res.session!.id } : prev));
         }
       } catch {
         // Fallback to room's activeSessionId
@@ -132,7 +130,7 @@ export const RoomPage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [roomId, room]);
+  }, [roomId]);
 
   // US-LIVE-01 Acceptance Criteria 4: Session timer starts counting from 00:00
   useEffect(() => {
@@ -348,14 +346,21 @@ export const RoomPage: React.FC = () => {
     const handleJoinCodeUpdated = (data: { roomId: string; joinCode: string }) => {
       if (data.roomId === roomId) {
         setCurrentJoinCode(data.joinCode);
-        if (room) room.joinCode = data.joinCode;
+        setRoom((prev) => (prev ? { ...prev, joinCode: data.joinCode } : prev));
       }
     };
 
     const handleRoomUpdated = (data: { roomId: string; name?: string; description?: string | null }) => {
-      if (data.roomId === roomId && room) {
-        if (data.name) room.name = data.name;
-        if (data.description !== undefined) room.description = data.description;
+      if (data.roomId === roomId) {
+        setRoom((prev) =>
+          prev
+            ? {
+                ...prev,
+                name: data.name || prev.name,
+                description: data.description !== undefined ? data.description : prev.description,
+              }
+            : prev
+        );
       }
     };
 
@@ -370,9 +375,7 @@ export const RoomPage: React.FC = () => {
       if (data.roomId === roomId && data.session?.id) {
         setActiveSession(data.session);
         setSessionEnded(false);
-        if (room) {
-          room.activeSessionId = data.session.id;
-        }
+        setRoom((prev) => (prev ? { ...prev, activeSessionId: data.session.id } : prev));
       }
     };
 
@@ -383,9 +386,7 @@ export const RoomPage: React.FC = () => {
         setSessionEnded(true);
         isInCallRef.current = false;
         setIsInCall(false);
-        if (room) {
-          room.activeSessionId = null;
-        }
+        setRoom((prev) => (prev ? { ...prev, activeSessionId: null } : prev));
         // US-LIVE-05 AC-3: All participants return to the room's non-live view
         setMainTab((prev) => (prev === 'live' ? 'whiteboard' : prev));
       }

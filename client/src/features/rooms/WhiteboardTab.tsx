@@ -100,11 +100,9 @@ export const WhiteboardTab: React.FC<WhiteboardTabProps> = ({
   }, [roomId, user?.id, isHost]);
 
   // View-only mode for members where can_whiteboard = false and who are not the host, or when disconnected:
-  // Students have read-only access: they see teacher changes but cannot edit, draw, erase, or move
   // US-ERR-08 AC-2: Whiteboard edits are disabled while disconnected
-  const isStudent = user?.role?.toLowerCase() === 'student';
-  const effectiveCanWhiteboard = !isStudent && (isHost || liveCanWhiteboard);
-  const isReadOnly = disabled || isStudent || (!isHost && !effectiveCanWhiteboard);
+  const effectiveCanWhiteboard = isHost || liveCanWhiteboard;
+  const isReadOnly = disabled || !effectiveCanWhiteboard;
 
   // Keep track of versions of elements sent or received to prevent infinite broadcast loops
   const sentVersionsRef = useRef<Map<string, number>>(new Map());

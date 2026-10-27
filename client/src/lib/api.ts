@@ -80,7 +80,20 @@ export async function apiFetch(
 
   // 1. Get current Supabase session token
   const { data: sessionData } = await supabase.auth.getSession();
-  const token = sessionData.session?.access_token;
+  let token = sessionData.session?.access_token;
+
+  // Fallback to saved admin session token if Supabase session is empty
+  if (!token && typeof window !== 'undefined') {
+    try {
+      const savedAdmin = localStorage.getItem('linkup_admin_session');
+      if (savedAdmin) {
+        const parsed = JSON.parse(savedAdmin);
+        if (parsed?.access_token) {
+          token = parsed.access_token;
+        }
+      }
+    } catch {}
+  }
 
   const headers = new Headers(options.headers || {});
   if (token && !headers.has('Authorization')) {
