@@ -1362,11 +1362,11 @@ app.post('/api/rooms/join', async (req: Request, res: Response) => {
               userRole: user.role,
               memberRole: 'participant',
               permissions: result.permissions || {
-                canMic: false,
-                canCamera: false,
+                canMic: true,
+                canCamera: true,
                 canScreen: false,
                 canWhiteboard: false,
-                canCode: false,
+                canCode: true,
               },
               joinedAt: new Date().toISOString(),
             },
@@ -1933,7 +1933,7 @@ app.post(
       const member = room.members?.find((m) => m.userId === user.id);
       const permissions = isHost
         ? { canMic: true, canCamera: true, canScreen: true, canWhiteboard: true, canCode: true }
-        : member?.permissions || { canMic: false, canCamera: false, canScreen: false, canWhiteboard: false, canCode: false };
+        : member?.permissions || { canMic: true, canCamera: true, canScreen: false, canWhiteboard: false, canCode: true };
 
       const livekitRoomName =
         activeSession.livekit_room ||

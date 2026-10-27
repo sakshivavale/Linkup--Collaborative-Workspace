@@ -1,20 +1,19 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { 
-  X, 
-  Mic, 
-  Video, 
-  MonitorUp, 
-  PenTool, 
-  Code2, 
-  Loader2, 
-  AlertCircle, 
-  PlusCircle,
-  Shield,
-  CheckCircle2
-} from 'lucide-react';
-import { api, HttpError, NetworkError } from '../../lib/api';
+import { api, HttpError } from '../../lib/api';
 import { Room, Permissions, PermissionKey } from '@linkup/shared';
+import {
+  X,
+  Mic,
+  Video,
+  MonitorUp,
+  PenTool,
+  Code2,
+  Loader2,
+  PlusCircle,
+  ShieldCheck,
+  AlertCircle,
+} from 'lucide-react';
 
 interface CreateRoomModalProps {
   isOpen: boolean;
@@ -23,11 +22,11 @@ interface CreateRoomModalProps {
 }
 
 const DEFAULT_PERMISSIONS: Permissions = {
-  canMic: false,
-  canCamera: false,
+  canMic: true,
+  canCamera: true,
   canScreen: false,
   canWhiteboard: false,
-  canCode: false,
+  canCode: true,
 };
 
 interface PermissionItem {
@@ -40,7 +39,7 @@ interface PermissionItem {
 const PERMISSION_CONFIGS: PermissionItem[] = [
   {
     key: 'canMic',
-    label: 'Microphone',
+    label: 'Microphone Audio',
     description: 'Allow students to unmute and speak during the session',
     icon: Mic,
   },
@@ -58,8 +57,8 @@ const PERMISSION_CONFIGS: PermissionItem[] = [
   },
   {
     key: 'canWhiteboard',
-    label: 'Shared Whiteboard',
-    description: 'Allow students to draw and annotate on the canvas',
+    label: 'Interactive Whiteboard',
+    description: 'Allow students to draw and annotate on the shared canvas',
     icon: PenTool,
   },
   {
@@ -120,7 +119,7 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
   let nameError: string | null = null;
   if (touchedName) {
     if (nameLength === 0) {
-      nameError = 'Room name is required';
+      nameError = 'Room name is required and cannot be empty';
     } else if (nameLength > 80) {
       nameError = 'Room name cannot exceed 80 characters';
     }
@@ -155,9 +154,7 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
     e.preventDefault();
     setTouchedName(true);
 
-    if (!isFormValid) {
-      return;
-    }
+    if (!isFormValid || isSubmitting) return;
 
     setIsSubmitting(true);
     setErrorMessage(null);
@@ -165,29 +162,20 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
     try {
       const payload = {
         name: trimmedName,
-        description: description.trim() || undefined,
+        description: description.trim() ? description.trim() : null,
         defaultPermissions: permissions,
       };
 
-      const createdRoom = await api.post<Room>('/api/rooms', payload);
-      onSuccess(createdRoom);
+      const newRoom = await api.post<Room>('/api/rooms', payload);
+      onSuccess(newRoom);
     } catch (err: unknown) {
-      if (err instanceof NetworkError) {
-        // Server is completely unreachable — direct the user to start the backend
-        setErrorMessage(
-          'Cannot connect to the server. Make sure the backend is running ' +
-          '(npm run dev:server) and refresh the page.'
-        );
-        console.error('[CreateRoom] Network error:', err.message);
-      } else if (err instanceof HttpError) {
-        if (err.status === 401) {
-          setErrorMessage(
-            'Your session has expired. Please refresh the page and sign in again.'
-          );
-        } else if (err.status === 403) {
+      if (err instanceof HttpError) {
+        if (err.status === 403) {
           const isTeacherPending =
             err.code === 'TEACHER_NOT_APPROVED' ||
-            (err.code === 'TEACHER_ONLY' && err.message?.includes('pending'));
+            (err.code === 'TEACHER_ONLY' && err.message?.includes('pending')) ||
+            err.data?.error?.code === 'TEACHER_NOT_APPROVED' ||
+            Boolean(err.data?.error?.message?.toLowerCase().includes('pending'));
           if (isTeacherPending) {
             setErrorMessage(
               'Your teacher account is pending administrator verification. Room creation is disabled.'
@@ -198,24 +186,14 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
             }, 1200);
           } else {
             setErrorMessage(
-              'Permission denied: Only approved teachers can create classroom rooms.'
+              err.data?.error?.message || err.message || 'Only verified teachers can create classroom workspaces.'
             );
           }
-        } else if (err.status === 400) {
-          setErrorMessage(
-            err.message || 'Invalid room details. Please check the room name and description.'
-          );
         } else {
-          setErrorMessage(
-            err.message || 'The server encountered an error. Please try again in a moment.'
-          );
+          setErrorMessage(err.data?.error?.message || err.message || 'Failed to create room.');
         }
-        console.error(`[CreateRoom] HTTP ${err.status} error:`, err.message);
       } else {
-        setErrorMessage(
-          'An unexpected error occurred while creating the room. Please try again.'
-        );
-        console.error('[CreateRoom] Unexpected error:', err);
+        setErrorMessage('A network error occurred. Please check your connection and try again.');
       }
     } finally {
       setIsSubmitting(false);
@@ -224,155 +202,158 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
 
   return (
     <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="create-room-modal-title"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 overflow-y-auto"
+      id="create-room-modal-backdrop"
+      data-testid="create-room-modal-backdrop"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in"
+      onClick={onClose}
     >
-      {/* Backdrop */}
-      <div 
-        className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm transition-opacity"
-        onClick={onClose}
-      />
-
-      {/* Modal Dialog Card */}
-      <div className="relative w-full max-w-xl rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden z-10 my-8 flex flex-col max-h-[90vh]">
+      <div
+        id="create-room-modal"
+        data-testid="create-room-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="create-room-modal-title"
+        className="relative w-full max-w-xl bg-white dark:bg-[#0c1220] rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800/80 overflow-hidden max-h-[90vh] flex flex-col transition-colors duration-300"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Header */}
-        <div className="p-6 pb-4 border-b border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200/80 dark:border-slate-800/80 bg-slate-50/50 dark:bg-slate-900/50">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/20 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shadow-sm">
+            <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200/60 dark:border-indigo-800/40 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
               <PlusCircle className="w-5 h-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 
-                  id="create-room-modal-title" 
-                  className="text-lg font-bold text-slate-900 dark:text-white"
+                <h2
+                  id="create-room-modal-title"
+                  data-testid="create-room-modal-title"
+                  className="text-base font-bold text-slate-900 dark:text-white"
                 >
-                  Create a Room
+                  Create New Classroom
                 </h2>
                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-500/20">
                   Teacher Only
                 </span>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Set up a new workspace before inviting students with a 6-character code
+                Set up a workspace and configure participant permissions
               </p>
             </div>
           </div>
-
           <button
-            id="close-create-room-modal-btn"
             type="button"
+            id="create-room-close-btn"
+            data-testid="create-room-close-btn"
             onClick={onClose}
-            className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-            title="Close modal (Esc)"
+            className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            aria-label="Close dialog"
           >
-            <X className="w-4 h-4" />
+            <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Scrollable Form Body */}
-        <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-6 flex-1">
-          {/* Server Error Alert */}
+        {/* Scrollable form body */}
+        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-5">
           {errorMessage && (
-            <div className="p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 text-rose-800 dark:text-rose-300 text-xs flex items-start gap-2.5">
-              <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
-              <div className="leading-relaxed">{errorMessage}</div>
+            <div
+              role="alert"
+              className="p-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-900/50 flex items-start gap-2.5 text-xs text-rose-700 dark:text-rose-300 animate-shake"
+            >
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-600 dark:text-rose-400" />
+              <span>{errorMessage}</span>
             </div>
           )}
 
-          {/* Room Name Input (required, max 80 chars) */}
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label 
-                htmlFor="create-room-name-input"
-                className="text-xs font-bold text-slate-800 dark:text-slate-200"
+          {/* Room Name Input */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label
+                htmlFor="room-name-input"
+                className="block text-xs font-semibold text-slate-700 dark:text-slate-300"
               >
-                Room Name <span className="text-rose-500">*</span>
+                Classroom Name <span className="text-rose-500">*</span>
               </label>
-              <span className={`text-[11px] font-mono ${name.length > 80 ? 'text-rose-500 font-bold' : 'text-slate-400'}`}>
-                {name.length}/80
+              <span className={`text-[11px] ${nameLength > 80 ? 'text-rose-500 font-bold' : 'text-slate-400'}`}>
+                {nameLength}/80
               </span>
             </div>
             <input
-              id="create-room-name-input"
               ref={nameInputRef}
+              id="room-name-input"
+              data-testid="room-name-input"
               type="text"
               value={name}
-              onChange={(e) => {
-                setName(e.target.value);
-                if (!touchedName) setTouchedName(true);
-              }}
+              onChange={(e) => setName(e.target.value)}
               onBlur={() => setTouchedName(true)}
-              placeholder="e.g. CS101: Data Structures & Algorithms"
-              maxLength={100}
-              className={`w-full px-3.5 py-2.5 rounded-xl text-sm bg-slate-50 dark:bg-slate-800/60 border ${
-                nameError 
-                  ? 'border-rose-300 dark:border-rose-500/50 focus:ring-rose-500' 
-                  : 'border-slate-200 dark:border-slate-700 focus:ring-indigo-500'
-              } text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 transition-all`}
+              placeholder="e.g., CS101: Introduction to Data Structures"
+              maxLength={85}
+              required
+              className={`w-full px-3.5 py-2.5 rounded-xl text-sm bg-white dark:bg-slate-900 border transition-all ${
+                nameError
+                  ? 'border-rose-300 dark:border-rose-800 focus:ring-rose-500 focus:border-rose-500'
+                  : 'border-slate-200 dark:border-slate-800 focus:ring-indigo-500 focus:border-indigo-500'
+              } text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2`}
             />
             {nameError && (
-              <p className="mt-1.5 text-xs text-rose-600 dark:text-rose-400 flex items-center gap-1 font-medium">
-                <AlertCircle className="w-3.5 h-3.5" />
+              <p className="text-xs text-rose-500 flex items-center gap-1 mt-1 font-medium">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
                 <span>{nameError}</span>
               </p>
             )}
           </div>
 
-          {/* Description Textarea (optional, max 500 chars) */}
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label 
-                htmlFor="create-room-desc-input"
-                className="text-xs font-bold text-slate-800 dark:text-slate-200"
+          {/* Room Description Input */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label
+                htmlFor="room-description-input"
+                className="block text-xs font-semibold text-slate-700 dark:text-slate-300"
               >
-                Description <span className="text-slate-400 font-normal text-[11px]">(Optional)</span>
+                Description <span className="text-slate-400 font-normal">(Optional)</span>
               </label>
-              <span className={`text-[11px] font-mono ${description.length > 500 ? 'text-rose-500 font-bold' : 'text-slate-400'}`}>
-                {description.length}/500
+              <span className={`text-[11px] ${descLength > 500 ? 'text-rose-500 font-bold' : 'text-slate-400'}`}>
+                {descLength}/500
               </span>
             </div>
             <textarea
-              id="create-room-desc-input"
-              rows={3}
+              id="room-description-input"
+              data-testid="room-description-input"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Brief summary of lectures, lab instructions, or syllabus topics..."
-              maxLength={600}
-              className={`w-full px-3.5 py-2.5 rounded-xl text-sm bg-slate-50 dark:bg-slate-800/60 border ${
+              rows={3}
+              placeholder="Brief summary of syllabus, lecture topic, or instructions for students..."
+              maxLength={520}
+              className={`w-full px-3.5 py-2.5 rounded-xl text-sm bg-white dark:bg-slate-900 border transition-all resize-none ${
                 descError
-                  ? 'border-rose-300 dark:border-rose-500/50 focus:ring-rose-500'
-                  : 'border-slate-200 dark:border-slate-700 focus:ring-indigo-500'
-              } text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 transition-all resize-none`}
+                  ? 'border-rose-300 dark:border-rose-800 focus:ring-rose-500 focus:border-rose-500'
+                  : 'border-slate-200 dark:border-slate-800 focus:ring-indigo-500 focus:border-indigo-500'
+              } text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2`}
             />
             {descError && (
-              <p className="mt-1.5 text-xs text-rose-600 dark:text-rose-400 flex items-center gap-1 font-medium">
-                <AlertCircle className="w-3.5 h-3.5" />
+              <p className="text-xs text-rose-500 flex items-center gap-1 mt-1 font-medium">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
                 <span>{descError}</span>
               </p>
             )}
           </div>
 
-          {/* 5 Default Permission Toggles (Mic, Camera, Screen, Whiteboard, Code) */}
-          <div>
-            <div className="flex items-center justify-between mb-3">
+          {/* Default Permissions Section */}
+          <div className="space-y-3 pt-2">
+            <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                  <Shield className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                  Default Student Permissions
+                <h3 className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4 text-indigo-500" />
+                  <span>Participant Permissions</span>
                 </h3>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                  Initial capabilities granted to students when they join this room.
+                  Configure default abilities granted to students upon joining
                 </p>
               </div>
-
-              <div className="flex items-center gap-1.5 text-[11px]">
+              <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => handleSetAllPermissions(true)}
-                  className="px-2 py-0.5 rounded-lg text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 font-medium transition-colors"
+                  className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline"
                 >
                   Enable All
                 </button>
@@ -380,68 +361,65 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
                 <button
                   type="button"
                   onClick={() => handleSetAllPermissions(false)}
-                  className="px-2 py-0.5 rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 font-medium transition-colors"
+                  className="text-[11px] font-semibold text-slate-500 hover:underline"
                 >
-                  Restrict All
+                  Disable All
                 </button>
               </div>
             </div>
 
-            <div className="space-y-2.5">
-              {PERMISSION_CONFIGS.map(({ key, label, description: desc, icon: Icon }) => {
-                const isEnabled = permissions[key];
+            <div className="space-y-2">
+              {PERMISSION_CONFIGS.map((config) => {
+                const IconComponent = config.icon;
+                const isEnabled = Boolean(permissions[config.key]);
+
                 return (
                   <div
-                    key={key}
-                    onClick={() => handleTogglePermission(key)}
-                    className={`p-3 rounded-2xl border transition-all cursor-pointer flex items-center justify-between gap-3 ${
+                    key={config.key}
+                    onClick={() => handleTogglePermission(config.key)}
+                    className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer ${
                       isEnabled
-                        ? 'bg-indigo-50/70 dark:bg-indigo-500/10 border-indigo-200 dark:border-indigo-500/30'
-                        : 'bg-slate-50/50 dark:bg-slate-800/40 border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+                        ? 'bg-indigo-50/40 dark:bg-indigo-950/20 border-indigo-200/80 dark:border-indigo-800/40'
+                        : 'bg-slate-50/50 dark:bg-slate-900/40 border-slate-200/70 dark:border-slate-800/60 opacity-80'
                     }`}
                   >
                     <div className="flex items-center gap-3">
                       <div
-                        className={`w-8 h-8 rounded-xl flex items-center justify-center transition-colors ${
+                        className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
                           isEnabled
                             ? 'bg-indigo-600 text-white'
-                            : 'bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400'
+                            : 'bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
                         }`}
                       >
-                        <Icon className="w-4 h-4" />
+                        <IconComponent className="w-4 h-4" />
                       </div>
                       <div>
-                        <div className="text-xs font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
-                          {label}
-                          {isEnabled && (
-                            <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">
-                              Allowed
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-[11px] text-slate-500 dark:text-slate-400 leading-tight">
-                          {desc}
-                        </div>
+                        <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block">
+                          {config.label}
+                        </span>
+                        <span className="text-[10px] text-slate-500 dark:text-slate-400 block leading-tight">
+                          {config.description}
+                        </span>
                       </div>
                     </div>
 
-                    {/* Switch Toggle Button */}
                     <button
                       type="button"
-                      id={`perm-toggle-${key}`}
-                      aria-label={`Toggle ${label}`}
-                      aria-checked={isEnabled}
+                      id={`toggle-perm-${config.key}`}
+                      data-testid={`toggle-perm-${config.key}`}
                       role="switch"
+                      aria-checked={isEnabled}
+                      aria-label={`Toggle ${config.label}`}
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleTogglePermission(key);
+                        handleTogglePermission(config.key);
                       }}
                       className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 ${
                         isEnabled ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-slate-700'
                       }`}
                     >
                       <span
-                        className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                        className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
                           isEnabled ? 'translate-x-4' : 'translate-x-0'
                         }`}
                       />
@@ -452,40 +430,34 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
             </div>
           </div>
 
-          {/* Notice about join code */}
-          <div className="p-3.5 rounded-2xl bg-indigo-50/50 dark:bg-indigo-500/5 border border-indigo-100 dark:border-indigo-500/10 flex items-start gap-2.5">
-            <CheckCircle2 className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5" />
-            <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-              Upon creation, LinkUp will automatically generate a unique <strong>6-character join code</strong> (no ambiguous characters like 0, O, 1, or I) for you to share with your students.
-            </p>
-          </div>
-
           {/* Footer Actions */}
-          <div className="pt-2 flex items-center justify-end gap-3 border-t border-slate-100 dark:border-slate-800">
+          <div className="pt-4 border-t border-slate-200/80 dark:border-slate-800/80 flex items-center justify-end gap-3">
             <button
-              id="cancel-create-room-btn"
               type="button"
+              id="create-room-cancel-btn"
+              data-testid="create-room-cancel-btn"
               onClick={onClose}
               disabled={isSubmitting}
-              className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors disabled:opacity-50"
+              className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
             >
               Cancel
             </button>
             <button
-              id="submit-create-room-btn"
               type="submit"
+              id="create-room-submit-btn"
+              data-testid="create-room-submit-btn"
               disabled={!isFormValid || isSubmitting}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 active:scale-95 disabled:opacity-50 disabled:pointer-events-none transition-all shadow-md shadow-indigo-600/25"
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white font-semibold text-xs shadow-md shadow-indigo-600/20 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
             >
               {isSubmitting ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Creating Room...</span>
+                  <span>Creating Classroom...</span>
                 </>
               ) : (
                 <>
                   <PlusCircle className="w-4 h-4" />
-                  <span>Create Room</span>
+                  <span>Create Classroom</span>
                 </>
               )}
             </button>
