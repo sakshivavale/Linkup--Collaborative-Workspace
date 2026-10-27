@@ -11,7 +11,6 @@ import {
   Code2, 
   Loader2, 
   PlusCircle, 
-  GraduationCap, 
   ShieldCheck, 
   AlertCircle 
 } from 'lucide-react';
@@ -133,7 +132,7 @@ export const CreateRoomPage: React.FC = () => {
           {/* Header */}
           <div className="flex items-center gap-3.5 mb-6">
             <div className="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/20 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shadow-sm">
-              <GraduationCap className="w-6 h-6" />
+              <PlusCircle className="w-6 h-6" />
             </div>
             <div>
               <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white">

@@ -10,7 +10,6 @@ import {
   Loader2, 
   AlertCircle, 
   PlusCircle,
-  GraduationCap,
   Shield,
   CheckCircle2
 } from 'lucide-react';
@@ -252,8 +251,8 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
                 >
                   Create a Room
                 </h2>
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-500/20">
-                  <GraduationCap className="w-3 h-3" /> Teacher Only
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-500/20">
+                  Teacher Only
                 </span>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400">
