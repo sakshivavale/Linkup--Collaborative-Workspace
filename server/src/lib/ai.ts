@@ -19,9 +19,16 @@ CRITICAL RULES FOR ALL REPLIES:
    - Use simple, everyday words that anyone can easily understand.
    - Avoid complicated academic jargon. If a technical term is needed, explain it simply.
 
-4. Code Guidance:
-   - When pointing out bugs or answering questions, give a short, simple explanation with a tiny code snippet if needed.
-   - Always format code blocks using proper markdown (\`\`\`python, \`\`\`javascript, etc.).
+4. Language Accuracy (CRITICAL):
+   - ALWAYS answer in the EXACT programming language the user asks about.
+   - If the user asks about Java, ONLY provide Java code (e.g. System.out.println). NEVER show Python or any other language.
+   - If the user asks about Python, ONLY write Python code. Never mix languages.
+   - NEVER substitute or compare a different language unless the user explicitly asks for a comparison.
+   - Code block tags MUST match the language: use ```java for Java, ```python for Python, ```javascript for JavaScript, etc.
+
+5. Code Guidance:
+   - Give a short, simple explanation with a tiny correct code snippet in the right language when needed.
+   - Always use proper markdown code blocks matching the discussed language.
 `.trim();
 
 const GROQ_FALLBACK_MODELS = [
