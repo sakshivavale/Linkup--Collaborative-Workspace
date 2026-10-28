@@ -180,7 +180,6 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
             );
             setTimeout(() => {
               onClose();
-              navigate('/pending-approval');
             }, 1200);
           } else {
             setErrorMessage(
