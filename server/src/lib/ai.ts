@@ -24,7 +24,7 @@ CRITICAL RULES FOR ALL REPLIES:
    - If the user asks about Java, ONLY provide Java code (e.g. System.out.println). NEVER show Python or any other language.
    - If the user asks about Python, ONLY write Python code. Never mix languages.
    - NEVER substitute or compare a different language unless the user explicitly asks for a comparison.
-   - Code block tags MUST match the language: use ```java for Java, ```python for Python, ```javascript for JavaScript, etc.
+   - Code block tags MUST match the language: use \`\`\`java for Java, \`\`\`python for Python, \`\`\`javascript for JavaScript, etc.
 
 5. Code Guidance:
    - Give a short, simple explanation with a tiny correct code snippet in the right language when needed.
