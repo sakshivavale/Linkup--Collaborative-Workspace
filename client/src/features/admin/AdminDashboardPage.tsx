@@ -258,10 +258,10 @@ export const AdminDashboardPage: React.FC = () => {
   });
 
   return (
-    <div className="min-h-screen ambient-bg flex flex-col transition-colors duration-300">
+    <div className="min-h-screen w-full ambient-bg flex flex-col transition-colors duration-300">
       {/* Minimal Header */}
-      <header className="border-b border-slate-200/80 dark:border-slate-800/80 bg-white/80 dark:bg-[#090d16]/80 backdrop-blur-md sticky top-0 z-20">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
+      <header className="w-full border-b border-slate-200/80 dark:border-slate-800/80 bg-white/80 dark:bg-[#090d16]/80 backdrop-blur-md sticky top-0 z-20">
+        <div className="w-full max-w-none px-3 sm:px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Logo size="sm" showText={true} />
             <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
@@ -284,9 +284,9 @@ export const AdminDashboardPage: React.FC = () => {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-8">
+      <main className="flex-1 w-full max-w-none px-3 sm:px-4 py-6 sm:py-8">
         {/* Navigation Tabs (AC 3.2.1) */}
-        <div className="flex items-center justify-between flex-wrap gap-4 mb-6 border-b border-slate-200/80 dark:border-slate-800/80 pb-3">
+        <div className="w-full flex items-center justify-between flex-wrap gap-4 mb-6 border-b border-slate-200/80 dark:border-slate-800/80 pb-3">
           <div className="flex items-center gap-2">
             <button
               id="overview-tab-btn"
@@ -520,7 +520,7 @@ export const AdminDashboardPage: React.FC = () => {
 
         {/* Platform Analytics Overview (Shown on Overview tab) */}
         {activeTab === 'overview' && (
-          <section className="mb-10" aria-label="Platform Analytics Overview">
+          <section className="mb-10 w-full" aria-label="Platform Analytics Overview">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 Core Platform Metrics
@@ -723,7 +723,7 @@ export const AdminDashboardPage: React.FC = () => {
 
         {/* Teacher Approval Queue Section (AC 3.2.1, AC 3.2.2, AC 3.2.3) */}
         {(activeTab === 'overview' || activeTab === 'approvals') && (
-          <section id="approvals-queue" className="scroll-mt-20">
+          <section id="approvals-queue" className="scroll-mt-20 w-full">
           <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
               <div className="flex items-center gap-2">
@@ -741,7 +741,7 @@ export const AdminDashboardPage: React.FC = () => {
             </div>
 
             {/* Search Filter Input */}
-            <div className="relative min-w-[240px]">
+            <div className="relative w-full sm:w-80 md:w-96">
               <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 id="teacher-search-input"
@@ -756,7 +756,7 @@ export const AdminDashboardPage: React.FC = () => {
           </div>
 
           {/* Teacher Queue Table (AC 3.2.1) */}
-          <div className="glass-panel rounded-2xl border border-slate-200/80 dark:border-slate-800/80 overflow-hidden shadow-sm">
+          <div className="glass-panel rounded-2xl border border-slate-200/80 dark:border-slate-800/80 overflow-hidden shadow-sm w-full">
             {teachersLoading ? (
               <div className="p-12 flex flex-col items-center justify-center gap-3 text-slate-400">
                 <Loader2 className="w-6 h-6 animate-spin text-indigo-500" />
@@ -775,7 +775,7 @@ export const AdminDashboardPage: React.FC = () => {
                 </p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto w-full">
                 <table className="w-full text-left text-xs">
                   <thead>
                     <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider">
