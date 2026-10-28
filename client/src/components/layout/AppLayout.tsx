@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { Header } from './Header';
 import { ShieldAlert, X } from 'lucide-react';
+import { AiDrawer } from '../ai/AiDrawer';
 
 export const AppLayout: React.FC = () => {
   const location = useLocation();
@@ -73,6 +74,9 @@ export const AppLayout: React.FC = () => {
           </button>
         </div>
       )}
+
+      {/* Collapsible Slide-over AI Teaching Assistant Drawer (FEAT-AI-01) */}
+      <AiDrawer />
     </div>
   );
 };

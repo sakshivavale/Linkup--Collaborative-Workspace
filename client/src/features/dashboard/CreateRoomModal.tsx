@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { api, HttpError } from '../../lib/api';
 import { Room, Permissions, PermissionKey } from '@linkup/shared';
 import {
@@ -74,7 +73,6 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
   onClose,
   onSuccess,
 }) => {
-  const navigate = useNavigate();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [permissions, setPermissions] = useState<Permissions>(DEFAULT_PERMISSIONS);

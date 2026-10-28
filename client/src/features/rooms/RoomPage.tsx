@@ -21,6 +21,7 @@ import {
   ClipboardList,
   ShieldAlert,
   ExternalLink,
+  Sparkles,
 } from 'lucide-react';
 import { Session, CodeState } from '@linkup/shared';
 import { useRoom } from './useRoom';
@@ -36,6 +37,7 @@ import { socket } from '../../lib/socket';
 import { useAuth } from '../../context/AuthContext';
 import { PermissionToastContainer } from './PermissionToast';
 import { ErrorBoundary } from '../../components/ErrorBoundary';
+import { useAiAssistant } from '../../context/AiAssistantContext';
 
 // ─── Tab & sidebar definitions ───────────────────────────────────────────────
 type MainTab = 'live' | 'whiteboard' | 'code';
@@ -89,6 +91,18 @@ export const RoomPage: React.FC = () => {
   const [sessionEnded, setSessionEnded] = useState(false);
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+  // AI Teaching Assistant Agent integration (FEAT-AI-01)
+  const { toggleDrawer, isOpen: isAiDrawerOpen, setActiveCodeSnippet } = useAiAssistant();
+
+  // Synchronize active Monaco editor code into AI context
+  useEffect(() => {
+    if (codeState?.content) {
+      setActiveCodeSnippet(codeState.content);
+    } else {
+      setActiveCodeSnippet(null);
+    }
+  }, [codeState?.content, setActiveCodeSnippet]);
 
   // US-ERR-03: Browser camera/mic permission denial state
   const [mediaPermissionDenied, setMediaPermissionDenied] = useState(false);
@@ -823,6 +837,23 @@ export const RoomPage: React.FC = () => {
             <ClipboardList className="w-4 h-4" />
           </Link>
         )}
+
+        {/* AI Teaching Assistant Quick Button */}
+        <button
+          id="room-ai-assistant-toggle-btn"
+          data-testid="room-ai-assistant-toggle-btn"
+          type="button"
+          onClick={toggleDrawer}
+          className={`shrink-0 p-1.5 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer ${
+            isAiDrawerOpen
+              ? 'bg-indigo-600 text-white shadow-xs shadow-indigo-500/20'
+              : 'text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+          }`}
+          title={isAiDrawerOpen ? 'Close AI Assistant' : 'Ask AI Assistant'}
+          aria-label="Toggle AI Teaching Assistant"
+        >
+          <Sparkles className="w-4 h-4 text-indigo-500 dark:text-indigo-400" />
+        </button>
 
         {/* Sidebar toggle */}
         <button

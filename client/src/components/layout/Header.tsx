@@ -9,9 +9,11 @@ import {
   BookOpen, 
   ChevronDown,
   UserCog,
+  Sparkles,
   Clock
 } from 'lucide-react';
 import { ProfileSettingsModal } from '../profile/ProfileSettingsModal';
+import { useAiAssistant } from '../../context/AiAssistantContext';
 
 export const Header: React.FC = () => {
   const { user, fullName, role, status, logout } = useAuth();
@@ -20,6 +22,7 @@ export const Header: React.FC = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const { toggleDrawer, isOpen: isAiOpen } = useAiAssistant();
 
   const isTeacher = (role || '').toLowerCase() === 'teacher';
   const isPendingTeacher = status === 'PENDING_TEACHER';
@@ -85,6 +88,24 @@ export const Header: React.FC = () => {
         <div className="flex items-center gap-3 sm:gap-4">
 
           {/* Theme Toggle */}
+          {/* AI Teaching Assistant Toggle Button */}
+          <button
+            type="button"
+            id="header-ai-assistant-toggle-btn"
+            data-testid="header-ai-assistant-toggle-btn"
+            onClick={toggleDrawer}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all shadow-xs cursor-pointer ${
+              isAiOpen
+                ? 'bg-indigo-600 text-white shadow-indigo-500/25 ring-2 ring-indigo-400'
+                : 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 border border-indigo-200/80 dark:border-indigo-800/80 hover:bg-indigo-100 dark:hover:bg-indigo-900/60'
+            }`}
+            title="Toggle AI Teaching Assistant"
+            aria-label="Toggle AI Teaching Assistant"
+          >
+            <Sparkles className="w-3.5 h-3.5 animate-pulse" />
+            <span className="hidden sm:inline">Ask AI</span>
+          </button>
+
           <ThemeToggle />
 
           {/* User Avatar Menu Dropdown */}

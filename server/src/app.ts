@@ -40,6 +40,8 @@ import {
   MAX_STDIN_BYTES,
 } from './lib/piston';
 import { RunResult, Language } from '@linkup/shared';
+import { z } from 'zod';
+import { generateAiChatResponse } from './lib/ai';
 
 
 // Dynamic CORS origin: accepts localhost, LAN IPs, production CORS_ORIGIN env var, and Render HTTPS.
@@ -3028,6 +3030,83 @@ app.post('/execute', requireAuth, handleExecuteCode);
 // Mount runtimes routes (both /api/runtimes and /runtimes)
 app.get('/api/runtimes', handleGetRuntimes);
 app.get('/runtimes', handleGetRuntimes);
+
+// ─── AI Teaching Assistant Agent Endpoint (FEAT-AI-01) ───────────────────────
+const aiChatPayloadSchema = z.object({
+  prompt: z
+    .string({ required_error: 'Prompt is required.' })
+    .trim()
+    .min(1, 'Prompt cannot be empty.')
+    .max(10000, 'Prompt exceeds 10,000 characters limit.'),
+  codeContext: z.string().max(50000, 'Code context exceeds 50,000 characters limit.').optional(),
+  history: z
+    .array(
+      z.object({
+        role: z.enum(['user', 'assistant']),
+        content: z.string().max(10000),
+      })
+    )
+    .max(10)
+    .optional(),
+});
+
+const handleAiChat = async (req: Request, res: Response) => {
+  const validation = aiChatPayloadSchema.safeParse(req.body);
+  if (!validation.success) {
+    return res.status(400).json({
+      error: {
+        code: 'VALIDATION',
+        message: validation.error.errors[0]?.message || 'Invalid request payload.',
+        details: validation.error.format(),
+      },
+    });
+  }
+
+  try {
+    const aiResponse = await generateAiChatResponse(validation.data);
+    return res.status(200).json(aiResponse);
+  } catch (error: any) {
+    const errorMsg = error?.message || 'Unknown error occurred while contacting AI service.';
+
+    if (errorMsg.startsWith('AI_KEY_MISSING')) {
+      return res.status(503).json({
+        error: {
+          code: 'AI_KEY_MISSING',
+          message: 'The AI Teaching Assistant service is currently not configured by the system administrator.',
+        },
+      });
+    }
+
+    if (errorMsg.startsWith('AI_TIMEOUT')) {
+      return res.status(504).json({
+        error: {
+          code: 'AI_TIMEOUT',
+          message: 'The AI request timed out. Please try again with a shorter prompt.',
+        },
+      });
+    }
+
+    if (errorMsg.startsWith('AI_RATE_LIMIT')) {
+      return res.status(429).json({
+        error: {
+          code: 'AI_RATE_LIMIT',
+          message: 'AI Assistant rate limit reached. Please wait a moment before sending another message.',
+        },
+      });
+    }
+
+    console.error('[AI Service Error]:', error);
+    return res.status(502).json({
+      error: {
+        code: 'AI_UPSTREAM_ERROR',
+        message: 'Unable to communicate with the AI model provider. Please try again later.',
+      },
+    });
+  }
+};
+
+app.post('/api/ai/chat', requireAuth, handleAiChat);
+app.post('/ai/chat', requireAuth, handleAiChat);
 
 // Test routes to verify all HTTP methods under /api/* enforce token authentication
 app.all('/api/test', (req: Request, res: Response) => {

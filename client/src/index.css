@@ -157,3 +157,29 @@ html:not(.dark) .ambient-bg {
 html:not(.dark) .logo-tile {
   background-color: #ffffff;
 }
+
+
+/* Hide scrollbars utility */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Hide all scrollbars in LinkUp AI Assistant Drawer */
+#linkup-ai-drawer,
+#linkup-ai-drawer * {
+  -ms-overflow-style: none !important;
+  scrollbar-width: none !important;
+}
+
+#linkup-ai-drawer ::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}

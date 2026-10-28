@@ -394,6 +394,10 @@ export interface ApiError {
     | 'PAYLOAD_TOO_LARGE'
     | 'RATE_LIMITED'
     | 'EXECUTION_UNAVAILABLE'
+    | 'AI_KEY_MISSING'
+    | 'AI_TIMEOUT'
+    | 'AI_RATE_LIMIT'
+    | 'AI_UPSTREAM_ERROR'
     | string;
   message?: string;
   details?: unknown;
@@ -496,6 +500,37 @@ export interface HandRaisePayload {
 /**
  * US-PERM-07: Hand changed payload broadcast to all room members (FR-4.8)
  */
+// ==========================================
+// AI Teaching Assistant DTOs (FEAT-AI-01)
+// ==========================================
+
+export interface AiChatMessage {
+  id: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  codeContext?: string;
+  timestamp: string;
+}
+
+export interface AiChatRequest {
+  prompt: string;
+  codeContext?: string;
+  history?: Array<{
+    role: 'user' | 'assistant';
+    content: string;
+  }>;
+}
+
+export interface AiChatResponse {
+  response: string;
+  model: string;
+  usage?: {
+    promptTokens?: number;
+    completionTokens?: number;
+    totalTokens?: number;
+  };
+}
+
 export interface HandChangedPayload {
   roomId: string;
   userId: string;

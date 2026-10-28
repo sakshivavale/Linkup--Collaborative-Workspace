@@ -3,10 +3,8 @@ name: CI
 on:
   push:
     branches: [ main ]
-  pull_request:
-    branches: [ main ]
 
-jobs:
+jobs: 
   build:
     name: Build & Validate
     runs-on: ubuntu-latest
