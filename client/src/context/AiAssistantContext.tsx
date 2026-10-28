@@ -24,7 +24,7 @@ export const AiAssistantProvider: React.FC<{ children: ReactNode }> = ({ childre
       id: 'welcome-msg',
       role: 'assistant',
       content:
-        "👋 Hello! I'm your **LinkUp AI Teaching Assistant**.\n\nNeed help debugging code, explaining algorithms, or understanding concepts? Ask a question or attach your current code snippet from the editor!",
+        "👋 Hello! I'm **LinkUp AI**, your intelligent classroom co-pilot.\n\nNeed help debugging code, explaining algorithms, or understanding concepts? Ask a question or attach your current code snippet from the editor!",
       timestamp: new Date().toISOString(),
     },
   ]);
@@ -138,4 +138,3 @@ export const useAiAssistant = (): AiAssistantContextType => {
   }
   return context;
 };
-

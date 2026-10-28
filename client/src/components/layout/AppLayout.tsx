@@ -3,6 +3,7 @@ import { Outlet, useLocation } from 'react-router-dom';
 import { Header } from './Header';
 import { ShieldAlert, X } from 'lucide-react';
 import { AiDrawer } from '../ai/AiDrawer';
+import { AskAIButton } from '../ai/AskAIButton';
 
 export const AppLayout: React.FC = () => {
   const location = useLocation();
@@ -52,7 +53,7 @@ export const AppLayout: React.FC = () => {
           data-testid="admin-access-denied-toast"
           role="alert"
           aria-live="assertive"
-          className="fixed bottom-6 right-6 z-50 p-4 rounded-2xl bg-rose-600 text-white shadow-xl shadow-rose-600/30 flex items-center gap-3 animate-fade-in border border-rose-500"
+          className="fixed bottom-20 right-6 z-50 p-4 rounded-2xl bg-rose-600 text-white shadow-xl shadow-rose-600/30 flex items-center gap-3 animate-fade-in border border-rose-500"
         >
           <ShieldAlert className="w-5 h-5 shrink-0 text-white" />
           <span
@@ -75,9 +76,11 @@ export const AppLayout: React.FC = () => {
         </div>
       )}
 
+      {/* Globally Accessible Floating "Ask AI" Button (FEAT-AI-FAB) */}
+      <AskAIButton />
+
       {/* Collapsible Slide-over AI Teaching Assistant Drawer (FEAT-AI-01) */}
       <AiDrawer />
     </div>
   );
 };
-

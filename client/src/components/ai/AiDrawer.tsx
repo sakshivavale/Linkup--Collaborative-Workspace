@@ -12,7 +12,7 @@ import {
   Copy,
   Check,
   Loader2,
-  HelpCircle,
+  CornerDownLeft,
 } from 'lucide-react';
 import { useAiAssistant } from '../../context/AiAssistantContext';
 
@@ -95,23 +95,27 @@ export const AiDrawer: React.FC = () => {
     <aside
       id="linkup-ai-drawer"
       data-testid="linkup-ai-drawer"
-      aria-label="AI Teaching Assistant Drawer"
-      className="fixed inset-y-0 right-0 z-50 w-full sm:w-[440px] bg-white dark:bg-[#0d131f] border-l border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col transition-all duration-300 ease-in-out no-scrollbar"
+      aria-label="LinkUp AI Assistant"
+      className="fixed top-3 bottom-3 right-3 left-3 sm:left-auto sm:right-4 sm:top-4 sm:bottom-4 sm:w-[450px] z-50 rounded-3xl bg-white/90 dark:bg-[#0c1220]/85 backdrop-blur-xl border border-slate-200/80 dark:border-white/10 shadow-2xl shadow-indigo-950/20 dark:shadow-black/50 flex flex-col transition-all duration-300 ease-in-out overflow-hidden no-scrollbar ring-1 ring-black/5 dark:ring-white/5"
     >
       {/* ── 1. Drawer Header ── */}
-      <header className="px-4 py-3 border-b border-slate-200/80 dark:border-slate-800/80 flex items-center justify-between bg-slate-50/70 dark:bg-slate-900/50 backdrop-blur-md">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 p-0.5 shadow-md flex items-center justify-center text-white">
+      <header className="px-5 py-3.5 border-b border-slate-200/60 dark:border-white/10 flex items-center justify-between bg-white/60 dark:bg-slate-900/40 backdrop-blur-md">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-2xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-purple-500 p-0.5 shadow-md shadow-indigo-500/25 flex items-center justify-center text-white ring-2 ring-indigo-400/20">
             <Sparkles className="w-4 h-4 animate-pulse" />
           </div>
           <div>
-            <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
-              <span>AI Teaching Assistant</span>
-              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300">
-                Llama 3.3 / Gemini
+            <div className="flex items-center gap-2">
+              <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100 tracking-tight">
+                LinkUp AI
+              </h2>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-gradient-to-r from-indigo-500/10 via-purple-500/15 to-pink-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 shadow-xs uppercase tracking-wider">
+                v2.0
               </span>
-            </h2>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">Supportive Coding & Learning Companion</p>
+            </div>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+              Your intelligent classroom co-pilot
+            </p>
           </div>
         </div>
 
@@ -120,7 +124,7 @@ export const AiDrawer: React.FC = () => {
             type="button"
             id="ai-drawer-clear-btn"
             onClick={clearHistory}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            className="p-2 rounded-xl text-slate-400 hover:text-rose-500 hover:bg-rose-50/80 dark:hover:bg-rose-950/30 transition-all cursor-pointer"
             title="Clear Chat History"
             aria-label="Clear chat history"
           >
@@ -130,36 +134,17 @@ export const AiDrawer: React.FC = () => {
             type="button"
             id="ai-drawer-close-btn"
             onClick={() => setIsOpen(false)}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            className="p-2 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100/80 dark:hover:bg-slate-800/60 transition-all cursor-pointer"
             title="Close Drawer (Esc)"
             aria-label="Close AI Drawer"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
       </header>
 
-      {/* ── 2. Active Code Context Banner ── */}
-      {activeCodeSnippet && (
-        <div className="px-4 py-2 bg-indigo-50/80 dark:bg-indigo-950/40 border-b border-indigo-100 dark:border-indigo-900/50 flex items-center justify-between text-xs">
-          <div className="flex items-center gap-2 text-indigo-700 dark:text-indigo-300 font-medium truncate">
-            <Code2 className="w-4 h-4 shrink-0 text-indigo-500" />
-            <span className="truncate">Attached Monaco Code ({activeCodeSnippet.split('\n').length} lines)</span>
-          </div>
-          <label className="flex items-center gap-1.5 cursor-pointer text-[11px] text-slate-600 dark:text-slate-300 select-none">
-            <input
-              type="checkbox"
-              checked={includeCode}
-              onChange={(e) => setIncludeCode(e.target.checked)}
-              className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5 cursor-pointer"
-            />
-            <span>Include</span>
-          </label>
-        </div>
-      )}
-
-      {/* ── 3. Conversation Message Feed ── */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar">
+      {/* ── 2. Conversation Message Feed ── */}
+      <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4 no-scrollbar">
         {messages.map((msg, index) => {
           const isUser = msg.role === 'user';
           return (
@@ -169,27 +154,27 @@ export const AiDrawer: React.FC = () => {
             >
               {/* Avatar Icon */}
               <div
-                className={`w-7 h-7 shrink-0 rounded-full flex items-center justify-center text-xs font-bold ${
+                className={`w-7 h-7 shrink-0 rounded-xl flex items-center justify-center text-xs font-bold transition-transform ${
                   isUser
-                    ? 'bg-indigo-600 text-white shadow-sm'
-                    : 'bg-slate-100 dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 border border-slate-200 dark:border-slate-700'
+                    ? 'bg-gradient-to-tr from-indigo-500 to-purple-600 text-white shadow-sm shadow-indigo-500/30'
+                    : 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 border border-indigo-200/60 dark:border-indigo-800/50 shadow-sm'
                 }`}
               >
-                {isUser ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
+                {isUser ? <User className="w-3.5 h-3.5" /> : <Bot className="w-3.5 h-3.5" />}
               </div>
 
               {/* Message Bubble */}
               <div
-                className={`max-w-[85%] rounded-2xl px-4 py-3 text-xs leading-relaxed shadow-sm ${
+                className={`max-w-[85%] px-4 py-3 text-xs leading-relaxed transition-all ${
                   isUser
-                    ? 'bg-indigo-600 text-white rounded-tr-none'
-                    : 'bg-slate-100/90 dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-tl-none'
+                    ? 'rounded-2xl rounded-tr-sm bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-md shadow-indigo-500/20'
+                    : 'rounded-2xl rounded-tl-sm bg-slate-100/90 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/50 text-slate-800 dark:text-slate-100 backdrop-blur-xs shadow-sm'
                 }`}
               >
                 {/* Code Attachment Badge inside User Bubble */}
                 {isUser && msg.codeContext && (
-                  <div className="mb-2 pb-2 border-b border-indigo-400/40 text-[10px] text-indigo-100 flex items-center gap-1">
-                    <Code2 className="w-3 h-3" />
+                  <div className="mb-2 pb-2 border-b border-white/20 text-[10px] text-indigo-100 flex items-center gap-1.5 font-medium">
+                    <Code2 className="w-3 h-3 text-indigo-200" />
                     <span>Included active workspace code</span>
                   </div>
                 )}
@@ -205,19 +190,19 @@ export const AiDrawer: React.FC = () => {
                         const codeId = `code-${Math.random()}`;
 
                         return !inline ? (
-                          <div className="relative group my-2 rounded-lg overflow-hidden border border-slate-700/60 bg-slate-950 font-mono text-[11px]">
-                            <div className="flex items-center justify-between px-3 py-1 bg-slate-900 text-[10px] text-slate-400">
-                              <span>{match ? match[1] : 'code'}</span>
+                          <div className="relative group my-2 rounded-xl overflow-hidden border border-slate-700/50 bg-slate-950/90 font-mono text-[11px] shadow-sm">
+                            <div className="flex items-center justify-between px-3 py-1.5 bg-slate-900/90 border-b border-slate-800 text-[10px] text-slate-400">
+                              <span className="font-semibold text-slate-300">{match ? match[1] : 'code'}</span>
                               <button
                                 type="button"
                                 onClick={() => handleCopyCode(codeString, codeId)}
-                                className="flex items-center gap-1 hover:text-white transition-colors cursor-pointer"
+                                className="flex items-center gap-1 text-slate-400 hover:text-white px-2 py-0.5 rounded-md hover:bg-slate-800 transition-colors cursor-pointer"
                                 title="Copy code"
                               >
                                 {copiedId === codeId ? (
                                   <>
                                     <Check className="w-3 h-3 text-emerald-400" />
-                                    <span className="text-emerald-400">Copied</span>
+                                    <span className="text-emerald-400 font-medium">Copied</span>
                                   </>
                                 ) : (
                                   <>
@@ -233,10 +218,10 @@ export const AiDrawer: React.FC = () => {
                           </div>
                         ) : (
                           <code
-                            className={`px-1.5 py-0.5 rounded text-[11px] font-mono ${
+                            className={`px-1.5 py-0.5 rounded-md text-[11px] font-mono ${
                               isUser
-                                ? 'bg-indigo-700/60 text-white'
-                                : 'bg-slate-200 dark:bg-slate-800 text-indigo-600 dark:text-indigo-400'
+                                ? 'bg-black/20 text-white'
+                                : 'bg-slate-200/80 dark:bg-slate-700/60 text-indigo-600 dark:text-indigo-400'
                             }`}
                             {...props}
                           >
@@ -251,8 +236,8 @@ export const AiDrawer: React.FC = () => {
                 </div>
 
                 <div
-                  className={`mt-1.5 text-[9px] text-right font-medium opacity-70 ${
-                    isUser ? 'text-indigo-100' : 'text-slate-400'
+                  className={`mt-1.5 text-[9px] text-right font-medium ${
+                    isUser ? 'text-indigo-100/70' : 'text-slate-400 dark:text-slate-500'
                   }`}
                 >
                   {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -265,10 +250,10 @@ export const AiDrawer: React.FC = () => {
         {/* Loading Spinner Bubble */}
         {isLoading && (
           <div className="flex items-start gap-2.5">
-            <div className="w-7 h-7 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-indigo-500 border border-slate-200 dark:border-slate-700">
-              <Bot className="w-4 h-4 animate-bounce" />
+            <div className="w-7 h-7 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 flex items-center justify-center text-indigo-500 border border-indigo-200/60 dark:border-indigo-800/50 shadow-sm">
+              <Bot className="w-3.5 h-3.5 animate-bounce" />
             </div>
-            <div className="rounded-2xl rounded-tl-none px-4 py-3 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+            <div className="rounded-2xl rounded-tl-sm px-4 py-3 bg-slate-100/90 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/50 flex items-center gap-2.5 text-xs text-slate-500 dark:text-slate-400 shadow-sm">
               <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-500" />
               <span>Thinking & formulating guidance…</span>
             </div>
@@ -278,8 +263,8 @@ export const AiDrawer: React.FC = () => {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* ── 4. Quick Action Prompts ── */}
-      <div className="px-4 py-2 border-t border-slate-100 dark:border-slate-800/60 bg-slate-50/50 dark:bg-slate-900/30 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+      {/* ── 3. Quick Action Chips ── */}
+      <div className="px-4 py-2 flex items-center gap-2 overflow-x-auto no-scrollbar">
         {QUICK_PROMPTS.map((prompt) => (
           <button
             key={prompt}
@@ -288,16 +273,45 @@ export const AiDrawer: React.FC = () => {
               setInputPrompt(prompt);
               textareaRef.current?.focus();
             }}
-            className="shrink-0 text-[11px] font-medium px-2.5 py-1 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-indigo-400 dark:hover:border-indigo-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all shadow-xs cursor-pointer"
+            className="shrink-0 text-[11px] font-medium px-3.5 py-1.5 rounded-full bg-white/80 dark:bg-slate-800/60 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 border border-slate-200/80 dark:border-white/10 hover:border-indigo-400/50 dark:hover:border-indigo-500/50 hover:shadow-[0_0_12px_rgba(99,102,241,0.25)] active:scale-95 transition-all duration-200 cursor-pointer"
           >
             {prompt}
           </button>
         ))}
       </div>
 
-      {/* ── 5. Input Controls ── */}
-      <footer className="p-3.5 border-t border-slate-200/80 dark:border-slate-800/80 bg-white dark:bg-[#0d131f]">
-        <div className="relative rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/70 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/20 transition-all p-2 flex flex-col gap-2">
+      {/* ── 4. Floating Capsule Input Bar ── */}
+      <footer className="p-3 sm:p-4 bg-transparent">
+        <div className="relative rounded-2xl sm:rounded-3xl border border-slate-200/80 dark:border-white/10 bg-white/90 dark:bg-slate-900/80 backdrop-blur-md p-2.5 sm:p-3 shadow-lg focus-within:border-indigo-500/70 focus-within:ring-2 focus-within:ring-indigo-500/30 focus-within:shadow-[0_0_20px_rgba(99,102,241,0.25)] transition-all duration-200 flex flex-col gap-2">
+          {/* Embedded Code Attachment Chip */}
+          {activeCodeSnippet && (
+            <div className="flex items-center justify-between pb-1.5 border-b border-slate-200/60 dark:border-white/5 text-[11px]">
+              <button
+                type="button"
+                onClick={() => setIncludeCode((prev) => !prev)}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full font-medium transition-all cursor-pointer ${
+                  includeCode
+                    ? 'bg-indigo-500/15 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-300 border border-indigo-500/30 shadow-xs'
+                    : 'bg-slate-100 dark:bg-slate-800/60 text-slate-400 border border-slate-200 dark:border-slate-700/60 hover:text-slate-600 dark:hover:text-slate-300'
+                }`}
+                title={includeCode ? 'Code snippet attached to next prompt' : 'Code snippet excluded'}
+              >
+                <Code2 className={`w-3.5 h-3.5 ${includeCode ? 'text-indigo-500' : 'text-slate-400'}`} />
+                <span className="font-mono text-[10.5px]">Monaco Context ({activeCodeSnippet.split('\n').length} lines)</span>
+                {includeCode ? (
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 ring-2 ring-emerald-400/30 ml-0.5" />
+                ) : (
+                  <span className="text-[10px] text-slate-400">(disabled)</span>
+                )}
+              </button>
+
+              <span className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">
+                {includeCode ? 'Attached to prompt' : 'Click to attach'}
+              </span>
+            </div>
+          )}
+
+          {/* Textarea */}
           <textarea
             ref={textareaRef}
             rows={2}
@@ -306,12 +320,13 @@ export const AiDrawer: React.FC = () => {
             onKeyDown={handleKeyDown}
             disabled={isLoading}
             placeholder="Ask a coding question (Shift+Enter for new line)..."
-            className="w-full bg-transparent text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none resize-none px-1"
+            className="w-full bg-transparent text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none resize-none px-1.5 py-0.5 leading-relaxed"
           />
 
-          <div className="flex items-center justify-between pt-1 border-t border-slate-200/60 dark:border-slate-800/60">
-            <span className="text-[10px] text-slate-400 flex items-center gap-1">
-              <HelpCircle className="w-3 h-3" />
+          {/* Actions inside capsule */}
+          <div className="flex items-center justify-between pt-1">
+            <span className="text-[10.5px] text-slate-400 dark:text-slate-500 flex items-center gap-1 font-medium select-none">
+              <CornerDownLeft className="w-3 h-3" />
               <span>Enter to send</span>
             </span>
 
@@ -320,7 +335,7 @@ export const AiDrawer: React.FC = () => {
               id="ai-drawer-send-btn"
               onClick={handleSend}
               disabled={!inputPrompt.trim() || isLoading}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-sm shadow-indigo-500/20 cursor-pointer"
+              className="inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-indigo-500 via-indigo-600 to-purple-600 hover:from-indigo-600 hover:to-purple-700 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-md shadow-indigo-500/25 cursor-pointer"
               aria-label="Send message"
             >
               {isLoading ? (
@@ -338,4 +353,3 @@ export const AiDrawer: React.FC = () => {
     </aside>
   );
 };
-
