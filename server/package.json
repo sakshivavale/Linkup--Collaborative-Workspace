@@ -6,6 +6,7 @@
     "dev": "npm run build --prefix ../shared && tsx watch src/index.ts",
     "build": "npm --prefix ../shared run build && tsc",
     "start": "node dist/index.js",
+    "test:ai": "tsx scripts/test-ai-chat.ts",
     "test:auth": "tsx scripts/test-auth-enforcement.ts",
     "test:password-reset": "tsx scripts/test-password-reset.ts",
     "test:profile": "tsx scripts/test-profile-update.ts",
@@ -77,6 +78,7 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
+    "groq-sdk": "^1.6.0",
     "helmet": "^7.2.0",
     "socket.io": "^4.7.5",
     "zod": "^3.23.8"

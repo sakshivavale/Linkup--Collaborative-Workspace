@@ -18,12 +18,14 @@ import { PendingApprovalPage } from './features/auth/PendingApprovalPage';
 import { CreateRoomPage } from './features/rooms/CreateRoomPage';
 import { TeacherRouteGuard } from './components/auth/TeacherRouteGuard';
 import { AdminRouteGuard } from './components/auth/AdminRouteGuard';
+import { AiAssistantProvider } from './context/AiAssistantContext';
 
 export const App: React.FC = () => {
   return (
     <ThemeProvider>
       <AuthProvider>
-        <BrowserRouter>
+        <AiAssistantProvider>
+          <BrowserRouter>
           <Routes>
             {/* Public routes (redirects to / if already logged in) */}
             <Route
@@ -131,6 +133,7 @@ export const App: React.FC = () => {
             <Route path="*" element={<Navigate to="/login" replace />} />
           </Routes>
         </BrowserRouter>
+        </AiAssistantProvider>
       </AuthProvider>
     </ThemeProvider>
   );

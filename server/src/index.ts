@@ -1,4 +1,5 @@
 import http from 'http';
+// LinkUp Server Entrypoint (Updated environment configuration)
 import { Server as SocketIOServer } from 'socket.io';
 import { app } from './app';
 import { env } from './config/env';

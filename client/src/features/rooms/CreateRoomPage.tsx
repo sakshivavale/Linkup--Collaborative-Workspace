@@ -11,7 +11,6 @@ import {
   Code2, 
   Loader2, 
   PlusCircle, 
-  GraduationCap, 
   ShieldCheck, 
   AlertCircle 
 } from 'lucide-react';

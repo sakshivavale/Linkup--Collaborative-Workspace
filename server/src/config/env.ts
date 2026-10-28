@@ -23,6 +23,25 @@ const envSchema = z.object({
   LIVEKIT_URL: z.string().default('wss://mock-livekit.local'),
   LIVEKIT_API_KEY: z.string().optional(),
   LIVEKIT_API_SECRET: z.string().optional(),
+  GROQ_API_KEY: z
+    .string()
+    .optional()
+    .transform((val) => (val && val.trim().length > 0 ? val.trim() : undefined)),
+  GROQ_MODEL: z
+    .string()
+    .optional()
+    .transform((val) => (val && val.trim().length > 0 ? val.trim() : 'llama-3.3-70b-versatile'))
+    .default('llama-3.3-70b-versatile'),
+  GEMINI_API_KEY: z
+    .string()
+    .optional()
+    .transform((val) => (val && val.trim().length > 0 ? val.trim() : undefined)),
+  GEMINI_MODEL: z
+    .string()
+    .optional()
+    .transform((val) => (val && val.trim().length > 0 ? val.trim() : 'gemini-1.5-flash'))
+    .default('gemini-1.5-flash'),
+  AI_REQUEST_TIMEOUT_MS: z.coerce.number().default(25000),
 });
 
 const parsed = envSchema.safeParse(process.env);
