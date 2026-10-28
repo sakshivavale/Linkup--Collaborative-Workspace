@@ -187,9 +187,9 @@ export const UserDirectoryView: React.FC<UserDirectoryViewProps> = ({
   };
 
   return (
-    <div id="user-directory-section" data-testid="user-directory-section" className="space-y-6">
+    <div id="user-directory-section" data-testid="user-directory-section" className="space-y-6 w-full">
       {/* Header & Controls Bar */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 w-full">
         <div>
           <div className="flex items-center gap-2">
             <h2 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">
@@ -219,7 +219,7 @@ export const UserDirectoryView: React.FC<UserDirectoryViewProps> = ({
       </div>
 
       {/* AC 3.4.1: Search & Multi-Criteria Filtering Controls */}
-      <div className="glass-panel p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 bg-white/70 dark:bg-slate-900/60 shadow-sm space-y-3">
+      <div className="glass-panel p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 bg-white/70 dark:bg-slate-900/60 shadow-sm space-y-3 w-full">
         <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
           {/* Debounced Search Box (300ms) */}
           <div className="md:col-span-6 relative">
@@ -326,7 +326,7 @@ export const UserDirectoryView: React.FC<UserDirectoryViewProps> = ({
       </div>
 
       {/* Directory Table View */}
-      <div className="glass-panel rounded-2xl border border-slate-200/80 dark:border-slate-800/80 bg-white/70 dark:bg-slate-900/60 shadow-sm overflow-hidden">
+      <div className="glass-panel rounded-2xl border border-slate-200/80 dark:border-slate-800/80 bg-white/70 dark:bg-slate-900/60 shadow-sm overflow-hidden w-full">
         {isLoading ? (
           <div className="py-16 flex flex-col items-center justify-center gap-3">
             <Loader2 className="w-7 h-7 text-indigo-500 animate-spin" />
@@ -354,7 +354,7 @@ export const UserDirectoryView: React.FC<UserDirectoryViewProps> = ({
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto w-full">
             <table className="w-full text-left text-xs" id="user-directory-table" data-testid="user-directory-table">
               <thead className="border-b border-slate-200/80 dark:border-slate-800/80 bg-slate-50/50 dark:bg-slate-900/50 text-slate-500 dark:text-slate-400 font-semibold uppercase text-[10px] tracking-wider">
                 <tr>
