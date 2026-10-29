@@ -142,7 +142,7 @@ export const ForgotPasswordPage: React.FC = () => {
                       setEmail(e.target.value);
                       if (error) setError(null);
                     }}
-                    className="glass-input w-full pl-10 pr-4 py-2.5 rounded-xl text-sm outline-none"
+                    className="w-full pl-10 pr-4 py-2.5 rounded-xl text-sm outline-none bg-inputBg border border-inputBorder focus:border-primary focus:ring-primary/20"
                     data-testid="forgot-email-input"
                   />
                 </div>

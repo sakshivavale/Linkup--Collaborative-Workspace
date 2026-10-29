@@ -200,7 +200,7 @@ export const LoginPage: React.FC = () => {
                     setEmail(e.target.value);
                     if (error) setError(null);
                   }}
-                  className="glass-input w-full pl-10 pr-4 py-2.5 rounded-xl text-sm outline-none"
+                  className="w-full pl-10 pr-4 py-2.5 rounded-xl text-sm outline-none bg-inputBg border border-inputBorder focus:border-primary focus:ring-primary/20"
                 />
               </div>
             </div>
@@ -240,7 +240,7 @@ export const LoginPage: React.FC = () => {
                     setPassword(e.target.value);
                     if (error) setError(null);
                   }}
-                  className="glass-input w-full pl-10 pr-11 py-2.5 rounded-xl text-sm outline-none"
+                  className="w-full pl-10 pr-11 py-2.5 rounded-xl text-sm outline-none bg-inputBg border border-inputBorder focus:border-primary focus:ring-primary/20"
                 />
                 <button
                   type="button"
@@ -259,7 +259,7 @@ export const LoginPage: React.FC = () => {
               id="login-submit"
               type="submit"
               disabled={loading}
-              className="w-full mt-2 py-3 px-4 rounded-xl font-semibold text-sm text-white bg-gradient-to-r from-indigo-600 via-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 active:scale-[0.99] transition-all shadow-md shadow-indigo-500/25 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 cursor-pointer"
+              className="w-full mt-2 py-3 px-4 rounded-xl font-semibold text-sm text-white bg-primary-500 hover:bg-primary-600 active:scale-[0.99] transition-all shadow-md shadow-primary-500/25 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 cursor-pointer"
             >
               {loading ? (
                 <>
