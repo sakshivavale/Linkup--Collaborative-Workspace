@@ -1,8 +1,9 @@
+
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  X, 
-  Loader2, 
-  AlertCircle, 
+import {
+  X,
+  Loader2,
+  AlertCircle,
   CheckCircle2,
   Archive,
   Edit3,
@@ -26,8 +27,8 @@ export const EditRoomModal: React.FC<EditRoomModalProps> = ({
   onSuccess,
   onArchive,
 }) => {
-  const [name, setName] = useState(room?.name || '');
-  const [description, setDescription] = useState(room?.description || '');
+  const [name, setName] = useState(room.name);
+  const [description, setDescription] = useState(room.description || '');
   const [touchedName, setTouchedName] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isArchiving, setIsArchiving] = useState(false);
@@ -38,8 +39,8 @@ export const EditRoomModal: React.FC<EditRoomModalProps> = ({
 
   // Sync state when modal opens or room prop changes
   useEffect(() => {
-    if (isOpen && room) {
-      setName(room.name || '');
+    if (isOpen) {
+      setName(room.name);
       setDescription(room.description || '');
       setTouchedName(false);
       setIsSubmitting(false);
@@ -53,15 +54,15 @@ export const EditRoomModal: React.FC<EditRoomModalProps> = ({
     }
   }, [isOpen, room]);
 
-  if (!isOpen || !room) return null;
+  if (!isOpen) return null;
 
   // Validation rules
   const trimmedName = name.trim();
   const nameError = touchedName && trimmedName.length === 0
     ? 'Room name is required and cannot be empty'
     : name.length > 80
-    ? 'Room name cannot exceed 80 characters'
-    : null;
+      ? 'Room name cannot exceed 80 characters'
+      : null;
 
   const descError = description.length > 500
     ? 'Description cannot exceed 500 characters'
@@ -208,11 +209,10 @@ export const EditRoomModal: React.FC<EditRoomModalProps> = ({
               onBlur={() => setTouchedName(true)}
               placeholder="e.g. CS101: Data Structures"
               disabled={isSubmitting || isArchiving}
-              className={`w-full px-4 py-2.5 rounded-xl border text-sm transition-all focus:outline-none focus:ring-2 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white placeholder-slate-400 ${
-                nameError
-                  ? 'border-rose-400 dark:border-rose-500 focus:ring-rose-400/20'
-                  : 'border-slate-200 dark:border-slate-700 focus:border-indigo-500 focus:ring-indigo-500/20'
-              }`}
+              className={`w-full px-4 py-2.5 rounded-xl border text-sm transition-all focus:outline-none focus:ring-2 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white placeholder-slate-400 ${nameError
+                ? 'border-rose-400 dark:border-rose-500 focus:ring-rose-400/20'
+                : 'border-slate-200 dark:border-slate-700 focus:border-indigo-500 focus:ring-indigo-500/20'
+                }`}
             />
             {nameError && (
               <p className="text-[11px] text-rose-500 font-medium pl-1">
@@ -238,11 +238,10 @@ export const EditRoomModal: React.FC<EditRoomModalProps> = ({
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Provide context or instructions for your students..."
               disabled={isSubmitting || isArchiving}
-              className={`w-full px-4 py-2.5 rounded-xl border text-sm transition-all focus:outline-none focus:ring-2 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white placeholder-slate-400 resize-none ${
-                descError
-                  ? 'border-rose-400 dark:border-rose-500 focus:ring-rose-400/20'
-                  : 'border-slate-200 dark:border-slate-700 focus:border-indigo-500 focus:ring-indigo-500/20'
-              }`}
+              className={`w-full px-4 py-2.5 rounded-xl border text-sm transition-all focus:outline-none focus:ring-2 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white placeholder-slate-400 resize-none ${descError
+                ? 'border-rose-400 dark:border-rose-500 focus:ring-rose-400/20'
+                : 'border-slate-200 dark:border-slate-700 focus:border-indigo-500 focus:ring-indigo-500/20'
+                }`}
             />
             {descError && (
               <p className="text-[11px] text-rose-500 font-medium pl-1">

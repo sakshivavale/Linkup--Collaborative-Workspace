@@ -323,7 +323,7 @@ export const ResetPasswordPage: React.FC = () => {
               <div className="pt-2 flex flex-col gap-3">
                 <Link
                   to="/forgot-password"
-                  className="w-full py-3 px-4 rounded-xl font-semibold text-sm text-white bg-gradient-to-r from-indigo-600 via-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 transition-all shadow-md shadow-indigo-500/25 flex items-center justify-center gap-2 cursor-pointer"
+                  className="w-full py-3 px-4 rounded-xl font-semibold text-sm text-white bg-primary-500 hover:bg-primary-600 transition-all shadow-md shadow-primary-500/25 flex items-center justify-center gap-2 cursor-pointer"
                   data-testid="request-new-link-button"
                 >
                   <KeyRound className="w-4 h-4" />
@@ -376,7 +376,7 @@ export const ResetPasswordPage: React.FC = () => {
                       setPassword(e.target.value);
                       if (error) setError(null);
                     }}
-                    className="glass-input w-full pl-10 pr-11 py-2.5 rounded-xl text-sm outline-none"
+                    className="bg-inputBg border border-inputBorder focus:border-primary focus:ring-primary/20 w-full pl-10 pr-11 py-2.5 rounded-xl text-sm outline-none"
                     data-testid="new-password-input"
                   />
                   <button
@@ -415,7 +415,7 @@ export const ResetPasswordPage: React.FC = () => {
                       setConfirmPassword(e.target.value);
                       if (error) setError(null);
                     }}
-                    className="glass-input w-full pl-10 pr-11 py-2.5 rounded-xl text-sm outline-none"
+                    className="bg-inputBg border border-inputBorder focus:border-primary focus:ring-primary/20 w-full pl-10 pr-11 py-2.5 rounded-xl text-sm outline-none"
                     data-testid="confirm-new-password-input"
                   />
                   <button
